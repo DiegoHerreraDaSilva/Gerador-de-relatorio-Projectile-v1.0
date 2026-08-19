@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Claude Code (config/sessão local, não faz parte do projeto)
+.claude/
+
+# logs locais de desenvolvimento
+*.log
+
+# cópias soltas do logo na raiz — as usadas pelo app ficam em web/
+/logo.png
+/logo-light.png
+
+# export real do Projectile usado como referência durante o desenvolvimento —
+# contém dados reais de colaboradores e projetos de cliente, não deve ir pro repo
+templates/exemplo_projectile.xlsx

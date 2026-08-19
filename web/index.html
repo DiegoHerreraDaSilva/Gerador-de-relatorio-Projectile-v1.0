@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Geração de Relatório de Horas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23020617'/%3E%3Ccircle cx='16' cy='17' r='10.5' fill='none' stroke='%233bbdc9' stroke-width='2.4'/%3E%3Cpath d='M16 10.5v6.5l4.5 2.6' fill='none' stroke='%234fe3dc' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Crect x='13' y='2.5' width='6' height='2.6' rx='1.3' fill='%233bbdc9'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --brand-50:  #effcfc;  --brand-100: #d5f5f6;  --brand-200: #b0eaed;
+    --brand-300: #79d8df;  --brand-400: #3bbdc9;  --brand-500: #1fa1ae;
+    --brand-600: #128293;  --brand-700: #146978;  --brand-800: #175663;
+    --brand-900: #174854;  --brand-950: #082f39;
+
+    --bg: #020617;
+    --bg-glow-a: rgba(15, 168, 164, 0.14);
+    --bg-glow-b: rgba(100, 120, 238, 0.1);
+    --surface: #1c2127;
+    --surface-2: #232a31;
+    --surface-grad: #171c22;
+    --border: #2e373f;
+    --hairline: rgba(255, 255, 255, 0.06);
+    --text: #eef2f4;
+    --text-muted: #9aa6b0;
+
+    --brand: #3bbdc9;
+    --brand-strong: #79d8df;
+    --accent: #0fa8a4;
+    --accent-hi: #4fe3dc;
+    --accent-glow: rgba(79, 227, 220, 0.35);
+    --ring: rgba(59, 189, 201, 0.45);
+
+    --ok: #3ddc97;  --warn: #ffc247;  --bad: #ff6b6b;
+
+    --shadow-card: 0 1px 0 rgba(0,0,0,.4), 0 14px 32px -22px rgba(0,0,0,.9);
+    --shadow-card-hover: 0 1px 0 rgba(0,0,0,.4), 0 22px 44px -22px rgba(79,227,220,.35);
+
+    --footer-height: 100px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); }
+  body {
+    position: relative;
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.45;
+    max-width: 1920px;
+    margin: 0 auto;
+    padding: 28px 24px calc(var(--footer-height) + 24px);
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(60rem 32rem at 12% -6%, var(--bg-glow-a), transparent 70%),
+      radial-gradient(48rem 28rem at 92% 4%, var(--bg-glow-b), transparent 72%);
+  }
+
+  .app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .app-logo { height: 60px; width: auto; }
+
+  h1 { font-size: 1.9rem; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  h2 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 16px; }
+  h3 { font-size: 0.92rem; font-weight: 600; margin: 0 0 8px; }
+
+  .muted { color: var(--text-muted); font-size: 0.85rem; }
+
+  /* ---------- Stepper ---------- */
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 12px 18px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    flex-wrap: wrap;
+  }
+  .stepper .step { display: flex; align-items: center; gap: 8px; font-size: 0.86rem; font-weight: 500; }
+  .stepper .step .dot {
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    font-size: 0.78rem; font-weight: 700; flex: 0 0 auto;
+    border: 1.5px solid var(--border); color: var(--text-muted);
+  }
+  .stepper .step.pending .dot { border-color: var(--border); color: var(--text-muted); }
+  .stepper .step.pending .label { color: var(--text-muted); }
+  .stepper .step.active .dot { border-color: var(--accent); color: var(--accent-hi); background: color-mix(in srgb, var(--accent) 16%, transparent); font-size: 0; }
+  .stepper .step.active .dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-hi); }
+  .stepper .step.active .label { color: var(--text); }
+  .stepper .step.done .dot { border-color: var(--ok); color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+  .stepper .step.done .label { color: var(--text-muted); }
+  .stepper .arrow { color: var(--border); font-size: 0.9rem; }
+
+  /* ---------- Barra de resumo ---------- */
+  .summary-row {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+    padding: 16px 22px;
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+    flex-wrap: wrap;
+  }
+  .summary-row.visible { display: flex; }
+  .summary-bar { display: flex; gap: 28px; flex-wrap: wrap; }
+  .summary-stat { display: flex; flex-direction: column; gap: 2px; }
+  .summary-value { font-size: 1.4rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+  .summary-label { font-size: 0.78rem; color: var(--text-muted); }
+
+  #summaryBarActions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 0 auto;
+  }
+  #btnTogglePreviewFloating { padding: 8px 14px; font-size: 0.82rem; background: none; border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
+  #btnTogglePreviewFloating:hover { color: var(--accent-hi); background: none; border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+
+  .card {
+    position: relative;
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+    padding: 20px 22px;
+    margin-bottom: 22px;
+  }
+  .card::after {
+    content: "";
+    position: absolute; left: 16px; right: 16px; bottom: -1px;
+    height: 2px; border-radius: 2px; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 18%, var(--accent-hi) 50%, var(--accent) 82%, transparent 100%);
+    box-shadow: 0 0 12px 0 var(--accent-glow);
+    opacity: .8;
+  }
+  .card-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .card-header-row h2 { margin: 0; }
+  .btn-toggle {
+    padding: 5px 12px; font-size: 0.78rem; background: none; border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .btn-toggle:hover { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: none; }
+
+  .header-data-summary { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 0.88rem; }
+  .header-data-summary .field { display: flex; flex-direction: column; gap: 2px; }
+  .header-data-summary .field-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
+  .header-data-summary .field-value { color: var(--text); font-weight: 500; }
+
+  /* ---------- Abas de pacote de trabalho ---------- */
+  .package-tabs {
+    display: none;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .package-tabs.visible { display: flex; }
+  .package-tab {
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-muted);
+  }
+  .package-tab:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); color: var(--text); }
+  .package-tab.active {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+    color: #fff;
+    border-color: transparent;
+  }
+  .package-tab .tab-hours { opacity: 0.8; font-weight: 400; margin-left: 4px; }
+
+  .package-filename-row { display: none; margin-bottom: 22px; }
+  .package-filename-row.visible { display: block; }
+  .package-filename-row label { margin: 0 0 6px; font-size: 0.8rem; }
+
+  /* ---------- Seletor de modo (relatório único vs múltiplos) ---------- */
+  .mode-select {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .mode-option {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .mode-option:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .mode-option .mode-title { color: var(--text); font-size: 0.88rem; }
+  .mode-option .mode-desc { font-size: 0.76rem; font-weight: 400; color: var(--text-muted); }
+  .mode-option.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .mode-option.active .mode-title { color: var(--accent-hi); }
+
+  .group {
+    position: relative;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .group:last-child { margin-bottom: 0; }
+  .group-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color .15s ease;
+  }
+  .group-header:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .group-header:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .group-header .chevron {
+    flex: 0 0 auto; font-size: 0.75rem; color: var(--text-muted);
+    transition: transform .15s ease;
+  }
+  .group.collapsed .group-header .chevron { transform: rotate(-90deg); }
+  .group-header .group-title { flex: 1; font-weight: 600; font-size: 0.92rem; }
+  .group-header .group-hours { font-size: 0.85rem; color: var(--accent-hi); font-weight: 600; }
+  .group-body { padding: 0 16px 16px; }
+  .group.collapsed .group-body { display: none; }
+
+  .perf-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 14px;
+  }
+  .perf-card label { margin-top: 0; }
+  .perf-card input { max-width: 120px; }
+  .perf-card .perf-breakdown { margin-top: 8px; font-size: 0.8rem; color: var(--text-muted); }
+  .perf-card .perf-breakdown strong { color: var(--text); }
+
+  label { display: block; margin: 14px 0 6px; font-size: 0.85rem; font-weight: 500; color: var(--text); }
+  label:first-of-type { margin-top: 0; }
+  .required-mark { color: var(--warn); margin-left: 2px; }
+
+  /* ---------- Banner de validação de linhas ignoradas no parse ---------- */
+  .validation-banner {
+    display: none;
+    margin-bottom: 20px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+    background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  }
+  .validation-banner.visible { display: block; }
+  .validation-banner-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .validation-banner-title { font-size: 0.88rem; font-weight: 600; color: var(--warn); }
+  .validation-banner.collapsed .validation-list { display: none; }
+  .validation-list {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .validation-list li {
+    font-size: 0.82rem;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--warn) 6%, transparent);
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .validation-list .issue-row {
+    flex: 0 0 auto;
+    font-weight: 700;
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 18%, transparent);
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+  }
+  .validation-list .issue-detail { color: var(--text); }
+  .validation-list .issue-highlight { font-weight: 700; color: var(--warn); }
+
+  input[type=text], input[type=number] {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.88rem;
+    outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input.field-missing {
+    border-color: var(--warn);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+  }
+  input[type=text]:focus, input[type=number]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  .file-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; max-width: 480px; }
+  .file-input-row input[type=file] { flex: 1; width: auto; min-width: 0; }
+  .btn-remove-file, .btn-secondary {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    border-radius: 8px;
+  }
+  .btn-remove-file {
+    border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--border));
+    background: color-mix(in srgb, var(--bad) 14%, var(--surface));
+    color: var(--bad);
+  }
+  .btn-remove-file:hover {
+    background: color-mix(in srgb, var(--bad) 26%, var(--surface));
+    border-color: var(--bad);
+  }
+  .btn-remove-file span { font-size: 1.1rem; line-height: 1; }
+  .btn-secondary {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+  }
+  .btn-secondary:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  input[type=file] {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  input[type=file]::file-selector-button {
+    cursor: pointer;
+    padding: 9px 16px;
+    margin-right: 12px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    box-shadow: 0 0 14px -2px var(--accent-glow);
+    transition: box-shadow .15s ease, filter .15s ease, transform .08s ease;
+  }
+  input[type=file]::file-selector-button:hover {
+    box-shadow: 0 0 22px 0 var(--accent-glow);
+    filter: brightness(1.08);
+  }
+  input[type=file]::file-selector-button:active {
+    transform: scale(0.97);
+    filter: brightness(0.95);
+  }
+
+  .activity-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .activity-row .desc { flex: 1; }
+  .activity-row .hours { width: 90px; }
+
+  button {
+    cursor: pointer;
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.86rem;
+    font-weight: 500;
+    transition: background-color .15s ease, transform .08s ease;
+  }
+  button:hover { background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); }
+  button:active { transform: scale(0.96); background: color-mix(in srgb, var(--accent) 20%, var(--surface-2)); }
+
+  button.primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+    color: #fff;
+    border: none;
+    box-shadow: 0 0 14px -2px var(--accent-glow);
+    font-weight: 600;
+    padding: 12px 24px;
+    font-size: 0.92rem;
+    transition: box-shadow .15s ease, filter .15s ease, transform .08s ease;
+  }
+  button.primary:hover {
+    box-shadow: 0 0 22px 0 var(--accent-glow);
+    filter: brightness(1.08);
+  }
+  button.primary:active {
+    transform: scale(0.97);
+    box-shadow: 0 0 10px -2px var(--accent-glow);
+    filter: brightness(0.95);
+  }
+
+  .add-activity {
+    font-size: 0.85rem;
+    background: none;
+    border: none;
+    color: var(--accent-hi);
+    padding: 6px 0;
+    font-weight: 500;
+  }
+  .add-activity:hover { background: none; text-decoration: underline; }
+
+  .remove-activity {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .remove-activity:hover {
+    background: color-mix(in srgb, var(--bad) 16%, var(--surface));
+    color: var(--bad);
+    border-color: color-mix(in srgb, var(--bad) 40%, var(--border));
+  }
+
+  #step2 { display: none; }
+  #step2.visible { display: block; }
+
+  .app-body { display: flex; align-items: flex-start; gap: 28px; }
+
+  .sidebar {
+    flex: 0 1 clamp(320px, 30vw, 420px);
+    max-width: 420px;
+    min-width: 0;
+    transition: flex-basis .2s ease, max-width .2s ease;
+  }
+  .app-body.preview-collapsed .sidebar {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+  .preview-column {
+    flex: 1;
+    min-width: 0;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px - var(--footer-height));
+    display: flex;
+    flex-direction: column;
+    opacity: 1;
+    transition: opacity .22s ease;
+  }
+  .preview-column.fade-out { opacity: 0; }
+  .preview-column.hidden { display: none; }
+  /* O card vira uma coluna flex: a barra de título fica de tamanho fixo (nunca rola,
+     nunca precisa de sticky/recorte de canto — está sempre no topo de verdade) e só
+     a planilha (.preview-sheet-wrap) recebe a barra de rolagem, dentro dela mesma.
+     "flex: 1 1 auto" (em vez de height:100%) é o que faz o card respeitar de verdade
+     a altura limitada do .preview-column — height:100% não resolve direito quando o
+     pai só tem max-height (sem height fixo), então o card crescia livre e nada rolava. */
+  .preview-column .card {
+    margin-bottom: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .sidebar::-webkit-scrollbar, .preview-sheet-wrap::-webkit-scrollbar { width: 10px; }
+  .sidebar::-webkit-scrollbar-thumb, .preview-sheet-wrap::-webkit-scrollbar-thumb {
+    background: var(--border); border-radius: 8px;
+  }
+  .sidebar::-webkit-scrollbar-thumb:hover, .preview-sheet-wrap::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent) 50%, var(--border));
+  }
+
+  /* ---------- Rodapé fixo de geração ---------- */
+  /* position:fixed (não sticky) — fica realmente grudado no fundo da tela, sempre na
+     mesma altura, independente de quanto rolar a página. max-width+margin:auto
+     repetem o mesmo travamento de largura do body pra ficar alinhado com o resto do
+     conteúdo em telas largas, já que fixed não herda a largura do body. */
+  .generate-footer {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 20;
+    max-width: 1920px;
+    margin: 0 auto;
+    padding: 8px 24px;
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
+    backdrop-filter: blur(6px);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -12px 28px -20px rgba(0,0,0,.7);
+  }
+  .generate-footer.visible { display: block; }
+  .generate-footer-inner {
+    display: flex; align-items: flex-end; justify-content: center; gap: 24px; flex-wrap: wrap;
+  }
+  .generate-total { font-size: 0.95rem; color: var(--text-muted); }
+  .generate-total strong { color: var(--text); font-size: 1.1rem; }
+  .filename-field { width: 100%; max-width: 380px; }
+  .filename-field label { margin: 0 0 4px; text-align: left; font-size: 0.78rem; }
+  .generate-footer button.primary {
+    padding: 14px 32px;
+    font-size: 1rem;
+  }
+  /* min-height reserva o espaço da mensagem ("Gerando...") mesmo vazia — sem isso, o
+     texto aparecendo/sumindo muda a altura do rodapé de repente, e como a altura dele
+     é usada pra calcular o espaço reservado no corpo da página (--footer-height),
+     esse pulo de altura faz o rodapé inteiro saltar de posição. */
+  #generateStatus { margin: 4px 0 0; text-align: center; min-height: 1.45em; }
+
+  /* preview do relatório final, no estilo de planilha */
+  /* Fica fora da área que rola (flex item de tamanho fixo dentro do card, que agora
+     é uma coluna flex) — por isso nunca precisa de position:sticky nem de recortar
+     canto: ela está sempre na posição real do topo do card. */
+  .preview-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex: 0 0 auto;
+    margin: -20px -22px 16px;
+    padding: 18px 22px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+  }
+  .preview-toolbar h2 { margin: 0; }
+  .preview-tools { display: flex; align-items: center; gap: 6px; }
+  .preview-tools button { padding: 5px 10px; font-size: 0.8rem; background: none; border: 1px solid var(--border); color: var(--text-muted); }
+  .preview-tools button:hover { color: var(--accent-hi); background: none; border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  #zoomLabel { font-size: 0.78rem; color: var(--text-muted); min-width: 40px; text-align: center; }
+
+  .preview-sheet-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--surface-2);
+    padding: 14px;
+  }
+  .preview-sheet-wrap:fullscreen {
+    padding: 32px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    background: var(--bg);
+  }
+  .preview-sheet {
+    background: #ffffff;
+    color: #1a1a1a;
+    border-radius: 4px;
+    padding: 36px 40px;
+    font-family: Calibri, Arial, sans-serif;
+    font-size: 1.05rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25), 0 18px 44px -18px rgba(0,0,0,.6);
+  }
+  /* Em tela cheia, usar a largura toda da tela (paisagem) em vez de ficar
+     estreito/comprido (retrato) no meio de uma tela vazia. */
+  .preview-sheet-wrap:fullscreen .preview-sheet {
+    width: min(1400px, 92vw);
+    flex: 0 0 auto;
+  }
+  .preview-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 26px; }
+  .preview-title { font-weight: 700; font-size: 1.15rem; }
+  .preview-logo { height: 48px; width: auto; }
+  .preview-meta { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
+  .preview-meta .code { color: #0091a0; font-weight: 600; flex: 0 1 40%; }
+  .preview-meta .right { text-align: right; flex: 0 1 55%; }
+  .preview-banner-row { display: flex; gap: 0; margin-right: 174px; }
+  .preview-banner {
+    flex: 1; background: #0091a0; color: #fff; font-weight: 600;
+    padding: 4px 14px; text-align: center;
+  }
+  .preview-banner-side { width: 56px; background: #0091a0; }
+  .preview-cols {
+    display: flex; border: 1px solid #ccc; font-weight: 600;
+    background: #f2f2f2; margin-right: 174px;
+  }
+  .preview-cols .c1 { flex: 1; padding: 4px 14px; border-right: 1px solid #ccc; text-align: center; }
+  .preview-cols .c2 { width: 140px; padding: 4px 14px; text-align: center; }
+
+  .preview-group-row { display: flex; gap: 14px; align-items: flex-start; margin-top: 14px; }
+  .preview-group-row + .preview-group-row { margin-top: 20px; }
+  .preview-group { flex: 1; border: 1px solid #ccc; display: flex; flex-direction: column; }
+  .preview-group-body { display: flex; }
+  .preview-group-main { flex: 1; }
+  .preview-group-header {
+    background: #d9d9d9; font-weight: 700; padding: 3px 14px; border-bottom: 1px solid #ccc;
+  }
+  .preview-activity {
+    padding: 1px 14px; border-bottom: 1px solid #ddd; font-style: italic;
+    line-height: 1.5;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .preview-activity:last-child { border-bottom: none; }
+  .preview-hours-col {
+    width: 140px; display: flex; align-items: center; justify-content: center;
+    border-left: 1px solid #ccc; font-weight: 600; padding: 9px;
+  }
+  .preview-side-box { width: 160px; flex: 0 0 160px; }
+  .preview-side-header {
+    display: flex; border: 1px solid #ccc; font-size: 0.72rem; font-weight: 600; text-align: center;
+  }
+  .preview-side-header span { flex: 1; padding: 4px 3px; border-right: 1px solid #ccc; }
+  .preview-side-header span:last-child { border-right: none; }
+  .preview-side-values {
+    display: flex; border: 1px solid #ccc; border-top: none; font-weight: 600; text-align: center;
+  }
+  .preview-side-values span { flex: 1; padding: 4px 3px; border-right: 1px solid #ccc; }
+  .preview-side-values span:last-child { border-right: none; background: #92d050; }
+  .preview-side-plain { text-align: center; padding: 4px 3px; font-size: 0.95rem; }
+
+  .preview-total {
+    display: flex; margin-top: 20px; font-weight: 700; font-style: italic; align-items: stretch;
+  }
+  .preview-total .label { flex: 1; padding: 9px 14px; text-align: right; }
+  .preview-total .value { width: 140px; padding: 9px 14px; text-align: center; background: #0091a0; color: #fff; display: flex; align-items: center; justify-content: center; }
+  .preview-total .spacer { width: 160px; flex: 0 0 160px; }
+  .preview-empty { color: #888; font-style: italic; padding: 20px 0; text-align: center; }
+  .preview-signatures {
+    display: flex; justify-content: space-between; margin-top: 64px; font-size: 0.92rem;
+  }
+  .preview-signatures .sig { text-align: center; width: 45%; }
+  .preview-signatures .line { border-top: 2px solid #0091a0; margin-bottom: 6px; }
+
+  /* Inputs editáveis dentro do preview: devem parecer texto da planilha até ganhar foco.
+     Especificidade de tipo (input.pv-input) para vencer a regra global input[type=text]. */
+  input.pv-input {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    outline: none;
+    border-radius: 2px;
+    color-scheme: light;
+  }
+  input.pv-input:focus {
+    border-color: transparent;
+    box-shadow: none;
+    outline: 1px dashed #0091a0;
+    outline-offset: 1px;
+  }
+  .pv-input.pv-header { width: 100%; }
+  .pv-input.pv-group-name { width: 100%; font-weight: 700; }
+  .pv-input.pv-header::placeholder { color: #999; font-style: normal; }
+  .pv-input.pv-desc { flex: 1 1 auto; min-width: 0; font-style: italic; }
+  .pv-input.pv-perf { width: 100%; text-align: center; }
+  .pv-input.pv-hours-extra { flex: 0 0 56px; width: 56px; text-align: right; }
+  .pv-input.pv-hours-extra::placeholder { color: #999; font-style: normal; }
+</style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Geração de Relatório de Horas</h1>
+    <img src="logo.png" alt="Schwaben Engineering" class="app-logo" />
+  </header>
+
+  <nav class="stepper" id="stepper"></nav>
+
+  <div class="summary-row" id="summaryRow">
+    <div class="summary-bar" id="summaryBar"></div>
+    <div id="summaryBarActions">
+      <button type="button" class="btn-secondary" id="btnChangeFile">Trocar arquivo</button>
+      <button type="button" id="btnTogglePreviewFloating">Recolher preview »</button>
+    </div>
+  </div>
+
+  <div class="validation-banner" id="validationBanner">
+    <div class="validation-banner-header">
+      <span class="validation-banner-title">⚠ <span id="validationCount"></span> linha(s) ignorada(s) com possível erro de apontamento</span>
+      <button type="button" class="btn-toggle" id="btnToggleValidation">▾ Recolher</button>
+    </div>
+    <ul class="validation-list" id="validationList"></ul>
+  </div>
+
+  <div class="card" id="step1">
+    <h2>1. Importar relatório do Projectile</h2>
+    <div class="mode-select" id="modeSelect">
+      <button type="button" class="mode-option active" data-mode="single">
+        <span class="mode-title">Relatório único</span>
+        <span class="mode-desc">Todas as linhas viram um único relatório final.</span>
+      </button>
+      <button type="button" class="mode-option" data-mode="multi">
+        <span class="mode-title">Múltiplos relatórios</span>
+        <span class="mode-desc">Um relatório separado por Pacote de Trabalho.</span>
+      </button>
+    </div>
+    <div class="file-input-row">
+      <input type="file" id="fileInput" accept=".xlsx" title="Selecione o .xlsx exportado do Projectile para o mês/projeto." />
+      <button type="button" id="btnClearFile" class="btn-remove-file" title="Remover arquivo selecionado" style="display: none;"><span>×</span> Remover</button>
+    </div>
+    <button class="primary" id="btnParse">Analisar planilha</button>
+    <p id="parseStatus" class="muted"></p>
+  </div>
+
+  <div id="step2">
+    <nav class="package-tabs" id="packageTabs"></nav>
+    <div class="app-body">
+      <aside class="sidebar">
+        <div class="package-filename-row" id="packageFileNameRow">
+          <label for="packageFileName">Nome do arquivo deste relatório (.xlsx)</label>
+          <input type="text" id="packageFileName" />
+        </div>
+        <div class="card" id="headerDataCard">
+          <div class="card-header-row">
+            <h2>Dados do relatório</h2>
+            <button type="button" class="btn-toggle" id="btnToggleHeaderData">▾ Recolher</button>
+          </div>
+          <div id="headerDataExpanded">
+            <label>Código do projeto (ex: SE.26.048) <span class="required-mark">*</span></label>
+            <input type="text" id="projectCode" />
+            <label>Nome do projeto (ex: CAD_Cabina - Série)</label>
+            <input type="text" id="projectName" />
+            <label>Local e data (ex: Santo André, 13.08.2026)</label>
+            <input type="text" id="locationDate" />
+            <label>Mês de referência (ex: Julho/2026)</label>
+            <input type="text" id="monthLabel" />
+          </div>
+          <div id="headerDataSummary" class="header-data-summary" style="display: none;"></div>
+        </div>
+
+        <div class="card">
+          <h2>Grupos e horas</h2>
+          <div id="groupsContainer"></div>
+        </div>
+      </aside>
+
+      <main class="preview-column" id="previewColumn">
+        <div class="card">
+          <div class="preview-toolbar">
+            <h2>Preview do relatório final</h2>
+            <div class="preview-tools">
+              <button type="button" id="btnZoomOut" title="Diminuir zoom">−</button>
+              <span id="zoomLabel">100%</span>
+              <button type="button" id="btnZoomIn" title="Aumentar zoom">+</button>
+              <button type="button" id="btnFullscreen" title="Tela cheia">⛶ Tela cheia</button>
+            </div>
+          </div>
+          <div class="preview-sheet-wrap" id="previewSheetWrap">
+            <div class="preview-sheet" id="previewContainer"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="generate-footer" id="generateSection">
+    <div class="generate-footer-inner">
+      <div class="generate-total" id="generateTotal"></div>
+      <button class="primary" id="btnGenerate">Gerar relatório final</button>
+      <div class="filename-field">
+        <label id="fileNameLabel">Nome do arquivo</label>
+        <input type="text" id="fileName" />
+      </div>
+    </div>
+    <p id="generateStatus" class="muted"></p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
