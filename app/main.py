@@ -116,6 +116,10 @@ class HeaderPayload(BaseModel):
     project_name: str
     location_date: str
     month_label: str
+    signer1_name: str = ""
+    signer1_company: str = "Schwaben Engineering"
+    signer2_name: str = ""
+    signer2_company: str = "Mercedes-Benz do Brasil"
 
 
 class ReportPackagePayload(BaseModel):

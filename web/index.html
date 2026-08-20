@@ -152,6 +152,11 @@
     padding: 5px 12px; font-size: 0.78rem; background: none; border: 1px solid var(--border); color: var(--text-muted);
   }
   .btn-toggle:hover { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: none; }
+  .group-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  .group-card-header h2 { margin: 0; }
+  .group-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-toggle:disabled:hover { color: var(--text-muted); border-color: var(--border); }
 
   .header-data-summary { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 0.88rem; }
   .header-data-summary .field { display: flex; flex-direction: column; gap: 2px; }
@@ -162,26 +167,66 @@
   .package-tabs {
     display: none;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 0;
     margin-bottom: 20px;
   }
   .package-tabs.visible { display: flex; }
+  .package-tab-wrap { position: relative; display: inline-flex; margin: -1px 0 0 -1px; }
   .package-tab {
-    padding: 8px 14px;
-    font-size: 0.82rem;
-    font-weight: 500;
-    border-radius: 999px;
+    padding: 16px 40px 16px 24px;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 0;
     border: 1px solid var(--border);
     background: var(--surface-2);
-    color: var(--text-muted);
+    color: #fff;
   }
-  .package-tab:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); color: var(--text); }
+  /* só as pontas da fileira arredondam — no meio fica reto, como um único
+     retângulo dividido em vez de várias pílulas coladas */
+  .package-tab-wrap:first-child .package-tab { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+  .package-tab-wrap:last-child .package-tab { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+  .package-tab:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); }
   .package-tab.active {
     background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
     color: #fff;
     border-color: transparent;
   }
-  .package-tab .tab-hours { opacity: 0.8; font-weight: 400; margin-left: 4px; }
+  .package-tab .tab-hours { opacity: 0.85; font-weight: 400; margin-left: 6px; }
+  .package-tab-remove {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+    color: #fff;
+    z-index: 1;
+    transition: background-color .15s ease;
+  }
+  .package-tab-remove::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 7px;
+    height: 1.5px;
+    background: currentColor;
+    border-radius: 1px;
+  }
+  .package-tab-remove:hover { background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%); }
+  /* especificidade maior que o "button:active" genérico — sem isso, o scale()
+     do clique substitui inteiro o translateY(-50%) que centraliza este botão
+     verticalmente (position:absolute + top:50%), fazendo ele "descer" ao clicar. */
+  .package-tab-remove:active { transform: translateY(-50%) scale(0.9); }
+  .package-tab[draggable="true"] { cursor: grab; }
+  .package-tab.dragging { opacity: 0.5; cursor: grabbing; }
+  .package-tab-wrap.drop-target .package-tab {
+    box-shadow: 0 0 0 2px var(--accent) inset, 0 0 12px 0 var(--accent-glow);
+  }
 
   .package-filename-row { display: none; margin-bottom: 22px; }
   .package-filename-row.visible { display: block; }
@@ -524,7 +569,7 @@
   .generate-footer-inner {
     display: flex; align-items: flex-end; justify-content: center; gap: 24px; flex-wrap: wrap;
   }
-  .generate-total { font-size: 0.95rem; color: var(--text-muted); }
+  .generate-total { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 9px; }
   .generate-total strong { color: var(--text); font-size: 1.1rem; }
   .filename-field { width: 100%; max-width: 380px; }
   .filename-field label { margin: 0 0 4px; text-align: left; font-size: 0.78rem; }
@@ -613,13 +658,38 @@
   .preview-group-main { flex: 1; }
   .preview-group-header {
     background: #d9d9d9; font-weight: 700; padding: 3px 14px; border-bottom: 1px solid #ccc;
+    display: flex; align-items: center; gap: 8px;
   }
+  .preview-group-header .pv-group-name { flex: 1; }
   .preview-activity {
     padding: 1px 14px; border-bottom: 1px solid #ddd; font-style: italic;
     line-height: 1.5;
     display: flex; align-items: center; gap: 8px;
   }
   .preview-activity:last-child { border-bottom: none; }
+
+  /* botões de estrutura (adicionar/remover grupo ou atividade) dentro do
+     preview — usam cor de marca em vez do preto/branco do "papel" da planilha,
+     pra ficar claro que são controles do app, não parte do relatório em si */
+  .pv-remove-activity, .pv-remove-group, .remove-group {
+    width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%;
+    background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+    position: relative; flex: 0 0 auto; cursor: pointer;
+  }
+  .pv-remove-activity::before, .pv-remove-group::before, .remove-group::before {
+    content: ""; position: absolute; inset: 0; margin: auto;
+    width: 8px; height: 1.5px; border-radius: 1px; background: #fff;
+  }
+  .pv-remove-activity:hover, .pv-remove-group:hover, .remove-group:hover {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+  }
+  .pv-add-activity, .pv-add-group {
+    display: block; font-size: 0.78rem; font-style: normal; background: none; border: none;
+    color: var(--accent); font-weight: 600; cursor: pointer;
+  }
+  .pv-add-activity { padding: 4px 14px; }
+  .pv-add-group { margin-top: 10px; padding: 4px 0; }
+  .pv-add-activity:hover, .pv-add-group:hover { text-decoration: underline; background: none; }
   .preview-hours-col {
     width: 140px; display: flex; align-items: center; justify-content: center;
     border-left: 1px solid #ccc; font-weight: 600; padding: 9px;
@@ -648,6 +718,8 @@
     display: flex; justify-content: space-between; margin-top: 64px; font-size: 0.92rem;
   }
   .preview-signatures .sig { text-align: center; width: 45%; }
+  .preview-signatures .pv-signer-name,
+  .preview-signatures .pv-signer-company { display: block; width: 100%; text-align: center; }
   .preview-signatures .line { border-top: 2px solid #0091a0; margin-bottom: 6px; }
 
   /* Inputs editáveis dentro do preview: devem parecer texto da planilha até ganhar foco.
@@ -668,6 +740,17 @@
     box-shadow: none;
     outline: 1px dashed #0091a0;
     outline-offset: 1px;
+  }
+  /* o preenchimento automático do navegador pinta o próprio fundo do campo (o
+     "background: transparent" acima não tem efeito nele) — força de volta pro
+     branco/preto da "folha" do preview em vez do azul/amarelo padrão do autofill. */
+  input.pv-input:-webkit-autofill,
+  input.pv-input:-webkit-autofill:hover,
+  input.pv-input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #1a1a1a;
+    -webkit-box-shadow: 0 0 0px 1000px #fff inset;
+    box-shadow: 0 0 0px 1000px #fff inset;
+    transition: background-color 5000s ease-in-out 0s;
   }
   .pv-input.pv-header { width: 100%; }
   .pv-input.pv-group-name { width: 100%; font-weight: 700; }
@@ -744,6 +827,14 @@
             <input type="text" id="locationDate" />
             <label>Mês de referência (ex: Julho/2026)</label>
             <input type="text" id="monthLabel" />
+            <label>Nome do engenheiro (assinatura 1)</label>
+            <input type="text" id="signer1Name" placeholder="Nome completo" />
+            <label>Empresa (assinatura 1)</label>
+            <input type="text" id="signer1Company" value="Schwaben Engineering" />
+            <label>Nome do engenheiro (assinatura 2)</label>
+            <input type="text" id="signer2Name" placeholder="Nome completo" />
+            <label>Empresa (assinatura 2)</label>
+            <input type="text" id="signer2Company" value="Mercedes-Benz do Brasil" />
           </div>
           <div id="headerDataSummary" class="header-data-summary" style="display: none;"></div>
         </div>
@@ -751,6 +842,7 @@
         <div class="card">
           <h2>Grupos e horas</h2>
           <div id="groupsContainer"></div>
+          <button type="button" class="btn-secondary" id="btnAddGroup" style="margin-top: 12px;">+ Novo grupo</button>
         </div>
       </aside>
 
@@ -759,6 +851,7 @@
           <div class="preview-toolbar">
             <h2>Preview do relatório final</h2>
             <div class="preview-tools">
+              <button type="button" class="btn-toggle" id="btnUndo" title="Desfazer a última alteração" disabled>↶ Desfazer</button>
               <button type="button" id="btnZoomOut" title="Diminuir zoom">−</button>
               <span id="zoomLabel">100%</span>
               <button type="button" id="btnZoomIn" title="Aumentar zoom">+</button>

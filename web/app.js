@@ -1,5 +1,6 @@
 let packages = []; // [{ key, projectCode, projectName, groupsData: [], collapsedGroups: Set }]
 let activePackageIndex = 0;
+let draggedPackageIndex = null; // índice da aba sendo arrastada, durante um drag-and-drop de merge
 let hasGeneratedOnce = false;
 let headerDataCollapsed = true;
 let previewZoom = 100;
@@ -11,7 +12,7 @@ let validationCollapsed = false;
 // valem destaque — o resto da mensagem (valores entre aspas) é dado do usuário,
 // não o diagnóstico em si.
 const ISSUE_HIGHLIGHT_PHRASES = {
-  sem_underscore: ['sem "_" separando prefixo e descrição'],
+  sem_separador: ['sem "-" ou "_" separando prefixo e descrição'],
   descricao_vazia: ["prefixo vazio", "descrição vazia"],
   dados_incompletos: ["apontamento incompleto, falta preencher"],
   hs_invalido: ["não é um número válido"],
@@ -177,6 +178,9 @@ document.addEventListener("DOMContentLoaded", () => {
       renderPreview();
     });
   });
+  ["signer1Name", "signer1Company", "signer2Name", "signer2Company"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", () => renderPreview());
+  });
   document.getElementById("fileName").addEventListener("input", (e) => {
     fileNameEditedByUser = true;
     e.target.title = e.target.value;
@@ -307,16 +311,128 @@ function renderPackageTabs() {
     .map((pkg, i) => {
       const total = computeGrandTotalFor(pkg.groupsData);
       return `
-        <button type="button" class="package-tab ${i === activePackageIndex ? "active" : ""}" data-pindex="${i}">
-          ${escapeHtml(pkg.key)}
-          <span class="tab-hours">${fmtNum(total)}h</span>
-        </button>`;
+        <span class="package-tab-wrap" data-pindex="${i}">
+          <button type="button" class="package-tab ${i === activePackageIndex ? "active" : ""}" data-pindex="${i}" draggable="true">
+            ${escapeHtml(pkg.key)}
+            <span class="tab-hours">${fmtNum(total)}h</span>
+          </button>
+          <button type="button" class="package-tab-remove" data-pindex="${i}" title="Remover este relatório" aria-label="Remover este relatório"></button>
+        </span>`;
     })
     .join("");
 
   nav.querySelectorAll(".package-tab").forEach((btn) => {
     btn.addEventListener("click", () => switchActivePackage(Number(btn.dataset.pindex)));
+    btn.addEventListener("dragstart", (e) => {
+      draggedPackageIndex = Number(btn.dataset.pindex);
+      btn.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(draggedPackageIndex));
+    });
+    btn.addEventListener("dragend", () => {
+      btn.classList.remove("dragging");
+      draggedPackageIndex = null;
+      nav.querySelectorAll(".package-tab-wrap").forEach((el) => {
+        el.classList.remove("drop-target");
+        el.dragEnterCount = 0;
+      });
+    });
   });
+  nav.querySelectorAll(".package-tab-remove").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removePackage(Number(btn.dataset.pindex));
+    });
+  });
+  nav.querySelectorAll(".package-tab-wrap").forEach((wrap) => {
+    // dragenter/dragleave disparam de novo pra CADA elemento filho sobrevoado
+    // (texto, "Xh", botão de remover) — sem contador, isso remove o destaque
+    // toda vez que o mouse passa por cima de um filho, mesmo sem ter saído da
+    // aba de verdade. O contador só zera (e some o destaque) quando o total
+    // de "saídas" alcança o de "entradas".
+    wrap.dragEnterCount = 0;
+    wrap.addEventListener("dragenter", () => {
+      const targetIndex = Number(wrap.dataset.pindex);
+      if (draggedPackageIndex !== null && draggedPackageIndex !== targetIndex) {
+        wrap.dragEnterCount += 1;
+        wrap.classList.add("drop-target");
+      }
+    });
+    wrap.addEventListener("dragleave", () => {
+      wrap.dragEnterCount = Math.max(0, wrap.dragEnterCount - 1);
+      if (wrap.dragEnterCount === 0) wrap.classList.remove("drop-target");
+    });
+    wrap.addEventListener("dragover", (e) => e.preventDefault());
+    wrap.addEventListener("drop", (e) => {
+      e.preventDefault();
+      wrap.dragEnterCount = 0;
+      wrap.classList.remove("drop-target");
+      mergePackages(draggedPackageIndex, Number(wrap.dataset.pindex));
+    });
+  });
+}
+
+function removePackage(index) {
+  if (packages.length <= 1 || !packages[index]) return;
+  packages.splice(index, 1);
+  if (index < activePackageIndex) activePackageIndex -= 1;
+  if (activePackageIndex > packages.length - 1) activePackageIndex = packages.length - 1;
+  // os índices de pacote guardados na pilha de undo não fazem mais sentido
+  // depois que um pacote é removido (todo mundo depois dele desloca um lugar)
+  undoStack = [];
+  updateUndoButtonState();
+  loadActivePackageHeaderIntoForm();
+  renderPackageTabs();
+  renderPackageFileNameField();
+  renderGroups();
+  renderPreview();
+}
+
+// Arrastar uma aba de pacote e soltar em cima de outra junta os grupos das
+// duas num relatório só (o de destino) — útil quando o parser separou linhas
+// que na verdade eram do mesmo projeto (fallback por linha quando "Pacote de
+// Trabalho" não é reconhecido, ver app/parser.py). Segue a mesma convenção de
+// removePackage: sem confirm(), sem tentar deixar desfazível (a pilha de undo
+// é indexada por packageIndex, e um splice em `packages` invalida qualquer
+// snapshot antigo — não dá pra saber pra qual pacote ele apontava depois do
+// array reembaralhar).
+function mergePackages(sourceIndex, targetIndex) {
+  if (sourceIndex === targetIndex || !packages[sourceIndex] || !packages[targetIndex]) return;
+
+  const source = packages[sourceIndex];
+  const target = packages[targetIndex];
+  const claimedTargetIndexes = new Set();
+
+  source.groupsData.forEach((sourceGroup) => {
+    const sourceName = sourceGroup.name.trim().toLowerCase();
+    const matchIndex = target.groupsData.findIndex(
+      (targetGroup, ti) => !claimedTargetIndexes.has(ti) && targetGroup.name.trim().toLowerCase() === sourceName
+    );
+    if (matchIndex !== -1) {
+      target.groupsData[matchIndex].activities.push(...sourceGroup.activities);
+      // não mexe em target.collapsedGroups aqui — um grupo que já existia no
+      // destino mantém o estado de expandido/recolhido que o usuário deixou,
+      // mesmo recebendo atividades novas por baixo
+      claimedTargetIndexes.add(matchIndex);
+    } else {
+      target.groupsData.push(sourceGroup);
+      // entra recolhido, igual ao padrão de quando o arquivo é analisado pela
+      // primeira vez — nada se expande sozinho por causa do merge
+      target.collapsedGroups.add(target.groupsData.length - 1);
+    }
+  });
+
+  const newTargetIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex;
+  packages.splice(sourceIndex, 1);
+  activePackageIndex = newTargetIndex;
+
+  undoStack = [];
+  updateUndoButtonState();
+  loadActivePackageHeaderIntoForm();
+  renderPackageTabs();
+  renderPackageFileNameField();
+  renderGroups();
+  renderPreview();
 }
 
 function switchActivePackage(index) {
@@ -327,6 +443,7 @@ function switchActivePackage(index) {
   renderPackageFileNameField();
   renderGroups();
   renderPreview();
+  updateUndoButtonState();
 }
 
 function loadActivePackageHeaderIntoForm() {
@@ -524,6 +641,138 @@ function handlePreviewExtraHoursInput(gIndex, aIndex, newValue) {
   renderGroups({ skipPreviewRebuild: true });
 }
 
+// --- Estrutura (adicionar/remover grupo ou atividade) — compartilhado entre o
+// painel esquerdo e o preview. Diferente dos handlers de digitação acima, estes
+// mudam a QUANTIDADE de elementos, então sempre passam por renderGroups()/
+// renderPreview() (recriar o DOM aqui não perde foco, é um clique, não uma tecla).
+
+// --- Desfazer (undo passo a passo) ---
+// Pilha ÚNICA e global (não por pacote): cada item é um snapshot de tudo que
+// pode mudar — dados do pacote que estava ativo (código/nome/grupos) MAIS os
+// campos compartilhados entre todos os pacotes (local/data, mês), que não têm
+// dono de um pacote só. "Desfazer" empilha o estado atual e restaura o topo —
+// clicar de novo desfaz a mudança anterior a essa, e assim por diante. Se a
+// mudança desfeita era de outro pacote (ex: usuário trocou de aba depois),
+// volta pra aquele pacote também, senão o usuário não veria o efeito.
+const UNDO_STACK_LIMIT = 50;
+
+function snapshotState() {
+  const pkg = activePackage();
+  if (!pkg) return null;
+  return JSON.stringify({
+    packageIndex: activePackageIndex,
+    projectCode: pkg.projectCode,
+    projectName: pkg.projectName,
+    groupsData: pkg.groupsData,
+    locationDate: document.getElementById("locationDate").value,
+    monthLabel: document.getElementById("monthLabel").value,
+    signer1Name: document.getElementById("signer1Name").value,
+    signer1Company: document.getElementById("signer1Company").value,
+    signer2Name: document.getElementById("signer2Name").value,
+    signer2Company: document.getElementById("signer2Company").value,
+  });
+}
+
+let undoStack = [];
+
+function pushUndoSnapshot() {
+  const snap = snapshotState();
+  if (snap === null) return;
+  undoStack.push(snap);
+  if (undoStack.length > UNDO_STACK_LIMIT) undoStack.shift();
+  updateUndoButtonState();
+}
+
+function undoLastChange() {
+  if (!undoStack.length) return;
+  const snapshot = JSON.parse(undoStack.pop());
+  if (packages[snapshot.packageIndex]) activePackageIndex = snapshot.packageIndex;
+  const pkg = activePackage();
+  if (pkg) {
+    pkg.projectCode = snapshot.projectCode;
+    pkg.projectName = snapshot.projectName;
+    pkg.groupsData = snapshot.groupsData;
+    // não mexe em pkg.collapsedGroups aqui — é estado de UI (o que o usuário
+    // tem expandido/recolhido na tela), não faz parte do que o undo desfaz.
+  }
+  document.getElementById("locationDate").value = snapshot.locationDate;
+  document.getElementById("monthLabel").value = snapshot.monthLabel;
+  document.getElementById("signer1Name").value = snapshot.signer1Name;
+  document.getElementById("signer1Company").value = snapshot.signer1Company;
+  document.getElementById("signer2Name").value = snapshot.signer2Name;
+  document.getElementById("signer2Company").value = snapshot.signer2Company;
+  loadActivePackageHeaderIntoForm();
+  renderPackageTabs();
+  renderPackageFileNameField();
+  renderGroups();
+  renderPreview();
+  updateUndoButtonState();
+}
+
+function updateUndoButtonState() {
+  const btn = document.getElementById("btnUndo");
+  if (btn) btn.disabled = undoStack.length === 0;
+}
+
+// Captura um snapshot ao focar um campo editável (uma vez por "sessão" de
+// edição) e só empilha no undo se o valor realmente mudou até o campo perder
+// o foco — evita lotar a pilha com cliques que não alteraram nada.
+let pendingUndoSnapshot = null;
+document.addEventListener("focusin", (e) => {
+  if (!e.target.matches(".pv-input, #groupsContainer input, #projectCode, #projectName, #locationDate, #monthLabel, #signer1Name, #signer1Company, #signer2Name, #signer2Company")) return;
+  if (pendingUndoSnapshot === null) pendingUndoSnapshot = snapshotState();
+});
+document.addEventListener("focusout", (e) => {
+  if (!e.target.matches(".pv-input, #groupsContainer input, #projectCode, #projectName, #locationDate, #monthLabel, #signer1Name, #signer1Company, #signer2Name, #signer2Company")) return;
+  if (pendingUndoSnapshot === null) return;
+  if (snapshotState() !== pendingUndoSnapshot) {
+    undoStack.push(pendingUndoSnapshot);
+    if (undoStack.length > UNDO_STACK_LIMIT) undoStack.shift();
+    updateUndoButtonState();
+  }
+  pendingUndoSnapshot = null;
+});
+
+function addGroup() {
+  const pkg = activePackage();
+  if (!pkg) return;
+  pushUndoSnapshot();
+  pkg.groupsData.push({ name: "Novo grupo", performance: 1, activities: [{ description: "", hours: null }] });
+  renderGroups();
+}
+
+function removeGroupAt(gIndex) {
+  const pkg = activePackage();
+  if (!pkg || pkg.groupsData.length <= 1) return;
+  pushUndoSnapshot();
+  pkg.groupsData.splice(gIndex, 1);
+  const remapped = new Set();
+  pkg.collapsedGroups.forEach((idx) => {
+    if (idx < gIndex) remapped.add(idx);
+    else if (idx > gIndex) remapped.add(idx - 1);
+  });
+  pkg.collapsedGroups = remapped;
+  renderGroups();
+}
+
+function addActivityToGroup(gIndex) {
+  const pkg = activePackage();
+  const group = pkg && pkg.groupsData[gIndex];
+  if (!group) return;
+  pushUndoSnapshot();
+  group.activities.push({ description: "", hours: null });
+  renderGroups();
+}
+
+function removeActivityAt(gIndex, aIndex) {
+  const pkg = activePackage();
+  const group = pkg && pkg.groupsData[gIndex];
+  if (!group) return;
+  pushUndoSnapshot();
+  group.activities.splice(aIndex, 1);
+  renderGroups();
+}
+
 function attachPreviewListeners(container) {
   const codeInput = container.querySelector("#pv-projectCode");
   if (codeInput) codeInput.addEventListener("input", (e) => handlePreviewHeaderInput("projectCode", e.target.value));
@@ -536,6 +785,11 @@ function attachPreviewListeners(container) {
 
   const monthInput = container.querySelector("#pv-monthLabel");
   if (monthInput) monthInput.addEventListener("input", (e) => handlePreviewMonthLabelInput(e.target.value));
+
+  ["signer1Name", "signer1Company", "signer2Name", "signer2Company"].forEach((id) => {
+    const el = container.querySelector(`#pv-${id}`);
+    if (el) el.addEventListener("input", (e) => handlePreviewHeaderInput(id, e.target.value));
+  });
 
   container.querySelectorAll(".pv-group-name").forEach((input) => {
     input.addEventListener("input", (e) => {
@@ -560,6 +814,23 @@ function attachPreviewListeners(container) {
       handlePreviewExtraHoursInput(Number(e.target.dataset.gindex), Number(e.target.dataset.aindex), e.target.value);
     });
   });
+
+  container.querySelectorAll(".pv-remove-activity").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      removeActivityAt(Number(btn.dataset.gindex), Number(btn.dataset.aindex));
+    });
+  });
+
+  container.querySelectorAll(".pv-add-activity").forEach((btn) => {
+    btn.addEventListener("click", () => addActivityToGroup(Number(btn.dataset.gindex)));
+  });
+
+  container.querySelectorAll(".pv-remove-group").forEach((btn) => {
+    btn.addEventListener("click", () => removeGroupAt(Number(btn.dataset.gindex)));
+  });
+
+  const addGroupBtn = container.querySelector(".pv-add-group");
+  if (addGroupBtn) addGroupBtn.addEventListener("click", addGroup);
 }
 
 function renderPreview() {
@@ -576,8 +847,10 @@ function renderPreview() {
   const rawLocationDate = document.getElementById("locationDate").value || "";
   const rawMonthLabel = document.getElementById("monthLabel").value || "";
   const monthLabelDisplay = rawMonthLabel || "Mês/AAAA";
-  const signer1Company = "Schwaben Engineering";
-  const signer2Company = "Mercedes-Benz do Brasil";
+  const signer1Name = document.getElementById("signer1Name").value || "";
+  const signer1Company = document.getElementById("signer1Company").value || "";
+  const signer2Name = document.getElementById("signer2Name").value || "";
+  const signer2Company = document.getElementById("signer2Company").value || "";
 
   if (!pkg || !pkg.groupsData.length) {
     container.innerHTML = `<p class="preview-empty">Analise um arquivo do Projectile para ver o preview.</p>`;
@@ -607,6 +880,7 @@ function renderPreview() {
                   ? `<input class="pv-input pv-hours-extra" type="text" value="" placeholder="horas" data-gindex="${gIndex}" data-aindex="${aIndex}" />`
                   : ""
               }
+              <button type="button" class="pv-remove-activity" data-gindex="${gIndex}" data-aindex="${aIndex}" title="Remover atividade" aria-label="Remover atividade"></button>
             </div>`
         )
         .join("");
@@ -614,10 +888,14 @@ function renderPreview() {
       return `
         <div class="preview-group-row">
           <div class="preview-group">
-            <div class="preview-group-header"><input class="pv-input pv-group-name" type="text" value="${escapeAttr(group.name)}" data-gindex="${gIndex}" /></div>
+            <div class="preview-group-header">
+              <input class="pv-input pv-group-name" type="text" value="${escapeAttr(group.name)}" data-gindex="${gIndex}" />
+              <button type="button" class="pv-remove-group" data-gindex="${gIndex}" title="Remover grupo" aria-label="Remover grupo"></button>
+            </div>
             <div class="preview-group-body">
               <div class="preview-group-main">
                 ${activityRows}
+                <button type="button" class="pv-add-activity" data-gindex="${gIndex}">+ Adicionar atividade</button>
               </div>
               <div class="preview-hours-col" id="pv-hours-${gIndex}">${hasRealActivities ? fmtNum(resultado) : ""}</div>
             </div>
@@ -655,14 +933,23 @@ function renderPreview() {
     </div>
     <div class="preview-cols"><div class="c1">Descritivo de Atividades</div><div class="c2">Horas</div></div>
     ${groupsHtml}
+    <button type="button" class="pv-add-group">+ Novo grupo</button>
     <div class="preview-total">
       <div class="label" id="pv-total-label">Total de horas ${escapeHtml(monthLabelDisplay)}:</div>
       <div class="value" id="pv-total-value">${fmtNum(totalHoras)}</div>
       <div class="spacer"></div>
     </div>
     <div class="preview-signatures">
-      <div class="sig"><div class="line"></div><strong>${escapeHtml(signer1Company)}</strong></div>
-      <div class="sig"><div class="line"></div><strong>${escapeHtml(signer2Company)}</strong></div>
+      <div class="sig">
+        <div class="line"></div>
+        <input class="pv-input pv-header pv-signer-name" id="pv-signer1Name" type="text" value="${escapeAttr(signer1Name)}" placeholder="Nome do engenheiro" />
+        <input class="pv-input pv-header pv-signer-company" id="pv-signer1Company" type="text" value="${escapeAttr(signer1Company)}" placeholder="Empresa" />
+      </div>
+      <div class="sig">
+        <div class="line"></div>
+        <input class="pv-input pv-header pv-signer-name" id="pv-signer2Name" type="text" value="${escapeAttr(signer2Name)}" placeholder="Nome do engenheiro" />
+        <input class="pv-input pv-header pv-signer-company" id="pv-signer2Company" type="text" value="${escapeAttr(signer2Company)}" placeholder="Empresa" />
+      </div>
     </div>
   `;
 
@@ -680,6 +967,8 @@ function resetParsedState() {
   packages = [];
   activePackageIndex = 0;
   currentIssues = [];
+  undoStack = [];
+  updateUndoButtonState();
   document.getElementById("step2").classList.remove("visible");
   document.getElementById("generateSection").classList.remove("visible");
   document.getElementById("groupsContainer").innerHTML = "";
@@ -690,6 +979,9 @@ function resetParsedState() {
   renderValidationBanner();
   renderPreview();
 }
+
+document.getElementById("btnAddGroup").addEventListener("click", addGroup);
+document.getElementById("btnUndo").addEventListener("click", undoLastChange);
 
 document.getElementById("btnClearFile").addEventListener("click", () => {
   const fileInput = document.getElementById("fileInput");
@@ -737,6 +1029,8 @@ document.getElementById("btnParse").addEventListener("click", async () => {
       fileNameEdited: false,
     }));
     activePackageIndex = 0;
+    undoStack = [];
+    updateUndoButtonState();
 
     currentIssues = data.issues || [];
     renderValidationBanner();
@@ -789,6 +1083,7 @@ function renderGroups(options = {}) {
   const pkg = activePackage();
   const container = document.getElementById("groupsContainer");
   container.innerHTML = "";
+  updateUndoButtonState();
 
   if (!pkg) {
     refreshDerivedUI();
@@ -807,6 +1102,7 @@ function renderGroups(options = {}) {
         <span class="chevron">▾</span>
         <span class="group-title">${escapeHtml(group.name)}</span>
         <span class="group-hours">${hasRealActivities ? fmtNum(resultado) + " h" : ""}</span>
+        <button type="button" class="remove-group" data-gindex="${gIndex}" title="Remover grupo" aria-label="Remover grupo"></button>
       </div>
       <div class="group-body">
         <div class="perf-card">
@@ -842,6 +1138,13 @@ function renderGroups(options = {}) {
     });
   });
 
+  container.querySelectorAll(".remove-group").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeGroupAt(Number(btn.dataset.gindex));
+    });
+  });
+
   container.querySelectorAll("[data-role=performance]").forEach((input) => {
     input.addEventListener("input", (e) => {
       const gIndex = Number(e.target.dataset.gindex);
@@ -853,10 +1156,7 @@ function renderGroups(options = {}) {
 
   container.querySelectorAll(".add-activity").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const gIndex = btn.dataset.gindex;
-      groupsData[gIndex].activities.push({ description: "", hours: null });
-      renderGroups();
-      renderPreview();
+      addActivityToGroup(Number(btn.dataset.gindex));
     });
   });
 
@@ -890,10 +1190,7 @@ function renderActivityRow(group, gIndex, activity, aIndex) {
     });
   }
   removeBtn.addEventListener("click", () => {
-    const pkg = activePackage();
-    pkg.groupsData[gIndex].activities.splice(aIndex, 1);
-    renderGroups();
-    renderPreview();
+    removeActivityAt(gIndex, aIndex);
   });
   return row;
 }
@@ -902,6 +1199,10 @@ document.getElementById("btnGenerate").addEventListener("click", async () => {
   const status = document.getElementById("generateStatus");
   const sharedLocationDate = document.getElementById("locationDate").value;
   const sharedMonthLabel = document.getElementById("monthLabel").value;
+  const sharedSigner1Name = document.getElementById("signer1Name").value;
+  const sharedSigner1Company = document.getElementById("signer1Company").value;
+  const sharedSigner2Name = document.getElementById("signer2Name").value;
+  const sharedSigner2Company = document.getElementById("signer2Company").value;
 
   const payload = {
     packages: packages.map((pkg) => ({
@@ -910,6 +1211,10 @@ document.getElementById("btnGenerate").addEventListener("click", async () => {
         project_name: pkg.projectName,
         location_date: sharedLocationDate,
         month_label: sharedMonthLabel,
+        signer1_name: sharedSigner1Name,
+        signer1_company: sharedSigner1Company,
+        signer2_name: sharedSigner2Name,
+        signer2_company: sharedSigner2Company,
       },
       groups: pkg.groupsData.map((g) => ({
         name: g.name,

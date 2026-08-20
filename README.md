@@ -10,7 +10,8 @@ relatório final em `.xlsx`**.
 ## O que o app faz
 
 - Lê o `.xlsx` exportado do Projectile e agrupa as linhas por atividade
-  (a partir da coluna `Observação`, no formato `Prefixo_Descrição do trabalho`).
+  (a partir da coluna `Observação`, no formato `Prefixo-Descrição do trabalho` ou
+  `Prefixo_Descrição do trabalho`).
 - Mostra os dados extraídos numa tela de revisão, onde é possível editar horas,
   performance, nome do arquivo etc. antes de gerar o relatório.
 - Gera o `.xlsx` final preservando 100% do layout do template original (logo,
@@ -41,7 +42,7 @@ com `Dados, Horário, Hs`). Colunas usadas:
 |---------------------|-------------------------------------------------------------------|
 | `Dados`              | data do apontamento (usada só para diferenciar apontamento real de linha de subtotal) |
 | `Hs`                 | horas do apontamento (aceita `,` ou `.` como separador decimal)  |
-| `Observação`         | `Prefixo_Descrição da atividade` — o prefixo antes do `_` agrupa as linhas |
+| `Observação`         | `Prefixo-Descrição` ou `Prefixo_Descrição` — o prefixo antes do `-`/`_` agrupa as linhas |
 | `Projeto`            | nome do projeto (modo relatório único)                           |
 | `Pacote de Trabalho` | usado para separar por projeto no modo múltiplos relatórios      |
 

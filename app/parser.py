@@ -118,7 +118,7 @@ def parse_projectile_export(
     "Projeto" (comportamento histórico do app).
 
     Também retorna a lista de linhas ignoradas por parecerem um apontamento incompleto
-    ou mal formatado (Hs/Observação parcialmente preenchidos, falta o "_" separando
+    ou mal formatado (Hs/Observação parcialmente preenchidos, falta o "-" ou "_" separando
     prefixo/descrição, descrição vazia, ou Hs não numérico) — para exibir um aviso na
     tela. Linhas totalmente em branco (Hs e Observação ambos vazios) não entram nessa
     lista por serem comuns no fim da planilha exportada, não um erro do usuário — assim
@@ -205,14 +205,16 @@ def parse_projectile_export(
             continue
 
         obs_value = obs_stripped
-        if "_" not in obs_value:
+        separator_match = re.search(r"[-_]", obs_value)
+        if not separator_match:
             issues.append(RowIssue(
                 row=row_number,
-                reason="sem_underscore",
-                message=f"Linha {row_number}: Observação \"{obs_value}\" sem \"_\" separando prefixo e descrição.",
+                reason="sem_separador",
+                message=f"Linha {row_number}: Observação \"{obs_value}\" sem \"-\" ou \"_\" separando prefixo e descrição.",
             ))
             continue
-        prefix, description = obs_value.split("_", 1)
+        sep_index = separator_match.start()
+        prefix, description = obs_value[:sep_index], obs_value[sep_index + 1:]
         prefix = prefix.strip()
         description = description.strip()
         if not prefix or not description:
