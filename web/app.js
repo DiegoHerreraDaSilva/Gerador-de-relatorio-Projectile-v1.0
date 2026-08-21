@@ -1,6 +1,8 @@
 let packages = []; // [{ key, projectCode, projectName, groupsData: [], collapsedGroups: Set }]
 let activePackageIndex = 0;
 let draggedPackageIndex = null; // índice da aba sendo arrastada, durante um drag-and-drop de merge
+let draggedActivities = null; // [{ gIndex, aIndex }] das atividades sendo arrastadas para outro grupo, no preview
+let selectedActivities = new Set(); // chaves "gIndex:aIndex" selecionadas com Ctrl+clique, no preview
 let hasGeneratedOnce = false;
 let headerDataCollapsed = true;
 let previewZoom = 100;
@@ -409,7 +411,21 @@ function mergePackages(sourceIndex, targetIndex) {
       (targetGroup, ti) => !claimedTargetIndexes.has(ti) && targetGroup.name.trim().toLowerCase() === sourceName
     );
     if (matchIndex !== -1) {
-      target.groupsData[matchIndex].activities.push(...sourceGroup.activities);
+      const targetActivities = target.groupsData[matchIndex].activities;
+      sourceGroup.activities.forEach((sourceActivity) => {
+        // mesma regra do parser (app/parser.py) ao agrupar linhas do export:
+        // atividade com a mesma descrição (sem diferenciar maiúsculas/espaços)
+        // soma as horas em vez de virar uma linha duplicada
+        const sourceDesc = sourceActivity.description.trim().toLowerCase();
+        const existing = sourceDesc
+          ? targetActivities.find((a) => a.description.trim().toLowerCase() === sourceDesc)
+          : undefined;
+        if (existing) {
+          existing.hours = Math.round(((parseFloat(existing.hours) || 0) + (parseFloat(sourceActivity.hours) || 0)) * 1000) / 1000;
+        } else {
+          targetActivities.push(sourceActivity);
+        }
+      });
       // não mexe em target.collapsedGroups aqui — um grupo que já existia no
       // destino mantém o estado de expandido/recolhido que o usuário deixou,
       // mesmo recebendo atividades novas por baixo
@@ -765,15 +781,102 @@ function addActivityToGroup(gIndex) {
 }
 
 function removeActivityAt(gIndex, aIndex) {
+  removeActivitiesAt([{ gIndex, aIndex }]);
+}
+
+// Remove várias atividades de uma vez, mesmo espalhadas por grupos diferentes
+// (seleção múltipla no preview). Um único snapshot de undo pra tudo.
+function removeActivitiesAt(items) {
   const pkg = activePackage();
-  const group = pkg && pkg.groupsData[gIndex];
-  if (!group) return;
+  if (!pkg || !items || !items.length) return;
+
+  const byGroup = new Map();
+  items.forEach(({ gIndex, aIndex }) => {
+    if (!byGroup.has(gIndex)) byGroup.set(gIndex, []);
+    byGroup.get(gIndex).push(aIndex);
+  });
+
   pushUndoSnapshot();
-  group.activities.splice(aIndex, 1);
+  byGroup.forEach((aIndexes, gIndex) => {
+    const group = pkg.groupsData[gIndex];
+    if (!group) return;
+    // remove do fim pro começo: tirar um índice de baixo desalinharia os
+    // índices mais altos ainda pendentes na mesma lista
+    aIndexes.sort((a, b) => b - a).forEach((aIndex) => group.activities.splice(aIndex, 1));
+  });
+  renderGroups();
+}
+
+// Resolve o alvo de uma ação (arrastar ou remover) disparada a partir de uma
+// atividade: se ela faz parte da seleção múltipla atual (Ctrl+clique ou
+// marquee), a ação vale pra seleção inteira; senão, vale só pra essa atividade.
+function resolveActivityTargets(gIndex, aIndex) {
+  const key = `${gIndex}:${aIndex}`;
+  if (selectedActivities.size > 1 && selectedActivities.has(key)) {
+    return Array.from(selectedActivities).map((k) => {
+      const [g, a] = k.split(":").map(Number);
+      return { gIndex: g, aIndex: a };
+    });
+  }
+  return [{ gIndex, aIndex }];
+}
+
+// Soma uma atividade dentro de um grupo de destino: mesma regra de
+// mergePackages/parser.py — se já existe uma atividade com a mesma descrição
+// (sem diferenciar maiúsculas/espaços) nesse grupo, soma as horas nela em vez
+// de criar uma linha duplicada.
+function mergeActivityIntoGroup(toGroup, activity) {
+  const desc = activity.description.trim().toLowerCase();
+  const existing = desc
+    ? toGroup.activities.find((a) => a.description.trim().toLowerCase() === desc)
+    : undefined;
+  if (existing) {
+    existing.hours = Math.round(((parseFloat(existing.hours) || 0) + (parseFloat(activity.hours) || 0)) * 1000) / 1000;
+  } else {
+    toGroup.activities.push(activity);
+  }
+}
+
+// Arrastar o botão de remover de uma ou mais atividades selecionadas (no
+// preview) até outro grupo move essas atividades pra lá. `items` pode conter
+// atividades de vários grupos de origem diferentes (seleção múltipla com
+// Ctrl); as que já estão no grupo de destino são ignoradas.
+function moveActivitiesToGroup(items, toGIndex) {
+  const pkg = activePackage();
+  const toGroup = pkg && pkg.groupsData[toGIndex];
+  if (!toGroup || !items || !items.length) return;
+
+  const byGroup = new Map();
+  items.forEach(({ gIndex, aIndex }) => {
+    if (gIndex === toGIndex) return;
+    if (!byGroup.has(gIndex)) byGroup.set(gIndex, []);
+    byGroup.get(gIndex).push(aIndex);
+  });
+  if (byGroup.size === 0) return;
+
+  pushUndoSnapshot();
+  const removed = [];
+  byGroup.forEach((aIndexes, gIndex) => {
+    const fromGroup = pkg.groupsData[gIndex];
+    if (!fromGroup) return;
+    // remove do fim pro começo: tirar um índice de baixo desalinharia os
+    // índices mais altos ainda pendentes na mesma lista
+    aIndexes
+      .sort((a, b) => b - a)
+      .forEach((aIndex) => {
+        const [activity] = fromGroup.activities.splice(aIndex, 1);
+        if (activity) removed.push(activity);
+      });
+  });
+  removed.forEach((activity) => mergeActivityIntoGroup(toGroup, activity));
   renderGroups();
 }
 
 function attachPreviewListeners(container) {
+  // o preview inteiro acabou de ser reconstruído (HTML novo) — qualquer
+  // seleção de atividades de antes não corresponde mais às linhas atuais
+  selectedActivities.clear();
+
   const codeInput = container.querySelector("#pv-projectCode");
   if (codeInput) codeInput.addEventListener("input", (e) => handlePreviewHeaderInput("projectCode", e.target.value));
 
@@ -816,8 +919,64 @@ function attachPreviewListeners(container) {
   });
 
   container.querySelectorAll(".pv-remove-activity").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      removeActivityAt(Number(btn.dataset.gindex), Number(btn.dataset.aindex));
+    btn.addEventListener("click", (e) => {
+      // Ctrl/Cmd+clique no botão de remover é tratado como seleção (ver o
+      // mousedown da linha, abaixo) — não apaga a atividade nesse caso.
+      if (e.ctrlKey || e.metaKey) return;
+      // com 2+ atividades selecionadas, remover uma delas remove a seleção
+      // inteira (mesma convenção do arrasto, logo abaixo)
+      removeActivitiesAt(resolveActivityTargets(Number(btn.dataset.gindex), Number(btn.dataset.aindex)));
+    });
+    btn.addEventListener("dragstart", (e) => {
+      const gIndex = Number(btn.dataset.gindex);
+      const aIndex = Number(btn.dataset.aindex);
+      // se o item arrastado faz parte de uma seleção com Ctrl, arrasta a
+      // seleção inteira (mesmo que espalhada por grupos diferentes); senão,
+      // arrasta só esse item
+      const items = resolveActivityTargets(gIndex, aIndex);
+      draggedActivities = items;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", "activity");
+      items.forEach(({ gIndex: g, aIndex: a }) => {
+        const el = container.querySelector(`.preview-activity[data-gindex="${g}"][data-aindex="${a}"]`);
+        if (el) el.classList.add("dragging");
+      });
+    });
+    btn.addEventListener("dragend", () => {
+      draggedActivities = null;
+      container.querySelectorAll(".preview-activity.dragging").forEach((el) => el.classList.remove("dragging"));
+      container.querySelectorAll(".preview-group.drop-target").forEach((el) => {
+        el.classList.remove("drop-target");
+        el.dragEnterCount = 0;
+      });
+    });
+  });
+
+  container.querySelectorAll(".preview-activity").forEach((row) => {
+    const gIndex = Number(row.dataset.gindex);
+    const aIndex = Number(row.dataset.aindex);
+    row.addEventListener("mousedown", (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        // preventDefault evita que o clique foque o input por baixo do
+        // ponteiro — Ctrl+clique aqui é seleção, não edição
+        e.preventDefault();
+        const key = `${gIndex}:${aIndex}`;
+        if (selectedActivities.has(key)) {
+          selectedActivities.delete(key);
+          row.classList.remove("selected");
+        } else {
+          selectedActivities.add(key);
+          row.classList.add("selected");
+        }
+        return;
+      }
+      // clique sem Ctrl no botão de remover é o início de um arrasto — não
+      // pode limpar a seleção que o usuário acabou de montar
+      if (e.target.closest(".pv-remove-activity")) return;
+      if (selectedActivities.size) {
+        selectedActivities.clear();
+        container.querySelectorAll(".preview-activity.selected").forEach((el) => el.classList.remove("selected"));
+      }
     });
   });
 
@@ -829,9 +988,106 @@ function attachPreviewListeners(container) {
     btn.addEventListener("click", () => removeGroupAt(Number(btn.dataset.gindex)));
   });
 
+  container.querySelectorAll(".preview-group").forEach((groupEl) => {
+    // mesmo contador de entradas/saídas usado nas abas de pacote: um grupo tem
+    // vários elementos filhos (header, inputs, linhas de atividade), e sem
+    // contar isso o destaque pisca toda vez que o mouse passa de um filho pro
+    // outro, mesmo sem sair do grupo de verdade.
+    groupEl.dragEnterCount = 0;
+    groupEl.addEventListener("dragenter", () => {
+      const targetIndex = Number(groupEl.dataset.gindex);
+      if (draggedActivities && draggedActivities.some((item) => item.gIndex !== targetIndex)) {
+        groupEl.dragEnterCount += 1;
+        groupEl.classList.add("drop-target");
+      }
+    });
+    groupEl.addEventListener("dragleave", () => {
+      groupEl.dragEnterCount = Math.max(0, groupEl.dragEnterCount - 1);
+      if (groupEl.dragEnterCount === 0) groupEl.classList.remove("drop-target");
+    });
+    groupEl.addEventListener("dragover", (e) => e.preventDefault());
+    groupEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      groupEl.dragEnterCount = 0;
+      groupEl.classList.remove("drop-target");
+      if (!draggedActivities) return;
+      moveActivitiesToGroup(draggedActivities, Number(groupEl.dataset.gindex));
+      draggedActivities = null;
+    });
+  });
+
   const addGroupBtn = container.querySelector(".pv-add-group");
   if (addGroupBtn) addGroupBtn.addEventListener("click", addGroup);
 }
+
+// Segurar Ctrl e arrastar o mouse sobre o preview seleciona por área (marquee),
+// além do Ctrl+clique item a item já existente. Configurado uma única vez (o
+// #previewContainer em si nunca é substituído, só o innerHTML por dentro dele
+// — diferente dos listeners acima, que ficam em elementos recriados a cada
+// render e por isso podem ser religados sem acumular).
+(function setupActivityMarqueeSelection() {
+  const previewContainer = document.getElementById("previewContainer");
+  if (!previewContainer) return;
+
+  const DRAG_THRESHOLD = 4; // px de folga antes de virar arrasto — evita que um simples clique dispare o marquee
+  let startPoint = null;
+  let baseSelection = null; // seleção já existente ao começar o arrasto (o marquee só ADICIONA a ela)
+  let marqueeBox = null;
+
+  function boxFromPoints(a, b) {
+    return {
+      left: Math.min(a.x, b.x),
+      right: Math.max(a.x, b.x),
+      top: Math.min(a.y, b.y),
+      bottom: Math.max(a.y, b.y),
+    };
+  }
+
+  function applySelectionForBox(box) {
+    previewContainer.querySelectorAll(".preview-activity").forEach((row) => {
+      const r = row.getBoundingClientRect();
+      const intersects = r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
+      const key = `${row.dataset.gindex}:${row.dataset.aindex}`;
+      const shouldSelect = baseSelection.has(key) || intersects;
+      row.classList.toggle("selected", shouldSelect);
+      if (shouldSelect) selectedActivities.add(key);
+      else selectedActivities.delete(key);
+    });
+  }
+
+  function onMouseMove(e) {
+    if (!startPoint) return;
+    const point = { x: e.clientX, y: e.clientY };
+    if (!marqueeBox) {
+      if (Math.abs(point.x - startPoint.x) < DRAG_THRESHOLD && Math.abs(point.y - startPoint.y) < DRAG_THRESHOLD) return;
+      baseSelection = new Set(selectedActivities);
+      marqueeBox = document.createElement("div");
+      marqueeBox.className = "activity-marquee";
+      document.body.appendChild(marqueeBox);
+    }
+    const box = boxFromPoints(startPoint, point);
+    marqueeBox.style.left = box.left + "px";
+    marqueeBox.style.top = box.top + "px";
+    marqueeBox.style.width = box.right - box.left + "px";
+    marqueeBox.style.height = box.bottom - box.top + "px";
+    applySelectionForBox(box);
+  }
+
+  function endMarquee() {
+    if (marqueeBox) marqueeBox.remove();
+    marqueeBox = null;
+    startPoint = null;
+    baseSelection = null;
+    document.removeEventListener("mousemove", onMouseMove);
+  }
+
+  previewContainer.addEventListener("mousedown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+    startPoint = { x: e.clientX, y: e.clientY };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", endMarquee, { once: true });
+  });
+})();
 
 function renderPreview() {
   hasGeneratedOnce = false;
@@ -873,21 +1129,21 @@ function renderPreview() {
       const activityRows = [...realActivities, ...extraActivities]
         .map(
           ({ activity, aIndex, isExtra }) => `
-            <div class="preview-activity">
+            <div class="preview-activity" data-gindex="${gIndex}" data-aindex="${aIndex}">
               <input class="pv-input pv-desc" type="text" value="${escapeAttr(activity.description)}" data-gindex="${gIndex}" data-aindex="${aIndex}" />
               ${
                 isExtra
                   ? `<input class="pv-input pv-hours-extra" type="text" value="" placeholder="horas" data-gindex="${gIndex}" data-aindex="${aIndex}" />`
                   : ""
               }
-              <button type="button" class="pv-remove-activity" data-gindex="${gIndex}" data-aindex="${aIndex}" title="Remover atividade" aria-label="Remover atividade"></button>
+              <button type="button" class="pv-remove-activity" data-gindex="${gIndex}" data-aindex="${aIndex}" draggable="true" title="Remover atividade (ou arraste para outro grupo — Ctrl+clique para selecionar várias)" aria-label="Remover atividade"></button>
             </div>`
         )
         .join("");
 
       return `
         <div class="preview-group-row">
-          <div class="preview-group">
+          <div class="preview-group" data-gindex="${gIndex}">
             <div class="preview-group-header">
               <input class="pv-input pv-group-name" type="text" value="${escapeAttr(group.name)}" data-gindex="${gIndex}" />
               <button type="button" class="pv-remove-group" data-gindex="${gIndex}" title="Remover grupo" aria-label="Remover grupo"></button>

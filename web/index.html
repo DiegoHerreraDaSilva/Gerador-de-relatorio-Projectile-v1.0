@@ -683,6 +683,19 @@
   .pv-remove-activity:hover, .pv-remove-group:hover, .remove-group:hover {
     background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
   }
+  .pv-remove-activity[draggable="true"] { cursor: grab; }
+  .preview-activity.dragging { opacity: 0.5; }
+  .preview-activity.selected { background: color-mix(in srgb, var(--accent) 16%, #fff); }
+  .preview-group.drop-target {
+    box-shadow: 0 0 0 2px var(--accent) inset, 0 0 12px 0 var(--accent-glow);
+  }
+  .activity-marquee {
+    position: fixed;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    pointer-events: none;
+    z-index: 9999;
+  }
   .pv-add-activity, .pv-add-group {
     display: block; font-size: 0.78rem; font-style: normal; background: none; border: none;
     color: var(--accent); font-weight: 600; cursor: pointer;
