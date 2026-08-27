@@ -17,16 +17,25 @@ from starlette.background import BackgroundTask
 
 
 class NoCacheStaticFiles(StaticFiles):
-    """Evita que o navegador guarde em cache app.js/index.html/etc — como o app
-    está em desenvolvimento ativo, um F5 sempre precisa buscar a versão atual."""
+    """Em prod (Vite build) assets com hash ficam em /assets/* e podem ter cache
+    longo (immutable); index.html e demais continuam no-store para F5 buscar
+    versão atual. Em dev (web/ sem hash) tudo fica no-store como antes."""
 
     async def get_response(self, path: str, scope) -> Response:
         response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        if path.startswith("assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         return response
 
-from app.generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, generate_report
-from app.parser import parse_projectile_export
+from dotenv import load_dotenv
+
+from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
+from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, generate_report
+from .parser import parse_projectile_export
+
+load_dotenv()
 
 app = FastAPI(title="Automação de Relatório de Horas")
 app.add_middleware(
@@ -231,10 +240,75 @@ async def generate_endpoint(payload: GeneratePayload):
     )
 
 
+class ChatActivity(BaseModel):
+    description: str
+    hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
+class ChatGroup(BaseModel):
+    name: str
+    performance: float = Field(ge=0, allow_inf_nan=False)
+    activities: list[ChatActivity]
+
+
+class ChatPackage(BaseModel):
+    key: str
+    projectCode: str
+    projectName: str
+    groups: list[ChatGroup]
+
+
+class ChatState(BaseModel):
+    packages: list[ChatPackage] = Field(min_length=1)
+    activePackageIndex: int
+    locationDate: str
+    monthLabel: str
+    signer1Name: str = ""
+    signer1Company: str = ""
+    signer2Name: str = ""
+    signer2Company: str = ""
+
+
+class ChatRequest(BaseModel):
+    message: str
+    state: ChatState
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    state: ChatState
+
+
+@app.post("/chat")
+async def chat_endpoint(payload: ChatRequest):
+    try:
+        summary, new_state = call_chat(payload.message, payload.state.model_dump())
+    except ChatConfigError as e:
+        raise HTTPException(500, str(e))
+    except ChatUpstreamError as e:
+        raise HTTPException(502, str(e))
+
+    try:
+        validated_state = ChatState.model_validate(new_state)
+    except Exception:
+        raise HTTPException(502, "A IA retornou um formato inválido. Tente reformular o pedido.")
+
+    if len(validated_state.packages) != len(payload.state.packages):
+        raise HTTPException(
+            502,
+            "A IA devolveu um número diferente de relatórios do esperado. Tente reformular o pedido.",
+        )
+
+    return ChatResponse(reply=summary, state=validated_state)
+
+
 def _build_download_name(month_label: str, project_name: str) -> str:
     mes_ano = month_label.replace("/", ".").strip()
     projeto = re.sub(r'[\\/:*?"<>|]', "-", project_name).strip()
     return f"Relatório_Horas-{mes_ano}-{projeto}.xlsx"
 
 
-app.mount("/", NoCacheStaticFiles(directory=os.path.join(os.path.dirname(__file__), "..", "web"), html=True), name="web")
+_FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
+_DIST_DIR = os.path.join(_FRONTEND_DIR, "dist")
+_STATIC_DIR = _DIST_DIR if os.path.isdir(_DIST_DIR) else _FRONTEND_DIR
+app.mount("/", NoCacheStaticFiles(directory=_STATIC_DIR, html=True), name="web")

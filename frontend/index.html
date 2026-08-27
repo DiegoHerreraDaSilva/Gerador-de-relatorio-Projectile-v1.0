@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Geração de Relatório de Horas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23020617'/%3E%3Ccircle cx='16' cy='17' r='10.5' fill='none' stroke='%233bbdc9' stroke-width='2.4'/%3E%3Cpath d='M16 10.5v6.5l4.5 2.6' fill='none' stroke='%234fe3dc' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Crect x='13' y='2.5' width='6' height='2.6' rx='1.3' fill='%233bbdc9'/%3E%3C/svg%3E" />
+<script>
+  (function () {
+    var saved = localStorage.getItem("theme");
+    var theme = saved || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    document.documentElement.dataset.theme = theme;
+  })();
+</script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

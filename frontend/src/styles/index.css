@@ -1,12 +1,4 @@
-<!doctype html>
-<html lang="pt-br">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Geração de Relatório de Horas</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23020617'/%3E%3Ccircle cx='16' cy='17' r='10.5' fill='none' stroke='%233bbdc9' stroke-width='2.4'/%3E%3Cpath d='M16 10.5v6.5l4.5 2.6' fill='none' stroke='%234fe3dc' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Crect x='13' y='2.5' width='6' height='2.6' rx='1.3' fill='%233bbdc9'/%3E%3C/svg%3E" />
-<style>
-  :root {
+:root {
     --brand-50:  #effcfc;  --brand-100: #d5f5f6;  --brand-200: #b0eaed;
     --brand-300: #79d8df;  --brand-400: #3bbdc9;  --brand-500: #1fa1ae;
     --brand-600: #128293;  --brand-700: #146978;  --brand-800: #175663;
@@ -38,6 +30,34 @@
     --footer-height: 100px;
   }
 
+  /* Tema claro — mesma marca (teal), superfícies e sombras invertidas pra fundo
+     claro. A área de preview do relatório (.preview-*, mais abaixo) simula uma
+     folha impressa e fica sempre clara, em QUALQUER tema — não usa esses tokens. */
+  :root[data-theme="light"] {
+    --bg: #eef2f5;
+    --bg-glow-a: rgba(15, 168, 164, 0.10);
+    --bg-glow-b: rgba(100, 120, 238, 0.06);
+    --surface: #ffffff;
+    --surface-2: #eef1f3;
+    --surface-grad: #f7f9fa;
+    --border: #d7dee3;
+    --hairline: rgba(15, 23, 30, 0.05);
+    --text: #16202a;
+    --text-muted: #5c6b76;
+
+    --brand: #0c8f8b;
+    --brand-strong: #0a7f7c;
+    --accent: #0c8f8b;
+    --accent-hi: #0a6f6d;
+    --accent-glow: rgba(12, 143, 139, 0.2);
+    --ring: rgba(12, 143, 139, 0.35);
+
+    --ok: #1f9d5e;  --warn: #b5790a;  --bad: #d64545;
+
+    --shadow-card: 0 1px 0 rgba(15,23,30,.04), 0 10px 24px -18px rgba(15,23,30,.18);
+    --shadow-card-hover: 0 1px 0 rgba(15,23,30,.04), 0 18px 36px -18px rgba(12,143,139,.28);
+  }
+
   * { box-sizing: border-box; }
   html, body { background: var(--bg); color: var(--text); }
   body {
@@ -65,6 +85,18 @@
     margin-bottom: 20px;
   }
   .app-logo { height: 60px; width: auto; }
+  .app-header-actions { display: flex; align-items: center; gap: 14px; }
+  .theme-toggle {
+    width: 38px; height: 38px; padding: 0;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--accent);
+  }
+  .theme-toggle:hover { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); }
+  .theme-toggle svg { display: block; }
+  :root[data-theme="light"] .theme-toggle { color: var(--accent); }
 
   h1 { font-size: 1.9rem; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
   h2 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 16px; }
@@ -179,7 +211,7 @@
     border-radius: 0;
     border: 1px solid var(--border);
     background: var(--surface-2);
-    color: #fff;
+    color: var(--text);
   }
   /* só as pontas da fileira arredondam — no meio fica reto, como um único
      retângulo dividido em vez de várias pílulas coladas */
@@ -286,6 +318,16 @@
   }
   .group.collapsed .group-header .chevron { transform: rotate(-90deg); }
   .group-header .group-title { flex: 1; font-weight: 600; font-size: 0.92rem; }
+  .idx-badge {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 20px; padding: 0 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+    color: var(--accent-hi);
+    font-size: 0.72rem; font-weight: 700;
+  }
+  .activity-row .idx-badge { background: var(--surface-2); color: var(--text-muted); }
   .group-header .group-hours { font-size: 0.85rem; color: var(--accent-hi); font-weight: 600; }
   .group-body { padding: 0 16px 16px; }
   .group.collapsed .group-body { display: none; }
@@ -512,6 +554,10 @@
     flex: 1 1 auto;
     max-width: none;
   }
+  /* split view: some a sidebar de vez pra dar largura máxima aos 2 painéis —
+     classe própria (não .preview-collapsed, que tem seu próprio botão/estado
+     independente de "Recolher preview »") */
+  .app-body.split-mode .sidebar { display: none; }
   .preview-column {
     flex: 1;
     min-width: 0;
@@ -583,6 +629,113 @@
      esse pulo de altura faz o rodapé inteiro saltar de posição. */
   #generateStatus { margin: 4px 0 0; text-align: center; min-height: 1.45em; }
 
+  /* ---------- Chat de edição em massa (widget flutuante) ---------- */
+  .chat-fab {
+    position: fixed;
+    left: 24px;
+    bottom: calc(var(--footer-height) + 24px);
+    z-index: 30;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+    color: #fff;
+    border: none;
+    box-shadow: 0 0 22px 0 var(--accent-glow), 0 8px 20px -8px rgba(0,0,0,.6);
+    font-size: 1.4rem;
+    transition: box-shadow .15s ease, filter .15s ease, transform .08s ease;
+  }
+  .chat-fab:hover { box-shadow: 0 0 30px 2px var(--accent-glow), 0 8px 20px -8px rgba(0,0,0,.6); filter: brightness(1.08); }
+  .chat-fab:active { transform: scale(0.94); }
+  .chat-fab.open { display: none; }
+
+  .chat-panel {
+    display: none;
+    position: fixed;
+    left: 24px;
+    bottom: calc(var(--footer-height) + 24px);
+    z-index: 30;
+    width: 380px;
+    min-width: 300px;
+    max-width: 90vw;
+    height: 520px;
+    min-height: 320px;
+    max-height: 90vh;
+    flex-direction: column;
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card-hover);
+    overflow: hidden;
+  }
+  .chat-panel.open { display: flex; }
+  /* enquanto arrasta/redimensiona, evita que o texto/seleção do resto da
+     página atrapalhe e que a transição do preview interfira na resposta ao mouse */
+  .chat-panel.dragging, .chat-panel.resizing { user-select: none; }
+
+  .chat-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex: 0 0 auto;
+    cursor: move;
+  }
+  .chat-panel-header h3 { margin: 0; font-size: 0.95rem; }
+  .chat-panel-header p { margin: 2px 0 0; font-size: 0.76rem; color: var(--text-muted); }
+  .chat-panel-close {
+    padding: 4px 9px;
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--text-muted);
+  }
+  .chat-panel-close:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+
+  /* ---------- Alças de redimensionar (borda direita, borda de baixo, quina) ---------- */
+  .chat-resize-e, .chat-resize-s, .chat-resize-se {
+    position: absolute;
+    z-index: 1;
+  }
+  .chat-resize-e { top: 0; right: 0; width: 8px; height: 100%; cursor: ew-resize; }
+  .chat-resize-s { left: 0; bottom: 0; width: 100%; height: 8px; cursor: ns-resize; }
+  .chat-resize-se {
+    right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+  }
+  .chat-resize-se::after {
+    content: "";
+    position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px;
+    border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted);
+    opacity: .6;
+  }
+
+  .chat-messages {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .chat-empty { color: var(--text-muted); font-size: 0.84rem; text-align: center; margin-top: 24px; }
+  .chat-msg { max-width: 88%; padding: 8px 12px; border-radius: 10px; font-size: 0.86rem; line-height: 1.4; }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+    color: #fff;
+  }
+  .chat-msg.assistant { align-self: flex-start; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  .chat-msg.error { align-self: flex-start; background: color-mix(in srgb, var(--bad) 16%, var(--surface)); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--border)); }
+  .chat-msg.pending { align-self: flex-start; color: var(--text-muted); font-style: italic; }
+
+  .chat-input-row {
+    display: flex; gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    flex: 0 0 auto;
+  }
+  .chat-input-row input[type=text] { flex: 1; margin: 0; }
+  .chat-input-row button { flex: 0 0 auto; padding: 9px 14px; }
+
   /* preview do relatório final, no estilo de planilha */
   /* Fica fora da área que rola (flex item de tamanho fixo dentro do card, que agora
      é uma coluna flex) — por isso nunca precisa de position:sticky nem de recortar
@@ -601,6 +754,38 @@
   .preview-tools button { padding: 5px 10px; font-size: 0.8rem; background: none; border: 1px solid var(--border); color: var(--text-muted); }
   .preview-tools button:hover { color: var(--accent-hi); background: none; border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
   #zoomLabel { font-size: 0.78rem; color: var(--text-muted); min-width: 40px; text-align: center; }
+  #btnSplitView.active {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
+    color: #fff; border-color: transparent;
+  }
+
+  /* ---------- Split view: 2 relatórios lado a lado ---------- */
+  /* mesma cadeia flex de altura que .preview-sheet-wrap já usava sozinho —
+     precisa se repetir em cada nível novo (.preview-panes > .preview-pane)
+     pra manter o card com barra de título fixa e só a folha rolando */
+  .preview-panes { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .preview-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .preview-pane-header { display: none; margin-bottom: 8px; }
+  #previewPane2 { display: none; }
+
+  .preview-panes.split-active { flex-direction: row; gap: 16px; }
+  .preview-panes.split-active .preview-pane { flex: 1 1 0; min-width: 0; }
+  .preview-panes.split-active .preview-pane-header { display: block; }
+  .preview-panes.split-active #previewPane2 { display: flex; }
+
+  .pane-package-select {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  /* alvo de arrastar um GRUPO inteiro (não uma atividade) pro painel inteiro —
+     outline (não box-shadow) porque não precisa fechar rente a nenhum vizinho
+     colado, como as abas de pacote precisam */
+  .preview-pane.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 8px; }
 
   .preview-sheet-wrap {
     flex: 1 1 auto;
@@ -661,6 +846,15 @@
     display: flex; align-items: center; gap: 8px;
   }
   .preview-group-header .pv-group-name { flex: 1; }
+  .pv-idx {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 4px;
+    border-radius: 999px;
+    background: rgba(0,0,0,.12);
+    color: #444;
+    font-size: 0.68rem; font-weight: 700; font-style: normal;
+  }
   .preview-activity {
     padding: 1px 14px; border-bottom: 1px solid #ddd; font-style: italic;
     line-height: 1.5;
@@ -689,6 +883,15 @@
   .preview-group.drop-target {
     box-shadow: 0 0 0 2px var(--accent) inset, 0 0 12px 0 var(--accent-glow);
   }
+  /* handle pra arrastar o GRUPO inteiro (pro outro painel, no split view) —
+     separado do input de nome do grupo, que é texto editável e brigaria com
+     o drag nativo se o header inteiro fosse arrastável */
+  .pv-group-handle {
+    cursor: grab; flex: 0 0 auto; color: var(--text-muted); font-size: 0.9rem;
+    line-height: 1; user-select: none;
+  }
+  .pv-group-handle:hover { color: var(--accent-hi); }
+  .preview-group.dragging { opacity: 0.5; }
   .activity-marquee {
     position: fixed;
     border: 1px solid var(--accent);
@@ -772,125 +975,3 @@
   .pv-input.pv-perf { width: 100%; text-align: center; }
   .pv-input.pv-hours-extra { flex: 0 0 56px; width: 56px; text-align: right; }
   .pv-input.pv-hours-extra::placeholder { color: #999; font-style: normal; }
-</style>
-</head>
-<body>
-  <header class="app-header">
-    <h1>Geração de Relatório de Horas</h1>
-    <img src="logo.png" alt="Schwaben Engineering" class="app-logo" />
-  </header>
-
-  <nav class="stepper" id="stepper"></nav>
-
-  <div class="summary-row" id="summaryRow">
-    <div class="summary-bar" id="summaryBar"></div>
-    <div id="summaryBarActions">
-      <button type="button" class="btn-secondary" id="btnChangeFile">Trocar arquivo</button>
-      <button type="button" id="btnTogglePreviewFloating">Recolher preview »</button>
-    </div>
-  </div>
-
-  <div class="validation-banner" id="validationBanner">
-    <div class="validation-banner-header">
-      <span class="validation-banner-title">⚠ <span id="validationCount"></span> linha(s) ignorada(s) com possível erro de apontamento</span>
-      <button type="button" class="btn-toggle" id="btnToggleValidation">▾ Recolher</button>
-    </div>
-    <ul class="validation-list" id="validationList"></ul>
-  </div>
-
-  <div class="card" id="step1">
-    <h2>1. Importar relatório do Projectile</h2>
-    <div class="mode-select" id="modeSelect">
-      <button type="button" class="mode-option active" data-mode="single">
-        <span class="mode-title">Relatório único</span>
-        <span class="mode-desc">Todas as linhas viram um único relatório final.</span>
-      </button>
-      <button type="button" class="mode-option" data-mode="multi">
-        <span class="mode-title">Múltiplos relatórios</span>
-        <span class="mode-desc">Um relatório separado por Pacote de Trabalho.</span>
-      </button>
-    </div>
-    <div class="file-input-row">
-      <input type="file" id="fileInput" accept=".xlsx" title="Selecione o .xlsx exportado do Projectile para o mês/projeto." />
-      <button type="button" id="btnClearFile" class="btn-remove-file" title="Remover arquivo selecionado" style="display: none;"><span>×</span> Remover</button>
-    </div>
-    <button class="primary" id="btnParse">Analisar planilha</button>
-    <p id="parseStatus" class="muted"></p>
-  </div>
-
-  <div id="step2">
-    <nav class="package-tabs" id="packageTabs"></nav>
-    <div class="app-body">
-      <aside class="sidebar">
-        <div class="package-filename-row" id="packageFileNameRow">
-          <label for="packageFileName">Nome do arquivo deste relatório (.xlsx)</label>
-          <input type="text" id="packageFileName" />
-        </div>
-        <div class="card" id="headerDataCard">
-          <div class="card-header-row">
-            <h2>Dados do relatório</h2>
-            <button type="button" class="btn-toggle" id="btnToggleHeaderData">▾ Recolher</button>
-          </div>
-          <div id="headerDataExpanded">
-            <label>Código do projeto (ex: SE.26.048) <span class="required-mark">*</span></label>
-            <input type="text" id="projectCode" />
-            <label>Nome do projeto (ex: CAD_Cabina - Série)</label>
-            <input type="text" id="projectName" />
-            <label>Local e data (ex: Santo André, 13.08.2026)</label>
-            <input type="text" id="locationDate" />
-            <label>Mês de referência (ex: Julho/2026)</label>
-            <input type="text" id="monthLabel" />
-            <label>Nome do engenheiro (assinatura 1)</label>
-            <input type="text" id="signer1Name" placeholder="Nome completo" />
-            <label>Empresa (assinatura 1)</label>
-            <input type="text" id="signer1Company" value="Schwaben Engineering" />
-            <label>Nome do engenheiro (assinatura 2)</label>
-            <input type="text" id="signer2Name" placeholder="Nome completo" />
-            <label>Empresa (assinatura 2)</label>
-            <input type="text" id="signer2Company" value="Mercedes-Benz do Brasil" />
-          </div>
-          <div id="headerDataSummary" class="header-data-summary" style="display: none;"></div>
-        </div>
-
-        <div class="card">
-          <h2>Grupos e horas</h2>
-          <div id="groupsContainer"></div>
-          <button type="button" class="btn-secondary" id="btnAddGroup" style="margin-top: 12px;">+ Novo grupo</button>
-        </div>
-      </aside>
-
-      <main class="preview-column" id="previewColumn">
-        <div class="card">
-          <div class="preview-toolbar">
-            <h2>Preview do relatório final</h2>
-            <div class="preview-tools">
-              <button type="button" class="btn-toggle" id="btnUndo" title="Desfazer a última alteração" disabled>↶ Desfazer</button>
-              <button type="button" id="btnZoomOut" title="Diminuir zoom">−</button>
-              <span id="zoomLabel">100%</span>
-              <button type="button" id="btnZoomIn" title="Aumentar zoom">+</button>
-              <button type="button" id="btnFullscreen" title="Tela cheia">⛶ Tela cheia</button>
-            </div>
-          </div>
-          <div class="preview-sheet-wrap" id="previewSheetWrap">
-            <div class="preview-sheet" id="previewContainer"></div>
-          </div>
-        </div>
-      </main>
-    </div>
-  </div>
-
-  <div class="generate-footer" id="generateSection">
-    <div class="generate-footer-inner">
-      <div class="generate-total" id="generateTotal"></div>
-      <button class="primary" id="btnGenerate">Gerar relatório final</button>
-      <div class="filename-field">
-        <label id="fileNameLabel">Nome do arquivo</label>
-        <input type="text" id="fileName" />
-      </div>
-    </div>
-    <p id="generateStatus" class="muted"></p>
-  </div>
-
-  <script src="app.js"></script>
-</body>
-</html>

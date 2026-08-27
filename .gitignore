@@ -10,10 +10,22 @@ venv/
 # logs locais de desenvolvimento
 *.log
 
-# cópias soltas do logo na raiz — as usadas pelo app ficam em web/
+# chave da API da Anthropic — nunca vai pro repo
+.env
+
+# cópias soltas do logo na raiz — as usadas pelo app ficam em frontend/public
 /logo.png
 /logo-light.png
 
-# export real do Projectile usado como referência durante o desenvolvimento —
-# contém dados reais de colaboradores e projetos de cliente, não deve ir pro repo
+# export real do Projectile usado como referência — contém dados reais, não deve ir pro repo
+backend/templates/exemplo_projectile.xlsx
 templates/exemplo_projectile.xlsx
+
+# Node / Vite (frontend React)
+node_modules/
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+dist/
+.vite/
+*.tsbuildinfo

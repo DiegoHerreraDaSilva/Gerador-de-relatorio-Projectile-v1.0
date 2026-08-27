@@ -1,0 +1,31 @@
+{
+  "name": "automacao-relatorio-horas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 5173",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "immer": "^10.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.6.3",
+    "vite": "^7.3.6"
+  },
+  "overrides": {
+    "esbuild": "^0.25.12"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}
