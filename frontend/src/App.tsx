@@ -14,6 +14,7 @@ import { useReportStore } from "./store/useReportStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
 
+// teste: editado por Claude em 2026-08-27
 export default function App() {
   const packages = useReportStore((s) => s.packages);
   const activeId = useReportStore((s) => s.activePackageId);

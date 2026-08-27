@@ -1,5 +1,7 @@
 # Automação de Relatório de Horas
 
+<!-- teste: editado por Claude em 2026-08-27 -->
+
 Aplicação web **local** que converte o export de horas do **Projectile** (`.xlsx`) no relatório final da **Schwaben Engineering / Mercedes-Benz** — já formatado: mesma logo, mesmas caixas de assinatura, mesmas fórmulas e tabela auxiliar “Week/AK/Days/Hours” — sem montar manualmente todo mês.
 
 Fluxo: **Importar export do Projectile → Revisar/editar na tela → Gerar `.xlsx` final (ou `.zip` com 1 por Pacote).**

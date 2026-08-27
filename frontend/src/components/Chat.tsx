@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageSquare, FileText, GripVertical, User, Sparkles, AlertTriangle, Send, X } from "lucide-react";
+import { FileText, GripVertical, User, Sparkles, AlertTriangle, Send, X } from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
 
 export function Chat() {
@@ -206,7 +206,7 @@ export function Chat() {
         aria-label="Abrir assistente de edição em massa"
         onClick={() => setOpen(true)}
       >
-        <MessageSquare size={26} strokeWidth={1.8} aria-hidden="true" />
+        <span className="chat-fab-icon" aria-hidden="true">IA</span>
         {hasMessages && <span className="chat-fab-badge">{messages.length}</span>}
       </button>
 

@@ -650,6 +650,14 @@
   .chat-fab:active { transform: scale(.96); }
   .chat-fab.open { opacity: 0; transform: scale(.85); pointer-events: none; }
   .chat-fab svg { width: 26px; height: 26px; display: block; }
+  .chat-fab-icon {
+    font-size: 2.0rem;
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    color: white;
+    -webkit-text-stroke: 0.5px #ffffff;
+  }
   .chat-fab-badge {
     position: absolute; top: -4px; right: -4px;
     min-width: 22px; height: 22px; padding: 0 5px;
