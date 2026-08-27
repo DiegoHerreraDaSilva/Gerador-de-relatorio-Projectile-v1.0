@@ -31,6 +31,7 @@ class NoCacheStaticFiles(StaticFiles):
 
 from dotenv import load_dotenv
 
+from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
 from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, generate_report
 from .parser import parse_projectile_export
@@ -282,22 +283,23 @@ class ChatResponse(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(payload: ChatRequest):
     try:
-        summary, new_state = call_chat(payload.message, payload.state.model_dump())
+        summary, operations = call_chat(payload.message, payload.state.model_dump())
     except ChatConfigError as e:
         raise HTTPException(500, str(e))
     except ChatUpstreamError as e:
         raise HTTPException(502, str(e))
 
     try:
+        new_state = apply_operations(payload.state.model_dump(), operations)
+    except OperationError as e:
+        # a IA pediu uma operação que não bate com o estado real (pacote/grupo/
+        # atividade inexistente, campo inválido) — nunca aplica parte da lista
+        raise HTTPException(502, f"A IA pediu uma alteração inválida: {e} Tente reformular o pedido.")
+
+    try:
         validated_state = ChatState.model_validate(new_state)
     except Exception:
-        raise HTTPException(502, "A IA retornou um formato inválido. Tente reformular o pedido.")
-
-    if len(validated_state.packages) != len(payload.state.packages):
-        raise HTTPException(
-            502,
-            "A IA devolveu um número diferente de relatórios do esperado. Tente reformular o pedido.",
-        )
+        raise HTTPException(502, "A IA retornou dados inválidos (ex: horas negativas). Tente reformular o pedido.")
 
     return ChatResponse(reply=summary, state=validated_state)
 

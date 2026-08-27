@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { THEME_ICONS, getInitialTheme, applyTheme, type Theme } from "../utils/theme";
+import { Sun, Moon } from "lucide-react";
+import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 
 export function Header() {
   const [theme, setTheme] = useState<Theme>(() => {
@@ -30,8 +31,9 @@ export function Header() {
           title={isLight ? "Mudar para tema escuro" : "Mudar para tema claro"}
           aria-label={isLight ? "Mudar para tema escuro" : "Mudar para tema claro"}
           onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-          dangerouslySetInnerHTML={{ __html: isLight ? THEME_ICONS.moon : THEME_ICONS.sun }}
-        />
+        >
+          {isLight ? <Moon size={18} strokeWidth={1.7} /> : <Sun size={18} strokeWidth={1.7} />}
+        </button>
         <img
           src={isLight ? "logo-light.png" : "logo.png"}
           alt="Schwaben Engineering"
