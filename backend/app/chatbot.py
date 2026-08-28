@@ -65,7 +65,7 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
     momento de aplicar, contra o estado real.
     """
     client = _get_client()
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
     try:
         response = client.messages.create(
@@ -73,9 +73,19 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
             # bem menor que os 8192 do formato antigo (que ecoava o relatório
             # inteiro) — a resposta agora é só a lista de operações
             max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=[TOOL_SCHEMA],
+            # system+tools são fixos entre requisições (nunca mudam por pedido) —
+            # o breakpoint de cache no último bloco de `tools` cobre os dois juntos
+            # (system vem antes de tools no prefixo do prompt). Só compensa porque
+            # o modelo é Sonnet: o mínimo cacheável dele é 1024 tokens, bem abaixo
+            # do prefixo estático daqui — no Haiku 4.5 o mínimo é 4096 e não valeria
+            # a pena (ver decisão registrada em versões anteriores do plano).
+            system=[{"type": "text", "text": SYSTEM_PROMPT}],
+            tools=[{**TOOL_SCHEMA, "cache_control": {"type": "ephemeral"}}],
             tool_choice={"type": "tool", "name": TOOL_NAME},
+            # "low" é suficiente pra essa tarefa (gerar uma lista curta de operações
+            # estruturadas) e mantém a resposta rápida/barata — suba pra "medium"/"high"
+            # se a IA começar a errar referências de grupo/atividade com frequência
+            output_config={"effort": "low"},
             messages=[
                 {
                     "role": "user",
