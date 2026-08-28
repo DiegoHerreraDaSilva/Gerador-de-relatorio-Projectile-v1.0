@@ -1,7 +1,14 @@
 import { useRef, useState } from "react";
 import { FileSpreadsheet } from "lucide-react";
-import { useReportStore } from "../store/useReportStore";
+import { useReportStore, MESES_PT } from "../store/useReportStore";
 import type { ParseResponse } from "../api/types";
+
+function parseMonthLabel(label: string): { month: string; year: string } {
+  const match = /^([^/]+)\/(\d{4})$/.exec(label || "");
+  if (!match) return { month: MESES_PT[0], year: String(new Date().getFullYear()) };
+  const found = MESES_PT.find((m) => m.toLowerCase() === match[1].trim().toLowerCase());
+  return { month: found || MESES_PT[0], year: match[2] };
+}
 
 function genId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -20,9 +27,17 @@ export function FileUpload() {
   const [status, setStatus] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [source, setSource] = useState<"file" | "db">("file");
+  const [searching, setSearching] = useState(false);
   const reportMode = useReportStore((s) => s.reportMode);
+  const monthLabel = useReportStore((s) => s.header.monthLabel);
+  const setHeaderField = useReportStore((s) => s.setHeaderField);
   const setPackages = useReportStore((s) => s.setPackages);
   const setIssues = useReportStore((s) => s.setIssues);
+
+  const { month: searchMonth, year: searchYear } = parseMonthLabel(monthLabel);
+  const setSearchMonth = (month: string) => setHeaderField("monthLabel", `${month}/${searchYear}`);
+  const setSearchYear = (year: string) => setHeaderField("monthLabel", `${searchMonth}/${year}`);
 
   const applyFile = (file: File | null) => {
     setSelectedFile(file);
@@ -59,6 +74,47 @@ export function FileUpload() {
     useReportStore.getState().setReportMode(mode);
   };
 
+  const applyParseResponse = (data: ParseResponse) => {
+    if (data.packages.length === 0) {
+      setStatus("Não encontrei grupos de atividades. Confira o aviso acima (se houver).");
+      setPackages([], null);
+      setIssues(data.issues || []);
+      return;
+    }
+
+    const pkgs = data.packages.map((p) => ({
+      id: genId(),
+      key: p.key,
+      projectCode: "",
+      projectName: p.project_name || p.key,
+      groups: p.groups.map((g) => ({
+        id: genId(),
+        name: g.name,
+        performance: 1,
+        activities: g.activities.map((a) => ({ id: genId(), description: a.description, hours: a.hours })),
+      })),
+      collapsedGroupIds: new Set<string>(),
+      fileName: "",
+      fileNameEdited: false,
+      chartBar: false,
+      chartPie: false,
+    }));
+    pkgs.forEach((pkg) => {
+      pkg.collapsedGroupIds = new Set(pkg.groups.map((g) => g.id));
+    });
+
+    setPackages(pkgs, pkgs[0]?.id ?? null);
+    setIssues(data.issues || []);
+    const totalGroups = pkgs.reduce((sum, p) => sum + p.groups.length, 0);
+    setStatus(
+      pkgs.length > 1
+        ? `Encontrados ${pkgs.length} pacotes de trabalho (${totalGroups} grupo(s) no total).`
+        : `Encontrados ${totalGroups} grupo(s).`
+    );
+    const step1 = document.getElementById("step1");
+    if (step1) step1.style.display = "none";
+  };
+
   const handleParse = async () => {
     if (!selectedFile) {
       setStatus("Escolha um arquivo .xlsx primeiro.");
@@ -72,46 +128,33 @@ export function FileUpload() {
       const res = await fetch("/parse", { method: "POST", body: formData });
       if (!res.ok) throw new Error(await res.text());
       const data: ParseResponse = await res.json();
-
-      if (data.packages.length === 0) {
-        setStatus("Não encontrei grupos de atividades nessa planilha. Confira o aviso acima (se houver) ou o arquivo enviado.");
-        setPackages([], null);
-        setIssues(data.issues || []);
-        return;
-      }
-
-      const pkgs = data.packages.map((p) => ({
-        id: genId(),
-        key: p.key,
-        projectCode: "",
-        projectName: p.project_name || p.key,
-        groups: p.groups.map((g) => ({
-          id: genId(),
-          name: g.name,
-          performance: 1,
-          activities: g.activities.map((a) => ({ id: genId(), description: a.description, hours: a.hours })),
-        })),
-        collapsedGroupIds: new Set<string>(),
-        fileName: "",
-        fileNameEdited: false,
-      }));
-      pkgs.forEach((pkg) => {
-        pkg.collapsedGroupIds = new Set(pkg.groups.map((g) => g.id));
-      });
-
-      setPackages(pkgs, pkgs[0]?.id ?? null);
-      setIssues(data.issues || []);
-      const totalGroups = pkgs.reduce((sum, p) => sum + p.groups.length, 0);
-      setStatus(
-        pkgs.length > 1
-          ? `Encontrados ${pkgs.length} pacotes de trabalho (${totalGroups} grupo(s) no total).`
-          : `Encontrados ${totalGroups} grupo(s).`
-      );
-      const step1 = document.getElementById("step1");
-      if (step1) step1.style.display = "none";
+      applyParseResponse(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus("Erro ao analisar: " + msg);
+    }
+  };
+
+  const handleSearchDb = async () => {
+    setSearching(true);
+    setStatus("Buscando no Projectile...");
+    try {
+      const res = await fetch("/parse-db", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month_label: monthLabel, mode: reportMode }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error((data && (data as any).detail) || (await res.text().catch(() => "")) || `Erro ${res.status}`);
+      }
+      const data: ParseResponse = await res.json();
+      applyParseResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus("Erro ao buscar: " + msg);
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -147,47 +190,86 @@ export function FileUpload() {
           </button>
         </div>
 
-        <div
-          className={`dropzone ${dragging ? "dragging" : ""} ${selectedFile ? "has-file" : ""}`.trim()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-        >
-          {selectedFile ? (
-            <>
-              <div className="file-chip">
-                <span className="file-chip-icon" aria-hidden="true">
-                  <FileSpreadsheet size={16} strokeWidth={1.8} />
-                </span>
-                <span className="file-chip-meta">
-                  <span className="file-chip-name" title={selectedFile.name}>{selectedFile.name}</span>
-                  <span className="file-chip-size">{formatFileSize(selectedFile.size)}</span>
-                </span>
-              </div>
-              <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" onClick={clearFile}>
-                <span>×</span> Remover
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="dropzone-hint">Solte o .xlsx aqui</span>
-              <span className="dropzone-subhint">ou clique pra escolher o arquivo exportado do Projectile</span>
-            </>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx"
-            title="Selecione o .xlsx exportado do Projectile para o mês/projeto."
-            onChange={onFileInputChange}
-            style={{ display: selectedFile ? "none" : "block" }}
-          />
+        <div className="source-tabs">
+          <button type="button" className={`source-tab ${source === "file" ? "active" : ""}`} onClick={() => setSource("file")}>
+            Enviar arquivo
+          </button>
+          <button type="button" className={`source-tab ${source === "db" ? "active" : ""}`} onClick={() => setSource("db")}>
+            Buscar do Projectile
+          </button>
         </div>
 
-        <button className="primary" onClick={handleParse}>Analisar planilha</button>
+        {source === "file" ? (
+          <>
+            <div
+              className={`dropzone ${dragging ? "dragging" : ""} ${selectedFile ? "has-file" : ""}`.trim()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+            >
+              {selectedFile ? (
+                <>
+                  <div className="file-chip">
+                    <span className="file-chip-icon" aria-hidden="true">
+                      <FileSpreadsheet size={16} strokeWidth={1.8} />
+                    </span>
+                    <span className="file-chip-meta">
+                      <span className="file-chip-name" title={selectedFile.name}>{selectedFile.name}</span>
+                      <span className="file-chip-size">{formatFileSize(selectedFile.size)}</span>
+                    </span>
+                  </div>
+                  <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" onClick={clearFile}>
+                    <span>×</span> Remover
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="dropzone-hint">Solte o .xlsx aqui</span>
+                  <span className="dropzone-subhint">ou clique pra escolher o arquivo exportado do Projectile</span>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx"
+                title="Selecione o .xlsx exportado do Projectile para o mês/projeto."
+                onChange={onFileInputChange}
+                style={{ display: selectedFile ? "none" : "block" }}
+              />
+            </div>
+
+            <button className="primary" onClick={handleParse}>Analisar planilha</button>
+          </>
+        ) : (
+          <>
+            <label className="db-search-label">Mês de referência</label>
+            <div className="db-search-month-row">
+              <select
+                className="db-search-input"
+                value={searchMonth}
+                onChange={(e) => setSearchMonth(e.target.value)}
+              >
+                {MESES_PT.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                className="db-search-input db-search-year"
+                value={searchYear}
+                onChange={(e) => setSearchYear(e.target.value)}
+              />
+            </div>
+            <p className="db-search-hint">Busca as horas apontadas pelo seu usuário do Projectile nesse mês.</p>
+            <button className="primary" onClick={handleSearchDb} disabled={searching}>
+              {searching ? "Buscando..." : "Buscar horas"}
+            </button>
+          </>
+        )}
+
         <p className="muted">{status}</p>
       </div>
       <button type="button" id="btnChangeFileHidden" style={{ display: "none" }} onClick={changeFile} />
