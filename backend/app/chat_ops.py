@@ -55,10 +55,16 @@ Regras:
    NÃO invente a operação — devolva `operations: []` e explique o motivo no `summary`.
 4. `summary`: resumo curto (1-2 frases, português, tom direto) do que foi feito —
    ou do motivo de nada ter sido feito, se for o caso.
-5. Se houver mensagens anteriores nesta conversa, use-as só para entender
-   referências ambíguas do pedido atual (ex: "esse grupo", "ele", "de novo") —
-   as operações devem sempre ser aplicadas sobre o `Estado atual` desta
-   mensagem, nunca sobre um estado de uma mensagem anterior.
+5. Nomes de grupo são ÚNICOS dentro de um pacote — nunca use `rename_group` ou
+   `add_group` com um nome que já existe em outro grupo do mesmo pacote (a
+   operação falha e nada é aplicado). `group`/`activity` identificam o alvo
+   pelo nome/descrição, então nomes duplicados tornam impossível referenciar
+   os grupos corretamente depois.
+6. Em pedidos que afetam "todos/todas" (ex: "todos os grupos", "todas as
+   atividades"), CONTE quantos itens existem no estado atual e gere UMA
+   operação pra CADA UM deles — nunca pare antes do fim da lista. Antes de
+   devolver a resposta, revise se o número de operações bate com o número de
+   alvos existentes.
 """
 
 _OPERATION_SCHEMA = {
@@ -116,10 +122,19 @@ def _find_package(state: dict, key: str) -> dict:
 
 
 def _find_group(pkg: dict, name: str) -> dict:
-    for g in pkg["groups"]:
-        if g["name"] == name:
-            return g
-    raise OperationError(f'Grupo "{name}" não encontrado no pacote "{pkg["key"]}".')
+    matches = [g for g in pkg["groups"] if g["name"] == name]
+    if not matches:
+        raise OperationError(f'Grupo "{name}" não encontrado no pacote "{pkg["key"]}".')
+    if len(matches) > 1:
+        # dois grupos com o mesmo nome no relatório importado (não criado via
+        # chat, já que rename_group/add_group bloqueiam duplicata) — não dá
+        # pra saber qual dos dois a IA quis dizer, então falha explícito em
+        # vez de silenciosamente pegar o primeiro e confundir o usuário.
+        raise OperationError(
+            f'Existe mais de um grupo chamado "{name}" no pacote "{pkg["key"]}" — '
+            "renomeie um deles manualmente pra deixar os nomes únicos antes de pedir essa edição."
+        )
+    return matches[0]
 
 
 def _find_activity(group: dict, description: str) -> dict:
@@ -139,8 +154,12 @@ _SHARED_FIELDS = {
 def _apply_one(state: dict, op: dict) -> None:
     kind = op.get("op")
     if kind == "rename_group":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
-        group["name"] = op["newName"]
+        pkg = _find_package(state, op["packageKey"])
+        group = _find_group(pkg, op["group"])
+        new_name = op["newName"]
+        if new_name != group["name"] and any(g["name"] == new_name for g in pkg["groups"]):
+            raise OperationError(f'Já existe um grupo "{new_name}" no pacote "{pkg["key"]}".')
+        group["name"] = new_name
     elif kind == "set_group_performance":
         group = _find_group(_find_package(state, op["packageKey"]), op["group"])
         group["performance"] = float(op["performance"])
