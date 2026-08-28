@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { Header } from "./components/Header";
+import { LoginScreen } from "./components/LoginScreen";
+import { useAuthStore } from "./store/useAuthStore";
 import { Stepper } from "./components/Stepper";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
@@ -14,16 +16,21 @@ import { useReportStore } from "./store/useReportStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
 
-// teste: editado por Claude em 2026-08-27
 export default function App() {
   const packages = useReportStore((s) => s.packages);
   const activeId = useReportStore((s) => s.activePackageId);
   const previewCollapsed = useReportStore((s) => s.previewCollapsed);
   const setPreviewCollapsed = useReportStore((s) => s.setPreviewCollapsed);
   const isSplit = useReportStore((s) => s.isSplit);
+  const authStatus = useAuthStore((s) => s.status);
+  const checkSession = useAuthStore((s) => s.checkSession);
 
   const hasPackages = packages.length > 0;
   const activePkg = packages.find((p) => p.id === activeId);
+
+  useEffect(() => {
+    checkSession();
+  }, [checkSession]);
 
   // footer height sync: keep --footer-height accurate? Legacy fixed 100px, we keep CSS var.
   // Update generateTotal for non-footer? Already handled in GenerateFooter.
@@ -37,6 +44,9 @@ export default function App() {
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
+
+  if (authStatus === "loading") return null;
+  if (authStatus === "unauthenticated") return <LoginScreen />;
 
   return (
     <>

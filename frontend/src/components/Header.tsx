@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, LogOut } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
+import { useAuthStore } from "../store/useAuthStore";
 
 export function Header() {
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
   const [theme, setTheme] = useState<Theme>(() => {
     // theme already applied by inline script, just read it
     const t = document.documentElement.dataset.theme as Theme | undefined;
@@ -25,6 +28,14 @@ export function Header() {
     <header className="app-header">
       <h1>Geração de Relatório de Horas</h1>
       <div className="app-header-actions">
+        {user && (
+          <div className="user-info">
+            <span className="user-name">{user.name}</span>
+            <button type="button" className="theme-toggle" title="Sair" aria-label="Sair" onClick={() => logout()}>
+              <LogOut size={17} strokeWidth={1.7} />
+            </button>
+          </div>
+        )}
         <button
           type="button"
           className="theme-toggle"

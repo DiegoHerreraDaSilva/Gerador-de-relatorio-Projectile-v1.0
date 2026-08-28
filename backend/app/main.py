@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import re
@@ -6,7 +7,7 @@ import uuid
 import zipfile
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,10 +32,24 @@ class NoCacheStaticFiles(StaticFiles):
 
 from dotenv import load_dotenv
 
+import calendar
+
+from .auth import (
+    LoginError,
+    RateLimitError,
+    check_rate_limit,
+    create_session,
+    delete_session,
+    get_session,
+    register_login_failure,
+    register_login_success,
+    verify_projectile_login,
+)
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
-from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, generate_report
+from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, _parse_month_label, generate_report
 from .parser import parse_projectile_export
+from .projectile_db import ProjectileDbError, fetch_employee_hours, group_hours
 
 load_dotenv()
 
@@ -77,9 +92,86 @@ async def _validation_exception_handler(request: Request, exc: RequestValidation
 OUTPUT_DIR = os.path.join(tempfile.gettempdir(), "relatorio_horas_output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+SESSION_COOKIE = "session_token"
+
+# mensagem genérica pra qualquer falha de infra (banco fora do ar, credencial errada
+# no .env, timeout de rede) devolvida pro cliente — o detalhe real (que pode incluir
+# host/porta/erro do driver MySQL) só vai pro log do servidor, nunca na resposta HTTP,
+# pra não vazar detalhe de infra pra quem está chamando a API (inclusive antes de logar).
+_GENERIC_DB_ERROR = "Erro ao conectar no banco do Projectile. Tente de novo em instantes."
+
+
+def _log_and_generic_error(e: Exception, status_code: int = 502) -> HTTPException:
+    logging.exception("Falha ao acessar o banco do Projectile")
+    return HTTPException(status_code, _GENERIC_DB_ERROR)
+
+
+def require_session(request: Request) -> dict:
+    """Dependência do FastAPI que barra a rota com 401 se não houver sessão
+    válida — sem isso, as rotas que tocam dado sensível (Projectile, geração
+    de relatório, IA) ficariam acessíveis por qualquer um com acesso de rede
+    ao backend, mesmo sem logar (a tela de login só bloqueia no navegador)."""
+    session = get_session(request.cookies.get(SESSION_COOKIE))
+    if not session:
+        raise HTTPException(401, "Sessão expirada ou inválida. Faça login de novo.")
+    return session
+
+
+class LoginRequest(BaseModel):
+    login: str
+    password: str
+
+
+@app.post("/auth/login")
+async def login_endpoint(payload: LoginRequest, request: Request, response: Response):
+    client_key = request.client.host if request.client else "unknown"
+
+    try:
+        check_rate_limit(client_key)
+    except RateLimitError as e:
+        raise HTTPException(429, str(e))
+
+    try:
+        user = verify_projectile_login(payload.login.strip(), payload.password)
+    except LoginError as e:
+        register_login_failure(client_key)
+        raise HTTPException(401, str(e))
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+
+    register_login_success(client_key)
+    token = create_session(user)
+    response.set_cookie(
+        SESSION_COOKIE, token,
+        httponly=True, samesite="lax", max_age=8 * 60 * 60,
+        # secure=True automaticamente quando servido via HTTPS — hoje é HTTP puro
+        # (rede interna), então isso já fica pronto pro dia que rodar atrás de TLS.
+        secure=(request.url.scheme == "https"),
+    )
+    return {"name": user["name"], "login": user["login"], "email": user["email"]}
+
+
+@app.get("/auth/me")
+async def me_endpoint(request: Request):
+    session = get_session(request.cookies.get(SESSION_COOKIE))
+    if not session:
+        raise HTTPException(401, "Não autenticado.")
+    return {"name": session["name"], "login": session["login"], "email": session["email"]}
+
+
+@app.post("/auth/logout")
+async def logout_endpoint(request: Request, response: Response):
+    delete_session(request.cookies.get(SESSION_COOKIE))
+    response.delete_cookie(SESSION_COOKIE)
+    return {"ok": True}
+
 
 @app.post("/parse")
-async def parse_endpoint(file: UploadFile = File(...), mode: Literal["single", "multi"] = Form("single")):
+async def parse_endpoint(
+    file: UploadFile = File(...),
+    mode: Literal["single", "multi"] = Form("single"),
+    _user: dict = Depends(require_session),
+):
     suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
@@ -95,6 +187,10 @@ async def parse_endpoint(file: UploadFile = File(...), mode: Literal["single", "
     finally:
         os.remove(tmp_path)
 
+    return _build_parse_response(packages, issues)
+
+
+def _build_parse_response(packages, issues) -> dict:
     return {
         "packages": [
             {
@@ -113,6 +209,41 @@ async def parse_endpoint(file: UploadFile = File(...), mode: Literal["single", "
         ],
         "issues": [{"row": i.row, "reason": i.reason, "message": i.message} for i in issues],
     }
+
+
+class ParseDbRequest(BaseModel):
+    month_label: str
+    mode: Literal["single", "multi"] = "single"
+
+
+@app.post("/parse-db")
+async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(require_session)):
+    # busca sempre as horas do PRÓPRIO usuário logado — nunca confia em nome de
+    # funcionário vindo do cliente, senão qualquer um logado poderia forjar o
+    # request e puxar as horas de outra pessoa.
+    employee_name = _user["name"]
+
+    parsed_month = _parse_month_label(payload.month_label)
+    if not parsed_month:
+        raise HTTPException(400, f'Mês de referência inválido: "{payload.month_label}" (use o formato "Julho/2026").')
+    year, month = parsed_month
+    start_date = f"{year:04d}-{month:02d}-01"
+    end_date = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+
+    try:
+        rows = fetch_employee_hours(employee_name, start_date, end_date)
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+
+    if not rows:
+        raise HTTPException(
+            404,
+            f'Nenhum lançamento encontrado pro nome "{employee_name}" em {payload.month_label}. '
+            "Confira o nome (a busca é parcial) e o mês.",
+        )
+
+    packages, issues = group_hours(rows, split_by_package=(payload.mode == "multi"))
+    return _build_parse_response(packages, issues)
 
 
 class ActivityPayload(BaseModel):
@@ -141,6 +272,8 @@ class ReportPackagePayload(BaseModel):
     header: HeaderPayload
     groups: list[GroupPayload]
     file_name: str | None = None
+    chart_image_bar: str | None = None
+    chart_image_pie: str | None = None
 
 
 class GeneratePayload(BaseModel):
@@ -157,7 +290,13 @@ def _build_report(pkg_payload: ReportPackagePayload, output_path: str) -> Report
         )
         for g in pkg_payload.groups
     ]
-    generate_report(header, groups, output_path)
+    generate_report(
+        header,
+        groups,
+        output_path,
+        chart_image_bar_b64=pkg_payload.chart_image_bar,
+        chart_image_pie_b64=pkg_payload.chart_image_pie,
+    )
     return header
 
 
@@ -173,7 +312,7 @@ def _sanitized_file_name(raw_name: str | None, fallback_header: ReportHeader) ->
 
 
 @app.post("/generate")
-async def generate_endpoint(payload: GeneratePayload):
+async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(require_session)):
     # Modo "relatório único": só 1 pacote no payload — devolve o .xlsx direto,
     # sem zipar, mantendo o comportamento original do app.
     if len(payload.packages) == 1:
@@ -286,7 +425,7 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/chat")
-async def chat_endpoint(payload: ChatRequest):
+async def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_session)):
     try:
         summary, operations = call_chat(payload.message, payload.state.model_dump())
     except ChatConfigError as e:
