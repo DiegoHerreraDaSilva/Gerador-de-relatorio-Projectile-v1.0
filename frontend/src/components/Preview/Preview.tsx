@@ -2,6 +2,25 @@ import { useEffect, useRef } from "react";
 import { useReportStore } from "../../store/useReportStore";
 import { PreviewSheet } from "./PreviewSheet";
 
+function BarChartIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1.5" y="8.5" width="3" height="6" rx="1" fill="currentColor" />
+      <rect x="6.5" y="4.5" width="3" height="10" rx="1" fill="currentColor" />
+      <rect x="11.5" y="1.5" width="3" height="13" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PieChartIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 1.5a6.5 6.5 0 1 0 6.5 6.5H8V1.5Z" fill="currentColor" />
+      <path d="M9.5 1.55A6.5 6.5 0 0 1 14.45 6.5H9.5V1.55Z" fill="currentColor" opacity="0.5" />
+    </svg>
+  );
+}
+
 export function Preview() {
   const packages = useReportStore((s) => s.packages);
   const activeId = useReportStore((s) => s.activePackageId);
@@ -14,6 +33,8 @@ export function Preview() {
   const undoStack = useReportStore((s) => s.undoStack);
   const undo = useReportStore((s) => s.undo);
   const previewCollapsed = useReportStore((s) => s.previewCollapsed);
+  const setChartBar = useReportStore((s) => s.setChartBar);
+  const setChartPie = useReportStore((s) => s.setChartPie);
 
   const hasPackages = packages.length > 0;
   const activePkg = packages.find((p) => p.id === activeId) ?? null;
@@ -40,6 +61,12 @@ export function Preview() {
             <h2>Preview do relatório final</h2>
             <div className="preview-tools">
               <button type="button" className="btn-toggle" disabled title="Desfazer a última alteração">↶ Desfazer</button>
+              <button type="button" className="btn-toggle" disabled title="Gráfico de barras">
+                <BarChartIcon />
+              </button>
+              <button type="button" className="btn-toggle" disabled title="Gráfico de pizza">
+                <PieChartIcon />
+              </button>
               <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">⇆ Dividir tela</button>
               <button type="button" onClick={() => setZoom(previewZoom - 10)}>−</button>
               <span id="zoomLabel">{previewZoom}%</span>
@@ -65,6 +92,22 @@ export function Preview() {
           <div className="preview-tools">
             <button type="button" className="btn-toggle" disabled={undoStack.length === 0} onClick={() => undo()} title="Desfazer a última alteração">
               ↶ Desfazer
+            </button>
+            <button
+              type="button"
+              className={`btn-toggle ${activePkg?.chartBar ? "active" : ""}`}
+              onClick={() => activePkg && setChartBar(activePkg.id, !activePkg.chartBar)}
+              title="Gráfico de barras no relatório"
+            >
+              <BarChartIcon />
+            </button>
+            <button
+              type="button"
+              className={`btn-toggle ${activePkg?.chartPie ? "active" : ""}`}
+              onClick={() => activePkg && setChartPie(activePkg.id, !activePkg.chartPie)}
+              title="Gráfico de pizza no relatório"
+            >
+              <PieChartIcon />
             </button>
             <button
               type="button"

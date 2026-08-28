@@ -118,6 +118,8 @@ export interface StoreState {
   setHasGeneratedOnce: (v: boolean) => void;
   setFileName: (v: string, edited: boolean) => void;
   setPackageFileName: (packageId: string, v: string) => void;
+  setChartBar: (packageId: string, v: boolean) => void;
+  setChartPie: (packageId: string, v: boolean) => void;
   pushUndo: () => void;
   undo: () => void;
   resetParsedState: () => void;
@@ -258,6 +260,16 @@ export const useReportStore = create<StoreState>()(
       set((s) => {
         const p = s.packages.find((x) => x.id === packageId);
         if (p) { p.fileName = v; p.fileNameEdited = true; }
+      }),
+    setChartBar: (packageId, v) =>
+      set((s) => {
+        const p = s.packages.find((x) => x.id === packageId);
+        if (p) { p.chartBar = v; s.hasGeneratedOnce = false; }
+      }),
+    setChartPie: (packageId, v) =>
+      set((s) => {
+        const p = s.packages.find((x) => x.id === packageId);
+        if (p) { p.chartPie = v; s.hasGeneratedOnce = false; }
       }),
     pushUndo: () =>
       set((s) => {

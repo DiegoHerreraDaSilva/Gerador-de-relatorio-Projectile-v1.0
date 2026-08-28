@@ -3,6 +3,14 @@ import { useReportStore } from "../store/useReportStore";
 import { computeGrandTotalFor } from "../utils/calc";
 import { fmtNum } from "../utils/fmt";
 import { computeDefaultFileName, computeDefaultFileNameFor } from "../utils/fileName";
+import { drawGroupsChart } from "../utils/chart";
+import type { WorkPackage } from "../api/types";
+
+function chartPng(groups: WorkPackage["groups"], type: "bar" | "pie"): string {
+  const canvas = document.createElement("canvas");
+  drawGroupsChart(canvas, groups, type);
+  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+}
 
 export function GenerateFooter() {
   const packages = useReportStore((s) => s.packages);
@@ -41,6 +49,8 @@ export function GenerateFooter() {
           activities: g.activities.map((a) => ({ description: a.description, hours: a.hours })),
         })),
         file_name: packages.length > 1 ? (pkg.fileNameEdited ? pkg.fileName : computeDefaultFileNameFor(pkg, header.monthLabel)) : undefined,
+        chart_image_bar: pkg.chartBar ? chartPng(pkg.groups, "bar") : undefined,
+        chart_image_pie: pkg.chartPie ? chartPng(pkg.groups, "pie") : undefined,
       })),
     };
 
@@ -100,7 +110,7 @@ export function GenerateFooter() {
         </button>
         <div className="filename-field">
           <label>{packages.length > 1 ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
-          <input type="text" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
+          <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
         </div>
       </div>
       <p className="muted" style={{ textAlign: "center", minHeight: "1.45em", margin: "4px 0 0" }}>

@@ -9,6 +9,7 @@ apenas o XML da planilha (`xl/worksheets/sheet1.xml`), preservando todo o resto
 """
 from __future__ import annotations
 
+import base64
 import datetime
 import math
 import os
@@ -29,6 +30,9 @@ class NonFiniteValueError(ValueError):
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "templates", "relatorio_final_template.xlsx")
 SHEET_PART = "xl/worksheets/sheet1.xml"
 DRAWING_PART = "xl/drawings/drawing1.xml"
+DRAWING_RELS_PART = "xl/drawings/_rels/drawing1.xml.rels"
+CHART_ROWS_RESERVED = 15  # linhas extras empurradas antes da assinatura quando há gráfico
+CHART_ROW_LIFT = 3  # sobe o gráfico um pouco em relação à posição-base da assinatura
 WORKBOOK_PART = "xl/workbook.xml"
 WORKBOOK_RELS_PART = "xl/_rels/workbook.xml.rels"
 CONTENT_TYPES_PART = "[Content_Types].xml"
@@ -458,7 +462,72 @@ def _replace_signature_names(drawing_xml: str, header: ReportHeader) -> str:
     return "".join(pieces)
 
 
-def generate_report(header: ReportHeader, groups: list[GroupInput], output_path: str) -> str:
+# tamanho fixo em EMU (1 px = 9525 EMU) de cada gráfico embutido, mantendo a
+# proporção 1000x560 do canvas, num tamanho menor pra caberem 2 lado a lado
+_CHART_CX = 4469000
+_CHART_CY = 2502640
+_CHART_GAP = 260000  # ~0.28in de respiro entre os 2 gráficos, em EMU
+
+
+def _embed_chart_images(contents: dict[str, bytes], names: list[str], images: list[bytes], anchor_row: int) -> None:
+    """Embute até 2 PNGs de gráfico (gerados no navegador) como imagens no
+    drawing da planilha, lado a lado, reaproveitando o mesmo mecanismo que já
+    embute a logo (xl/media + relationship + âncora em drawing1.xml) — nunca
+    gráfico nativo do Excel, que exigiria autorar xl/charts/ do zero."""
+    rels_xml = contents[DRAWING_RELS_PART].decode("utf-8")
+    drawing_xml = contents[DRAWING_PART].decode("utf-8")
+    pics_xml = ""
+
+    for index, png_bytes in enumerate(images):
+        media_name = f"xl/media/imageChart{index}.png"
+        rel_id = f"rIdChart{index}"
+        # mesma coluna base pros dois, deslocando pelo colOff em EMU (independente
+        # da largura da coluna do template) — usar colunas de distância fazia os
+        # gráficos ficarem muito separados quando as colunas do template são largas
+        col_off = index * (_CHART_CX + _CHART_GAP)
+
+        contents[media_name] = png_bytes
+        names.append(media_name)
+
+        new_rel = (
+            f'<Relationship Id="{rel_id}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            f'Target="../media/imageChart{index}.png"/>'
+        )
+        rels_xml = rels_xml.replace("</Relationships>", new_rel + "</Relationships>")
+
+        pics_xml += (
+            "<xdr:oneCellAnchor>"
+            f"<xdr:from><xdr:col>1</xdr:col><xdr:colOff>{col_off}</xdr:colOff>"
+            f"<xdr:row>{anchor_row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>"
+            f'<xdr:ext cx="{_CHART_CX}" cy="{_CHART_CY}"/>'
+            "<xdr:pic>"
+            "<xdr:nvPicPr>"
+            f'<xdr:cNvPr id="{900 + index}" name="GraficoRelatorio{index}"/>'
+            "<xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr>"
+            "</xdr:nvPicPr>"
+            f'<xdr:blipFill><a:blip r:embed="{rel_id}" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+            "<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
+            f'<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{_CHART_CX}" cy="{_CHART_CY}"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>'
+            "</xdr:pic>"
+            "<xdr:clientData/>"
+            "</xdr:oneCellAnchor>"
+        )
+
+    contents[DRAWING_RELS_PART] = rels_xml.encode("utf-8")
+    drawing_xml = drawing_xml.replace("</xdr:wsDr>", pics_xml + "</xdr:wsDr>")
+    contents[DRAWING_PART] = drawing_xml.encode("utf-8")
+
+
+def generate_report(
+    header: ReportHeader,
+    groups: list[GroupInput],
+    output_path: str,
+    chart_image_bar_b64: str | None = None,
+    chart_image_pie_b64: str | None = None,
+) -> str:
     with zipfile.ZipFile(TEMPLATE_PATH) as zin:
         names = zin.namelist()
         contents = {name: zin.read(name) for name in names}
@@ -488,11 +557,24 @@ def generate_report(header: ReportHeader, groups: list[GroupInput], output_path:
     contents[SHEET_PART] = sheet_xml.encode("utf-8")
 
     offset = last_data_row - ORIGINAL_LAST_DATA_ROW
+    chart_images = [
+        base64.b64decode(b64)
+        for b64 in (chart_image_bar_b64, chart_image_pie_b64)
+        if b64
+    ]
+    # com gráfico, empurra a assinatura mais pra baixo pra reservar o espaço da imagem
+    chart_rows = CHART_ROWS_RESERVED if chart_images else 0
+    signature_offset = offset + chart_rows
     if DRAWING_PART in contents:
         drawing_xml = contents[DRAWING_PART].decode("utf-8")
-        drawing_xml = _shift_signature_drawing(drawing_xml, offset)
+        drawing_xml = _shift_signature_drawing(drawing_xml, signature_offset)
         drawing_xml = _replace_signature_names(drawing_xml, header)
         contents[DRAWING_PART] = drawing_xml.encode("utf-8")
+        if chart_images:
+            _embed_chart_images(
+                contents, names, chart_images,
+                anchor_row=SIGNATURE_ANCHOR_THRESHOLD + offset - CHART_ROW_LIFT,
+            )
 
     workbook_xml = contents[WORKBOOK_PART].decode("utf-8")
     workbook_xml, calc_pr_count = re.subn(
@@ -500,7 +582,7 @@ def generate_report(header: ReportHeader, groups: list[GroupInput], output_path:
     )
     if calc_pr_count != 1:
         raise ValueError("Não encontrei o elemento <calcPr> no template.")
-    print_area_row = SIGNATURE_ANCHOR_THRESHOLD + 5 + offset
+    print_area_row = SIGNATURE_ANCHOR_THRESHOLD + 5 + signature_offset
     workbook_xml, print_area_count = re.subn(
         r'(<definedName name="_xlnm\.Print_Area"[^>]*>)[^<]*(</definedName>)',
         lambda m: f"{m.group(1)}'Relatório de horas'!$B$8:$C${print_area_row}{m.group(2)}",

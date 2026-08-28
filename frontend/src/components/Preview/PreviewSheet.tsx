@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useReportStore } from "../../store/useReportStore";
 import { computeGroupTotals, computeGrandTotalFor } from "../../utils/calc";
 import { fmtNum, parseLocaleNumber, parseExtraHoursInput } from "../../utils/fmt";
+import { drawGroupsChart } from "../../utils/chart";
 
 type Props = { paneId: string; packageId: string };
 
@@ -32,6 +33,8 @@ export function PreviewSheet({ paneId, packageId }: Props) {
   const pushUndo = useReportStore((s) => s.pushUndo);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const barCanvasRef = useRef<HTMLCanvasElement>(null);
+  const pieCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // marquee selection (Ctrl+drag area)
   useEffect(() => {
@@ -94,6 +97,14 @@ export function PreviewSheet({ paneId, packageId }: Props) {
     el.addEventListener("mousedown", onMouseDown as unknown as EventListener);
     return () => el.removeEventListener("mousedown", onMouseDown as unknown as EventListener);
   }, [paneId]);
+
+  useEffect(() => {
+    if (pkg?.chartBar && barCanvasRef.current) drawGroupsChart(barCanvasRef.current, pkg.groups, "bar");
+  }, [pkg?.chartBar, pkg?.groups]);
+
+  useEffect(() => {
+    if (pkg?.chartPie && pieCanvasRef.current) drawGroupsChart(pieCanvasRef.current, pkg.groups, "pie");
+  }, [pkg?.chartPie, pkg?.groups]);
 
   if (!pkg) return <p className="preview-empty">Analise um arquivo do Projectile para ver o preview.</p>;
 
@@ -364,6 +375,13 @@ export function PreviewSheet({ paneId, packageId }: Props) {
         <div className="value">{fmtNum(totalHoras)}</div>
         <div className="spacer" />
       </div>
+
+      {(pkg.chartBar || pkg.chartPie) && (
+        <div className="preview-chart-block">
+          {pkg.chartBar && <canvas ref={barCanvasRef} className="preview-chart-canvas" />}
+          {pkg.chartPie && <canvas ref={pieCanvasRef} className="preview-chart-canvas" />}
+        </div>
+      )}
 
       <div className="preview-signatures">
         <div className="sig">

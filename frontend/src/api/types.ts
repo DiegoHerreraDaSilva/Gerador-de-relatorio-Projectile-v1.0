@@ -20,6 +20,8 @@ export type WorkPackage = {
   collapsedGroupIds: Set<string>;
   fileName: string;
   fileNameEdited: boolean;
+  chartBar: boolean;
+  chartPie: boolean;
 };
 
 export type RowIssue = {
