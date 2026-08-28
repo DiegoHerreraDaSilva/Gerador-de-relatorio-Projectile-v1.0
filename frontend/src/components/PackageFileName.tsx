@@ -19,6 +19,7 @@ export function PackageFileName() {
       <input
         type="text"
         id="packageFileName"
+        autoComplete="off"
         value={displayName}
         title={displayName}
         onChange={(e) => setPackageFileName(pkg.id, e.target.value)}
