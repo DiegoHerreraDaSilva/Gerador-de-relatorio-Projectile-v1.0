@@ -38,6 +38,11 @@ Catálogo de operações (campo `op`):
 - `set_activity_description` {packageKey, group, activity, newDescription} — renomeia a descrição de uma atividade.
 - `add_activity` {packageKey, group, description, hours} — adiciona uma atividade nova a um grupo.
 - `remove_activity` {packageKey, group, activity} — remove uma atividade.
+- `sort_activities_alphabetically` {packageKey, group} — reordena as atividades
+  desse grupo em ordem alfabética pela descrição (A-Z, sem diferenciar
+  maiúscula/minúscula). Use pra qualquer pedido de "ordenar"/"organizar" as
+  atividades de um grupo — não tente simular a ordenação reescrevendo cada
+  atividade manualmente.
 - `set_package_field` {packageKey, field, value} — `field` é `projectCode` ou `projectName`.
 - `set_shared_field` {field, value} — campo compartilhado entre TODOS os pacotes:
   `locationDate`, `monthLabel`, `signer1Name`, `signer1Company`, `signer2Name`, `signer2Company`.
@@ -65,6 +70,11 @@ Regras:
    operação pra CADA UM deles — nunca pare antes do fim da lista. Antes de
    devolver a resposta, revise se o número de operações bate com o número de
    alvos existentes.
+7. Copie `group` e `activity` EXATAMENTE como aparecem no `Estado atual` —
+   caractere por caractere, incluindo pontuação e maiúsculas/minúsculas.
+   Descrições de atividade podem ser frases longas: nunca resuma, corrija ou
+   reformule o texto ao referenciá-las, mesmo que pareçam ter erro de digitação
+   no original — um texto levemente diferente do original faz a operação falhar.
 """
 
 _OPERATION_SCHEMA = {
@@ -75,6 +85,7 @@ _OPERATION_SCHEMA = {
             "enum": [
                 "rename_group", "set_group_performance", "add_group", "remove_group",
                 "set_activity_hours", "set_activity_description", "add_activity", "remove_activity",
+                "sort_activities_alphabetically",
                 "set_package_field", "set_shared_field",
             ],
         },
@@ -137,10 +148,23 @@ def _find_group(pkg: dict, name: str) -> dict:
     return matches[0]
 
 
+def _normalize_text(text: str) -> str:
+    # colapsa espaços múltiplos/quebras de linha em um só e tira as pontas —
+    # descrições de atividade do Projectile costumam ser frases longas, e a IA
+    # às vezes reproduz um espaço a mais/a menos ao copiar de volta no `activity`
+    return " ".join(text.split())
+
+
 def _find_activity(group: dict, description: str) -> dict:
     for a in group["activities"]:
         if a["description"] == description:
             return a
+    # fallback tolerante a diferença de espaçamento (não de conteúdo) — só usa
+    # se resolver pra exatamente uma atividade, senão cai no erro normal
+    normalized = _normalize_text(description)
+    fuzzy_matches = [a for a in group["activities"] if _normalize_text(a["description"]) == normalized]
+    if len(fuzzy_matches) == 1:
+        return fuzzy_matches[0]
     raise OperationError(f'Atividade "{description}" não encontrada no grupo "{group["name"]}".')
 
 
@@ -187,6 +211,9 @@ def _apply_one(state: dict, op: dict) -> None:
         group = _find_group(_find_package(state, op["packageKey"]), op["group"])
         target = _find_activity(group, op["activity"])
         group["activities"] = [a for a in group["activities"] if a is not target]
+    elif kind == "sort_activities_alphabetically":
+        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group["activities"].sort(key=lambda a: a["description"].strip().lower())
     elif kind == "set_package_field":
         pkg = _find_package(state, op["packageKey"])
         field = op.get("field")
