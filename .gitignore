@@ -29,3 +29,6 @@ frontend/.vite/
 dist/
 .vite/
 *.tsbuildinfo
+
+# artefatos de sessão do plugin Playwright (screenshots/logs de debug)
+.playwright-mcp/

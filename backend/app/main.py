@@ -39,9 +39,14 @@ from .parser import parse_projectile_export
 load_dotenv()
 
 app = FastAPI(title="Automação de Relatório de Horas")
+# Restrito às origens locais de dev/prod deste app — "*" deixava QUALQUER site
+# que o usuário visitasse no navegador chamar /parse, /generate e /chat (que usa
+# a chave da Anthropic do servidor) e ler a resposta. Em prod (backend servindo
+# o build do React na mesma origem) o CORS nem é consultado pelo navegador, mas
+# manter a lista explícita evita reabrir esse buraco sem querer no futuro.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8011", "http://127.0.0.1:8011"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

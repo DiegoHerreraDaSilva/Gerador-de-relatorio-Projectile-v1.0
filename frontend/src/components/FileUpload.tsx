@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { FileSpreadsheet } from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
 import type { ParseResponse } from "../api/types";
 
@@ -7,51 +8,65 @@ function genId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
 export function FileUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState("");
-  const [hasFile, setHasFile] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
   const reportMode = useReportStore((s) => s.reportMode);
   const setPackages = useReportStore((s) => s.setPackages);
   const setIssues = useReportStore((s) => s.setIssues);
-  const packages = useReportStore((s) => s.packages);
 
-  // Show status when mode changes and we have packages (was reset)
-  const handleModeChangeSideEffect = () => {
-    // reportMode change already resets packages via store, but we need to clear file input
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setHasFile(false);
-    if (packages.length > 0) setStatus("Modo alterado — selecione o arquivo novamente para reanalisar.");
+  const applyFile = (file: File | null) => {
+    setSelectedFile(file);
+    setStatus("");
   };
 
-  // Detect mode change to clear file? Store already clears packages, we just clear input
-  // Use effect would be better, but simpler: watch packages length
-  // Instead, we clear input when reportMode changes via ModeSelect? ModeSelect already triggers store reset.
-  // We'll add an effect to reset file input when packages cleared?
+  const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    applyFile(e.target.files?.[0] ?? null);
+  };
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setHasFile(e.target.files ? e.target.files.length > 0 : false);
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      setStatus("Esse arquivo não é um .xlsx. Exporte a planilha do Projectile nesse formato.");
+      return;
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    applyFile(file);
   };
 
   const clearFile = () => {
     if (fileInputRef.current) fileInputRef.current.value = "";
-    setHasFile(false);
-    setStatus("");
-    // resetParsedState will be called via store reset? We need to clear packages
+    applyFile(null);
     useReportStore.getState().resetParsedState();
     const step1 = document.getElementById("step1");
     if (step1) step1.style.display = "block";
   };
 
+  const setMode = (mode: "single" | "multi") => {
+    if (reportMode === mode) return;
+    useReportStore.getState().setReportMode(mode);
+  };
+
   const handleParse = async () => {
-    const fileInput = fileInputRef.current;
-    if (!fileInput?.files?.length) {
-      setStatus("Selecione um arquivo .xlsx primeiro.");
+    if (!selectedFile) {
+      setStatus("Escolha um arquivo .xlsx primeiro.");
       return;
     }
     setStatus("Analisando...");
     const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
+    formData.append("file", selectedFile);
     formData.append("mode", reportMode);
     try {
       const res = await fetch("/parse", { method: "POST", body: formData });
@@ -59,8 +74,7 @@ export function FileUpload() {
       const data: ParseResponse = await res.json();
 
       if (data.packages.length === 0) {
-        setStatus("Nenhum grupo de atividades encontrado nesta planilha. Confira o aviso de validação acima (se houver) ou o arquivo enviado.");
-        // create empty packages? keep none
+        setStatus("Não encontrei grupos de atividades nessa planilha. Confira o aviso acima (se houver) ou o arquivo enviado.");
         setPackages([], null);
         setIssues(data.issues || []);
         return;
@@ -77,11 +91,10 @@ export function FileUpload() {
           performance: 1,
           activities: g.activities.map((a) => ({ id: genId(), description: a.description, hours: a.hours })),
         })),
-        collapsedGroupIds: new Set<string>(p.groups.map((_, i) => String(i))), // temporary, will migrate to ids
+        collapsedGroupIds: new Set<string>(),
         fileName: "",
         fileNameEdited: false,
       }));
-      // fix collapsed ids to real ids
       pkgs.forEach((pkg) => {
         pkg.collapsedGroupIds = new Set(pkg.groups.map((g) => g.id));
       });
@@ -96,7 +109,6 @@ export function FileUpload() {
       );
       const step1 = document.getElementById("step1");
       if (step1) step1.style.display = "none";
-      // fileName will be updated via effect in GenerateFooter / store?
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus("Erro ao analisar: " + msg);
@@ -108,55 +120,76 @@ export function FileUpload() {
     if (step1) step1.style.display = "block";
   };
 
-  // Sync hasFile vs mode reset: if packages cleared externally, clear file input
-  // Simple effect: when packages length is 0, ensure file input cleared? Not needed.
-
   return (
     <>
-      <div className="card" id="step1">
-        <h2>1. Importar relatório do Projectile</h2>
-        <div className="mode-select">
+      <div className="card upload-card" id="step1">
+        <p className="upload-eyebrow">Projectile → Relatório</p>
+        <h2>Importe a planilha de horas</h2>
+
+        <div className="format-grid">
           <button
             type="button"
-            className={`mode-option ${reportMode === "single" ? "active" : ""}`}
-            onClick={() => {
-              if (reportMode !== "single") {
-                useReportStore.getState().setReportMode("single");
-                if (fileInputRef.current) fileInputRef.current.value = "";
-                setHasFile(false);
-                setStatus("Modo alterado — selecione o arquivo novamente para reanalisar.");
-              }
-            }}
+            className={`format-card ${reportMode === "single" ? "active" : ""}`}
+            onClick={() => setMode("single")}
           >
-            <span className="mode-title">Relatório único</span>
-            <span className="mode-desc">Todas as linhas viram um único relatório final.</span>
+            <span className="format-tag">1 DOC</span>
+            <span className="format-title">Relatório único</span>
+            <span className="format-desc">Todas as linhas viram um único relatório.</span>
           </button>
           <button
             type="button"
-            className={`mode-option ${reportMode === "multi" ? "active" : ""}`}
-            onClick={() => {
-              if (reportMode !== "multi") {
-                useReportStore.getState().setReportMode("multi");
-                if (fileInputRef.current) fileInputRef.current.value = "";
-                setHasFile(false);
-                setStatus("Modo alterado — selecione o arquivo novamente para reanalisar.");
-              }
-            }}
+            className={`format-card ${reportMode === "multi" ? "active" : ""}`}
+            onClick={() => setMode("multi")}
           >
-            <span className="mode-title">Múltiplos relatórios</span>
-            <span className="mode-desc">Um relatório separado por Pacote de Trabalho.</span>
+            <span className="format-tag">N DOCS</span>
+            <span className="format-title">Múltiplos relatórios</span>
+            <span className="format-desc">Um relatório por Pacote de Trabalho.</span>
           </button>
         </div>
-        <div className="file-input-row">
-          <input ref={fileInputRef} type="file" accept=".xlsx" title="Selecione o .xlsx exportado do Projectile para o mês/projeto." onChange={onFileChange} />
-          <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" style={{ display: hasFile ? "flex" : "none" }} onClick={clearFile}>
-            <span>×</span> Remover
-          </button>
+
+        <div
+          className={`dropzone ${dragging ? "dragging" : ""} ${selectedFile ? "has-file" : ""}`.trim()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+        >
+          {selectedFile ? (
+            <>
+              <div className="file-chip">
+                <span className="file-chip-icon" aria-hidden="true">
+                  <FileSpreadsheet size={16} strokeWidth={1.8} />
+                </span>
+                <span className="file-chip-meta">
+                  <span className="file-chip-name" title={selectedFile.name}>{selectedFile.name}</span>
+                  <span className="file-chip-size">{formatFileSize(selectedFile.size)}</span>
+                </span>
+              </div>
+              <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" onClick={clearFile}>
+                <span>×</span> Remover
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="dropzone-hint">Solte o .xlsx aqui</span>
+              <span className="dropzone-subhint">ou clique pra escolher o arquivo exportado do Projectile</span>
+            </>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx"
+            title="Selecione o .xlsx exportado do Projectile para o mês/projeto."
+            onChange={onFileInputChange}
+            style={{ display: selectedFile ? "none" : "block" }}
+          />
         </div>
+
         <button className="primary" onClick={handleParse}>Analisar planilha</button>
         <p className="muted">{status}</p>
       </div>
-      {/* hidden change file button lives in SummaryBar, but we expose helper via window? We'll render SummaryBar separately */}
       <button type="button" id="btnChangeFileHidden" style={{ display: "none" }} onClick={changeFile} />
     </>
   );

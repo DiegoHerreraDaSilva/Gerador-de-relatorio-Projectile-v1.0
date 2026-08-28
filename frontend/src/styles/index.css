@@ -28,6 +28,11 @@
     --shadow-card-hover: 0 1px 0 rgba(0,0,0,.4), 0 22px 44px -22px rgba(79,227,220,.35);
 
     --footer-height: 100px;
+
+    /* Face técnica — usada só em pontos pontuais que representam dado/código
+       (tag de formato, nome de arquivo, contador de linhas), nunca no corpo do
+       texto. Referência de desenho técnico, não decoração. */
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
   }
 
   /* Tema claro — mesma marca (teal), superfícies e sombras invertidas pra fundo
@@ -264,34 +269,148 @@
   .package-filename-row.visible { display: block; }
   .package-filename-row label { margin: 0 0 6px; font-size: 0.8rem; }
 
-  /* ---------- Seletor de modo (relatório único vs múltiplos) ---------- */
-  .mode-select {
+  /* ---------- Passo 1: intake da planilha (formato + folha de entrada) ----------
+     Tratamento de "folha de desenho técnico": tag de código no canto de cada
+     formato, marcas de registro (as cruzes "+") que só aparecem no formato
+     ativo/hover — o mesmo vocabulário de uma prancheta de engenharia, com
+     restrição: cor e tipografia de corpo continuam as mesmas do resto do app. */
+  .upload-eyebrow {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 6px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent-hi);
+  }
+  .upload-eyebrow::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
+  }
+  .upload-card h2 { margin: 0 0 18px; font-size: 1.05rem; }
+
+  .format-grid {
     display: flex;
     gap: 10px;
     margin-bottom: 18px;
   }
-  .mode-option {
+  .format-card {
+    position: relative;
     flex: 1;
     display: flex;
     flex-direction: column;
     gap: 4px;
     text-align: left;
-    padding: 12px 14px;
+    padding: 14px 16px;
     border-radius: 10px;
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text-muted);
     font-weight: 500;
+    overflow: hidden;
   }
-  .mode-option:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
-  .mode-option .mode-title { color: var(--text); font-size: 0.88rem; }
-  .mode-option .mode-desc { font-size: 0.76rem; font-weight: 400; color: var(--text-muted); }
-  .mode-option.active {
+  .format-card:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .format-card .format-tag {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-bottom: 2px;
+  }
+  .format-card .format-title { color: var(--text); font-size: 0.88rem; }
+  .format-card .format-desc { font-size: 0.76rem; font-weight: 400; color: var(--text-muted); }
+  /* marcas de registro — cantos opostos, só visíveis no card ativo */
+  .format-card::before, .format-card::after {
+    content: "+";
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity .15s ease;
+  }
+  .format-card::before { top: 4px; left: 6px; }
+  .format-card::after { bottom: 2px; right: 6px; }
+  .format-card.active {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 14%, var(--surface));
     box-shadow: 0 0 0 1px var(--accent) inset;
   }
-  .mode-option.active .mode-title { color: var(--accent-hi); }
+  .format-card.active .format-title { color: var(--accent-hi); }
+  .format-card.active .format-tag { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); color: var(--accent-hi); }
+  .format-card.active::before, .format-card.active::after { opacity: 0.9; }
+
+  /* ---------- Zona de soltar/escolher o arquivo ---------- */
+  .dropzone {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 108px;
+    margin-bottom: 18px;
+    padding: 18px;
+    text-align: center;
+    border: 1.5px dashed var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+  }
+  .dropzone:hover, .dropzone:focus-visible { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+  .dropzone.dragging { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-style: solid; }
+  .dropzone .dropzone-hint { font-size: 0.86rem; color: var(--text); font-weight: 500; }
+  .dropzone .dropzone-subhint { font-size: 0.76rem; }
+  .dropzone input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+  .dropzone.has-file {
+    flex-direction: row;
+    justify-content: space-between;
+    text-align: left;
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    min-height: 0;
+    padding: 12px 14px;
+    animation: dropzone-settle .18s ease-out;
+  }
+  .dropzone.has-file::before, .dropzone.has-file::after {
+    content: "+";
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    opacity: 0.9;
+  }
+  .dropzone.has-file::before { top: 4px; left: 6px; }
+  .dropzone.has-file::after { bottom: 2px; right: 6px; }
+  @keyframes dropzone-settle { from { transform: scale(0.98); opacity: 0.6; } to { transform: scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .dropzone.has-file { animation: none; } }
+
+  .file-chip { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .file-chip-icon {
+    flex: 0 0 auto;
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+    color: var(--accent-hi);
+  }
+  .file-chip-meta { min-width: 0; }
+  .file-chip-name {
+    font-family: var(--font-mono);
+    font-size: 0.82rem; font-weight: 500; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: block; max-width: 100%;
+  }
+  .file-chip-size { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+  .dropzone .btn-remove-file { flex: 0 0 auto; }
 
   .group {
     position: relative;
@@ -408,8 +527,6 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--ring);
   }
-  .file-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; max-width: 480px; }
-  .file-input-row input[type=file] { flex: 1; width: auto; min-width: 0; }
   .btn-remove-file, .btn-secondary {
     flex: 0 0 auto;
     display: flex;
@@ -436,39 +553,6 @@
     color: var(--text-muted);
   }
   .btn-secondary:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
-  input[type=file] {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    width: 100%;
-    max-width: 100%;
-    margin-bottom: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  input[type=file]::file-selector-button {
-    cursor: pointer;
-    padding: 9px 16px;
-    margin-right: 12px;
-    border-radius: 8px;
-    border: none;
-    background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
-    color: #fff;
-    font-size: 0.85rem;
-    font-weight: 600;
-    box-shadow: 0 0 14px -2px var(--accent-glow);
-    transition: box-shadow .15s ease, filter .15s ease, transform .08s ease;
-  }
-  input[type=file]::file-selector-button:hover {
-    box-shadow: 0 0 22px 0 var(--accent-glow);
-    filter: brightness(1.08);
-  }
-  input[type=file]::file-selector-button:active {
-    transform: scale(0.97);
-    filter: brightness(0.95);
-  }
 
   .activity-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
   .activity-row .desc { flex: 1; }
