@@ -56,8 +56,28 @@ def _get_client() -> Anthropic:
     return _client
 
 
-def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
-    """Manda a instrução + estado atual pra Claude, devolve (summary, operations).
+# Pares (usuário+assistente) de memória mantidos por chamada — generoso o
+# bastante pra qualquer resolução de referência razoável ("esse grupo", "ele"),
+# irrelevante perto da janela de 200K tokens do Haiku. Recortado aqui de novo
+# (não confia só no que o front-end já manda cortado) porque é o backend quem
+# garante o limite de verdade.
+MAX_HISTORY_TURNS = 8
+
+
+def call_chat(message: str, state: dict, history: list[dict] | None = None) -> tuple[str, list[dict]]:
+    """Manda a instrução + estado atual (+ histórico da conversa) pra Claude,
+    devolve (summary, operations).
+
+    `history` é uma lista de `{"message": ..., "summary": ...}` — turnos
+    passados da MESMA conversa, na ordem em que aconteceram. Cada par vira dois
+    turnos (`user`/`assistant`) de texto simples, NUNCA o `tool_use` bruto de
+    uma resposta anterior: isso obrigaria fabricar um `tool_result` sintético
+    pra cada um (a API rejeita um turno assistant com tool_use sem tool_result
+    correspondente), e não precisamos disso — o modelo só precisa saber "o que
+    rolou" pra resolver referências ambíguas, não o JSON estruturado de cada
+    edição passada. Só o turno ATUAL carrega o `state` completo do relatório;
+    turnos históricos replayam só texto curto — é isso que evita o custo/
+    latência crescer a cada mensagem numa conversa longa.
 
     `operations` segue o catálogo de chat_ops.py — quem chama é responsável por
     aplicar (chat_ops.apply_operations) e validar o resultado (ChatState em
@@ -66,6 +86,27 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
     """
     client = _get_client()
     model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+    messages = []
+    for turn in (history or [])[-MAX_HISTORY_TURNS:]:
+        user_text = (turn.get("message") or "").strip()
+        assistant_text = (turn.get("summary") or "").strip()
+        if not user_text or not assistant_text:
+            # turno órfão/incompleto (ex: um pedido que deu erro e nunca teve
+            # resposta real da IA) — nunca emite um bloco de conteúdo vazio,
+            # e nunca deixa um "meio par" que quebraria a alternância user/assistant
+            continue
+        messages.append({"role": "user", "content": user_text})
+        messages.append({"role": "assistant", "content": assistant_text})
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                f"Estado atual:\n{state}\n\n"
+                f"Pedido do usuário: {message}"
+            ),
+        }
+    )
 
     try:
         response = client.messages.create(
@@ -76,15 +117,7 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
             system=SYSTEM_PROMPT,
             tools=[TOOL_SCHEMA],
             tool_choice={"type": "tool", "name": TOOL_NAME},
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Estado atual:\n{state}\n\n"
-                        f"Pedido do usuário: {message}"
-                    ),
-                }
-            ],
+            messages=messages,
         )
     except Exception as e:
         raise ChatUpstreamError(f"Falha ao chamar a API da Anthropic: {e}") from e

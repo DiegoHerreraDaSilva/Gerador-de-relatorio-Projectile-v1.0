@@ -270,9 +270,15 @@ class ChatState(BaseModel):
     signer2Company: str = ""
 
 
+class ChatTurn(BaseModel):
+    message: str
+    summary: str
+
+
 class ChatRequest(BaseModel):
     message: str
     state: ChatState
+    history: list[ChatTurn] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
@@ -283,7 +289,11 @@ class ChatResponse(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(payload: ChatRequest):
     try:
-        summary, operations = call_chat(payload.message, payload.state.model_dump())
+        summary, operations = call_chat(
+            payload.message,
+            payload.state.model_dump(),
+            [turn.model_dump() for turn in payload.history],
+        )
     except ChatConfigError as e:
         raise HTTPException(500, str(e))
     except ChatUpstreamError as e:

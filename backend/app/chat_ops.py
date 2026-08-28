@@ -55,6 +55,10 @@ Regras:
    NÃO invente a operação — devolva `operations: []` e explique o motivo no `summary`.
 4. `summary`: resumo curto (1-2 frases, português, tom direto) do que foi feito —
    ou do motivo de nada ter sido feito, se for o caso.
+5. Se houver mensagens anteriores nesta conversa, use-as só para entender
+   referências ambíguas do pedido atual (ex: "esse grupo", "ele", "de novo") —
+   as operações devem sempre ser aplicadas sobre o `Estado atual` desta
+   mensagem, nunca sobre um estado de uma mensagem anterior.
 """
 
 _OPERATION_SCHEMA = {

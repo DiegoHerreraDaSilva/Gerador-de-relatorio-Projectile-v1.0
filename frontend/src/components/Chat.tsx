@@ -15,6 +15,28 @@ export function Chat() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant" | "error" | "pending"; text: string }>>([]);
+  // memória da conversa: só pares (pedido, resumo) que tiveram sucesso — nunca
+  // o "state" do relatório (isso reviveria o problema de a IA ficar mais
+  // lenta a cada mensagem, já que só a mensagem ATUAL carrega o state
+  // completo). Cortado pros últimos 8 pares — o backend também recorta por
+  // conta própria, esse limite aqui é só pra não inflar o payload à toa.
+  const MAX_HISTORY_TURNS = 8;
+  const [history, setHistory] = useState<Array<{ message: string; summary: string }>>([]);
+
+  // reseta a conversa (mensagens exibidas + memória) sempre que o CONJUNTO de
+  // pacotes muda de identidade — ou seja, quando um relatório novo é
+  // importado. `key` vem do parser e é estável entre edições do dia a dia
+  // (renomear grupo, mudar horas, etc. não mexe nela), então essa string só
+  // muda numa importação de arquivo de verdade — não a cada tecla digitada.
+  const packageIdentity = packages.map((p) => p.key).join("|");
+  const prevPackageIdentity = useRef(packageIdentity);
+  useEffect(() => {
+    if (prevPackageIdentity.current !== packageIdentity) {
+      prevPackageIdentity.current = packageIdentity;
+      setMessages([]);
+      setHistory([]);
+    }
+  }, [packageIdentity]);
 
   const append = (role: "user" | "assistant" | "error" | "pending", text: string) => {
     setMessages((prev) => [...prev, { role, text }]);
@@ -59,7 +81,7 @@ export function Chat() {
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, state: buildChatState() }),
+        body: JSON.stringify({ message: text, state: buildChatState(), history }),
       });
       const data = await res.json().catch(() => null);
       setMessages((prev) => prev.filter((m) => m.role !== "pending"));
@@ -79,7 +101,9 @@ export function Chat() {
         useReportStore.setState({ undoStack: [...state.undoStack] });
         return;
       }
-      append("assistant", (data as any).reply || "Alterações aplicadas.");
+      const summaryText = (data as any).reply || "Alterações aplicadas.";
+      append("assistant", summaryText);
+      setHistory((prev) => [...prev, { message: text, summary: summaryText }].slice(-MAX_HISTORY_TURNS));
     } catch {
       setMessages((prev) => prev.filter((m) => m.role !== "pending"));
       append("error", "Não foi possível falar com o assistente. Verifique sua conexão e tente de novo.");
@@ -199,30 +223,32 @@ export function Chat() {
 
   return (
     <>
-      <button
-        type="button"
-        className={`chat-fab ${open ? "open" : ""}`}
-        title="Assistente de edição em massa"
-        aria-label="Abrir assistente de edição em massa"
-        onClick={() => setOpen(true)}
-      >
-        <span className="chat-fab-icon" aria-hidden="true">IA</span>
-        {hasMessages && <span className="chat-fab-badge">{messages.length}</span>}
-      </button>
+      {packages.length > 0 && (
+        <button
+          type="button"
+          className={`chat-fab ${open ? "open" : ""}`}
+          title="Assistente de edição em massa"
+          aria-label="Abrir assistente de edição em massa"
+          onClick={() => setOpen(true)}
+        >
+          <span className="chat-fab-icon" aria-hidden="true">IA</span>
+          {hasMessages && <span className="chat-fab-badge">{messages.length}</span>}
+        </button>
+      )}
 
-      <div ref={panelRef} className={`chat-panel ${open ? "open" : ""}`} id="chatPanel">
+      <div
+        ref={panelRef}
+        className={`chat-panel ${open ? "open" : ""}`.trim()}
+        id="chatPanel"
+      >
         <div className="chat-panel-header">
           <span className="chat-header-grip" aria-hidden="true">
             <GripVertical size={14} />
           </span>
           <div className="chat-header-text">
-            <h3>Assistente de edição</h3>
+            <h3>Assistente de IA</h3>
             <p>Edições em massa nos grupos e cabeçalho</p>
           </div>
-          <span className="chat-header-status" title={loading ? "Processando" : "Pronto"}>
-            <span className="chat-header-status-dot" style={{ opacity: loading ? 1 : 0.9, animation: loading ? "chatPulse 1.2s infinite" : "none" }} />
-            {loading ? "Pensando…" : "Pronto"}
-          </span>
           <button type="button" className="chat-panel-close" aria-label="Fechar assistente" onClick={() => setOpen(false)}>
             <X size={16} />
           </button>
@@ -239,7 +265,6 @@ export function Chat() {
               <div className="chat-suggestions">
                 <button type="button" className="chat-suggestion-chip" onClick={() => handleSuggestion("Renomeia o grupo Bumper para Estrutura")}>Renomear grupo</button>
                 <button type="button" className="chat-suggestion-chip" onClick={() => handleSuggestion("Define performance 1.1 em todos os grupos")}>Performance 1.1</button>
-                <button type="button" className="chat-suggestion-chip" onClick={() => handleSuggestion("Junta os relatórios Sangam e Para-barro")}>Juntar relatórios</button>
               </div>
             </div>
           ) : (
