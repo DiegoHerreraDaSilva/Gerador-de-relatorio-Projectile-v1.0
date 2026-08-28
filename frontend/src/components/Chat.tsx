@@ -15,26 +15,18 @@ export function Chat() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant" | "error" | "pending"; text: string }>>([]);
-  // memória da conversa: só pares (pedido, resumo) que tiveram sucesso — nunca
-  // o "state" do relatório (isso reviveria o problema de a IA ficar mais
-  // lenta a cada mensagem, já que só a mensagem ATUAL carrega o state
-  // completo). Cortado pros últimos 8 pares — o backend também recorta por
-  // conta própria, esse limite aqui é só pra não inflar o payload à toa.
-  const MAX_HISTORY_TURNS = 8;
-  const [history, setHistory] = useState<Array<{ message: string; summary: string }>>([]);
 
-  // reseta a conversa (mensagens exibidas + memória) sempre que o CONJUNTO de
-  // pacotes muda de identidade — ou seja, quando um relatório novo é
-  // importado. `key` vem do parser e é estável entre edições do dia a dia
-  // (renomear grupo, mudar horas, etc. não mexe nela), então essa string só
-  // muda numa importação de arquivo de verdade — não a cada tecla digitada.
+  // reseta as mensagens exibidas sempre que o CONJUNTO de pacotes muda de
+  // identidade — ou seja, quando um relatório novo é importado. `key` vem do
+  // parser e é estável entre edições do dia a dia (renomear grupo, mudar
+  // horas, etc. não mexe nela), então essa string só muda numa importação de
+  // arquivo de verdade — não a cada tecla digitada.
   const packageIdentity = packages.map((p) => p.key).join("|");
   const prevPackageIdentity = useRef(packageIdentity);
   useEffect(() => {
     if (prevPackageIdentity.current !== packageIdentity) {
       prevPackageIdentity.current = packageIdentity;
       setMessages([]);
-      setHistory([]);
     }
   }, [packageIdentity]);
 
@@ -81,7 +73,7 @@ export function Chat() {
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, state: buildChatState(), history }),
+        body: JSON.stringify({ message: text, state: buildChatState() }),
       });
       const data = await res.json().catch(() => null);
       setMessages((prev) => prev.filter((m) => m.role !== "pending"));
@@ -103,7 +95,6 @@ export function Chat() {
       }
       const summaryText = (data as any).reply || "Alterações aplicadas.";
       append("assistant", summaryText);
-      setHistory((prev) => [...prev, { message: text, summary: summaryText }].slice(-MAX_HISTORY_TURNS));
     } catch {
       setMessages((prev) => prev.filter((m) => m.role !== "pending"));
       append("error", "Não foi possível falar com o assistente. Verifique sua conexão e tente de novo.");
