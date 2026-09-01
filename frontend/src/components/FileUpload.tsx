@@ -1,7 +1,71 @@
-import { useRef, useState } from "react";
-import { FileSpreadsheet } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Database, FileSpreadsheet, Upload } from "lucide-react";
 import { useReportStore, MESES_PT } from "../store/useReportStore";
 import type { ParseResponse } from "../api/types";
+
+function MonthDropdown({ value, onChange }: { value: string; onChange: (m: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [open]);
+
+  return (
+    <div className="month-dropdown" ref={wrapRef}>
+      <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
+        {value}
+        <ChevronDown size={16} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
+      </button>
+      {open && (
+        <ul className="month-dropdown-list" role="listbox">
+          {MESES_PT.map((m) => (
+            <li key={m}>
+              <button
+                type="button"
+                className={`month-dropdown-option ${m === value ? "active" : ""}`}
+                onClick={() => {
+                  onChange(m);
+                  setOpen(false);
+                }}
+              >
+                {m}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function YearStepper({ value, onChange }: { value: string; onChange: (y: string) => void }) {
+  const num = parseInt(value, 10) || new Date().getFullYear();
+  return (
+    <div className="year-stepper">
+      <input
+        type="text"
+        inputMode="numeric"
+        className="year-stepper-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
+      />
+      <div className="year-stepper-buttons">
+        <button type="button" aria-label="Ano seguinte" onClick={() => onChange(String(num + 1))}>
+          <ChevronUp size={12} strokeWidth={2.5} />
+        </button>
+        <button type="button" aria-label="Ano anterior" onClick={() => onChange(String(num - 1))}>
+          <ChevronDown size={12} strokeWidth={2.5} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function parseMonthLabel(label: string): { month: string; year: string } {
   const match = /^([^/]+)\/(\d{4})$/.exec(label || "");
@@ -91,7 +155,7 @@ export function FileUpload() {
         id: genId(),
         name: g.name,
         performance: 1,
-        activities: g.activities.map((a) => ({ id: genId(), description: a.description, hours: a.hours })),
+        activities: g.activities.map((a) => ({ id: genId(), description: a.description, hours: a.hours, extra: false })),
       })),
       collapsedGroupIds: new Set<string>(),
       fileName: "",
@@ -166,8 +230,11 @@ export function FileUpload() {
   return (
     <>
       <div className="card upload-card" id="step1">
-        <p className="upload-eyebrow">Projectile → Relatório</p>
-        <h2>Importe a planilha de horas</h2>
+        <div className="upload-header">
+          <span className="upload-doc-id">Projectile → Relatório</span>
+          <span className="upload-header-rule" aria-hidden="true" />
+        </div>
+        <h2 className="upload-title">Importe a planilha de horas</h2>
 
         <div className="format-grid">
           <button
@@ -190,11 +257,15 @@ export function FileUpload() {
           </button>
         </div>
 
-        <div className="source-tabs">
-          <button type="button" className={`source-tab ${source === "file" ? "active" : ""}`} onClick={() => setSource("file")}>
+        <p className="source-switch-eyebrow">Fonte dos dados</p>
+        <div className="source-switch">
+          <div className={`source-switch-indicator ${source === "db" ? "right" : ""}`} aria-hidden="true" />
+          <button type="button" className={`source-switch-option ${source === "file" ? "active" : ""}`} onClick={() => setSource("file")}>
+            <Upload size={17} strokeWidth={2} />
             Enviar arquivo
           </button>
-          <button type="button" className={`source-tab ${source === "db" ? "active" : ""}`} onClick={() => setSource("db")}>
+          <button type="button" className={`source-switch-option ${source === "db" ? "active" : ""}`} onClick={() => setSource("db")}>
+            <Database size={17} strokeWidth={2} />
             Buscar do Projectile
           </button>
         </div>
@@ -245,25 +316,14 @@ export function FileUpload() {
           </>
         ) : (
           <>
-            <label className="db-search-label">Mês de referência</label>
-            <div className="db-search-month-row">
-              <select
-                className="db-search-input"
-                value={searchMonth}
-                onChange={(e) => setSearchMonth(e.target.value)}
-              >
-                {MESES_PT.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                className="db-search-input db-search-year"
-                value={searchYear}
-                onChange={(e) => setSearchYear(e.target.value)}
-              />
+            <div className="db-search-date-block">
+              <label className="db-search-label">Mês de referência</label>
+              <div className="db-search-month-row">
+                <MonthDropdown value={searchMonth} onChange={setSearchMonth} />
+                <YearStepper value={searchYear} onChange={setSearchYear} />
+              </div>
+              <p className="db-search-hint">Busca as horas apontadas pelo seu usuário do Projectile nesse mês.</p>
             </div>
-            <p className="db-search-hint">Busca as horas apontadas pelo seu usuário do Projectile nesse mês.</p>
             <button className="primary" onClick={handleSearchDb} disabled={searching}>
               {searching ? "Buscando..." : "Buscar horas"}
             </button>

@@ -85,8 +85,6 @@ export interface StoreState {
   reportMode: "single" | "multi";
   currentIssues: RowIssue[];
   validationCollapsed: boolean;
-  headerCollapsed: boolean;
-  previewCollapsed: boolean;
   previewZoom: number;
   isSplit: boolean;
   paneBPackageId: string | null;
@@ -106,8 +104,6 @@ export interface StoreState {
   setReportMode: (mode: "single" | "multi") => void;
   setIssues: (issues: RowIssue[]) => void;
   setValidationCollapsed: (v: boolean) => void;
-  setHeaderCollapsed: (v: boolean) => void;
-  setPreviewCollapsed: (v: boolean) => void;
   setPreviewZoom: (z: number) => void;
   setSplit: (v: boolean) => void;
   setPaneBPackageId: (id: string) => void;
@@ -188,8 +184,6 @@ export const useReportStore = create<StoreState>()(
     reportMode: "single",
     currentIssues: [],
     validationCollapsed: false,
-    headerCollapsed: true,
-    previewCollapsed: false,
     previewZoom: 100,
     isSplit: false,
     paneBPackageId: null,
@@ -233,8 +227,6 @@ export const useReportStore = create<StoreState>()(
       }),
     setIssues: (issues) => set((s) => { s.currentIssues = issues; }),
     setValidationCollapsed: (v) => set((s) => { s.validationCollapsed = v; }),
-    setHeaderCollapsed: (v) => set((s) => { s.headerCollapsed = v; }),
-    setPreviewCollapsed: (v) => set((s) => { s.previewCollapsed = v; }),
     setPreviewZoom: (z) => set((s) => { s.previewZoom = Math.max(50, Math.min(150, z)); }),
     setSplit: (v) =>
       set((s) => {
@@ -303,7 +295,7 @@ export const useReportStore = create<StoreState>()(
         const pid = packageId ?? s.activePackageId;
         const pkg = s.packages.find((p) => p.id === pid);
         if (!pkg) return;
-        const g: Group = { id: genId(), name: "Novo grupo", performance: 1, activities: [{ id: genId(), description: "", hours: null }] };
+        const g: Group = { id: genId(), name: "Novo grupo", performance: 1, activities: [{ id: genId(), description: "", hours: null, extra: true }] };
         pkg.groups.push(g);
         s.hasGeneratedOnce = false;
       }),
@@ -326,7 +318,7 @@ export const useReportStore = create<StoreState>()(
         if (!g) return;
         const snap = snapshotState(s);
         s.undoStack.push(snap); if (s.undoStack.length > 50) s.undoStack.shift();
-        g.activities.push({ id: genId(), description: "", hours: null });
+        g.activities.push({ id: genId(), description: "", hours: null, extra: true });
         s.hasGeneratedOnce = false;
       }),
     removeActivities: (packageId, items) =>
@@ -495,7 +487,14 @@ export const useReportStore = create<StoreState>()(
                   (oa) => !claimedActivityIds.has(oa.id) && oa.description === a.description
                 );
                 if (oldActivity) claimedActivityIds.add(oldActivity.id);
-                return { id: oldActivity?.id ?? genId(), description: a.description, hours: a.hours };
+                return {
+                  id: oldActivity?.id ?? genId(),
+                  description: a.description,
+                  hours: a.hours,
+                  // preserva a marcação de quem já existia; pra atividade nova
+                  // que o chat criou, trata como "extra" se veio sem horas
+                  extra: oldActivity?.extra ?? a.hours === null,
+                };
               }),
             };
           });

@@ -32,7 +32,6 @@ export function Preview() {
   const setZoom = useReportStore((s) => s.setPreviewZoom);
   const undoStack = useReportStore((s) => s.undoStack);
   const undo = useReportStore((s) => s.undo);
-  const previewCollapsed = useReportStore((s) => s.previewCollapsed);
   const setChartBar = useReportStore((s) => s.setChartBar);
   const setChartPie = useReportStore((s) => s.setChartPie);
 
@@ -55,7 +54,7 @@ export function Preview() {
 
   if (!hasPackages || !activePkg) {
     return (
-      <main className={`preview-column ${previewCollapsed ? "hidden" : ""}`} id="previewColumn">
+      <main className="preview-column" id="previewColumn">
         <div className="card">
           <div className="preview-toolbar">
             <h2>Preview do relatório final</h2>
@@ -85,7 +84,7 @@ export function Preview() {
   }
 
   return (
-    <main className={`preview-column ${previewCollapsed ? "hidden" : ""}`} id="previewColumn">
+    <main className="preview-column" id="previewColumn">
       <div className="card">
         <div className="preview-toolbar">
           <h2>Preview do relatório final</h2>

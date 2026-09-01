@@ -24,15 +24,14 @@ export function Stepper() {
     { label: "Revisar", state: !readyToGenerate ? "pending" as const : hasGeneratedOnce ? "done" as const : "active" as const },
     { label: "Gerar", state: hasGeneratedOnce ? "done" as const : readyToGenerate ? "active" as const : "pending" as const },
   ];
-  const icon = { done: "✓", active: "●", pending: "○" };
 
   return (
     <nav className="stepper">
       {steps.map((step, i) => (
-        <span key={step.label} style={{ display: "contents" }}>
-          {i > 0 && <span className="arrow">→</span>}
+        <span key={step.label} className="step-wrap">
+          {i > 0 && <span className={`rail ${steps[i - 1].state === "done" ? "done" : ""}`} aria-hidden="true" />}
           <div className={`step ${step.state}`}>
-            <span className="dot">{icon[step.state]}</span>
+            <span className="dot">{step.state === "done" ? "✓" : String(i + 1).padStart(2, "0")}</span>
             <span className="label">{step.label}</span>
           </div>
         </span>

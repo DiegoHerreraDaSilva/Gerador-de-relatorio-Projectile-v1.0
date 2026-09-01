@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useReportStore } from "../../store/useReportStore";
 import { computeGroupTotals, computeGrandTotalFor } from "../../utils/calc";
-import { fmtNum, parseLocaleNumber, parseExtraHoursInput } from "../../utils/fmt";
+import { fmtNum, parseLocaleNumber } from "../../utils/fmt";
 import { drawGroupsChart } from "../../utils/chart";
+import { ExtraHoursInput } from "../ExtraHoursInput";
 
 type Props = { paneId: string; packageId: string };
 
@@ -252,7 +253,6 @@ export function PreviewSheet({ paneId, packageId }: Props) {
               <div className="preview-group-body">
                 <div className="preview-group-main">
                   {group.activities.map((activity, aIdx) => {
-                    const isExtra = activity.hours === null || activity.hours === undefined;
                     const key = `${group.id}:${activity.id}`;
                     const isSelected = selectedByPane.has(key);
                     return (
@@ -281,15 +281,17 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                           onFocus={() => pushUndo()}
                           onChange={(e) => updateDescription(group.id, activity.id, e.target.value, packageId)}
                         />
-                        {isExtra && (
-                          <input
+                        {activity.extra ? (
+                          <ExtraHoursInput
                             className="pv-input pv-hours-extra"
-                            type="text"
-                            value={activity.hours === null ? "" : String(activity.hours)}
-                            placeholder="horas"
+                            value={activity.hours}
                             onFocus={() => pushUndo()}
-                            onChange={(e) => updateExtraHours(group.id, activity.id, parseExtraHoursInput(e.target.value), packageId)}
+                            onCommit={(v) => updateExtraHours(group.id, activity.id, v, packageId)}
                           />
+                        ) : (
+                          <span className="pv-hours-real" title="Horas apontadas nesta atividade — só informativo, não vai pro relatório final por atividade (só o total do grupo)">
+                            {fmtNum(activity.hours ?? 0)}
+                          </span>
                         )}
                         <button
                           type="button"
