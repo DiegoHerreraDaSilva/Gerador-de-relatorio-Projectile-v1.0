@@ -9,7 +9,7 @@
 | **Excel** | openpyxl (leitura) + ZIP/XML manual | 3.1.5 (`backend/app/parser.py:7`, `backend/app/generator.py:1`) |
 | **Frontend** | React 18 + Vite 7.3.6 + Zustand 4 + immer 10 | `frontend/src/`, `frontend/vite.config.ts:1` |
 | **IA** | Anthropic SDK + truststore | 0.125 / 0.10.4 (`backend/app/chatbot.py:22`) |
-| **Storage** | Sem DB/ORM — `tempfile.gettempdir()/relatorio_horas_output` (`backend/app/main.py:71`) |
+| **Storage** | Sem DB/ORM — `tempfile.gettempdir()/relatorio_horas_output` (`backend/app/main.py:71`) para saída gerada; `backend/data/management_kpi.json` (fora do git) para os dados manuais do painel de gerência (`backend/app/management.py`) |
 
 ## Code Style
 

@@ -1,6 +1,10 @@
 import { create } from "zustand";
 
-type User = { name: string; login: string; email: string };
+type User = { name: string; login: string; email: string; isManager: boolean };
+
+function toUser(raw: any): User {
+  return { name: raw.name, login: raw.login, email: raw.email, isManager: Boolean(raw.is_manager) };
+}
 
 interface AuthState {
   user: User | null;
@@ -21,7 +25,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ user: null, status: "unauthenticated" });
         return;
       }
-      const user = await res.json();
+      const user = toUser(await res.json());
       set({ user, status: "authenticated" });
     } catch {
       set({ user: null, status: "unauthenticated" });
@@ -38,7 +42,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const data = await res.json().catch(() => null);
       throw new Error((data as any)?.detail || "Login ou senha incorretos.");
     }
-    const user = await res.json();
+    const user = toUser(await res.json());
     set({ user, status: "authenticated" });
   },
 

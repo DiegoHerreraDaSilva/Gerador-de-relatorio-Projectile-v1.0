@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import os
 import re
+import threading
 
 import pymysql
 import pymysql.cursors
@@ -28,7 +29,18 @@ class ProjectileDbError(RuntimeError):
     ausente ou erro de rede/credencial, nunca erro do usuário."""
 
 
-def _get_connection() -> pymysql.connections.Connection:
+# Esse Projectile é uma instalação on-premise de cliente único: TODA tabela
+# relevante (ttimebit, tjob, temployee, tproject, auser) tem `sysClientId`
+# como primeira coluna de todo índice composto, mas nenhuma query aqui
+# filtrava por ele — sem essa igualdade o MySQL nunca consegue "entrar" nesses
+# índices e cai pra table scan completo, mesmo quando o índice certo existe.
+# Confirmado via `SELECT DISTINCT sysClientId FROM ttimebit/tjob` (só '0') e
+# medido: adicionar esse filtro fez a query de fetch_engineering_hours cair
+# de 37.31s pra 0.45s pro mesmo resultado (vira ref/eq_ref em vez de ALL).
+_SYS_CLIENT_ID = "0"
+
+
+def _open_new_connection() -> pymysql.connections.Connection:
     host = os.environ.get("PROJECTILE_DB_HOST")
     user = os.environ.get("PROJECTILE_DB_USER")
     database = os.environ.get("PROJECTILE_DB_NAME", "projectile")
@@ -48,35 +60,239 @@ def _get_connection() -> pymysql.connections.Connection:
             database=database,
             cursorclass=pymysql.cursors.DictCursor,
             connect_timeout=8,
+            # autocommit: esse módulo só faz SELECT, nunca escreve — mas a conexão
+            # agora é persistente entre requisições (ver _get_connection), e o
+            # MySQL do Projectile usa REPEATABLE READ por padrão. Sem autocommit,
+            # a primeira query da conexão abriria uma transação implícita cujo
+            # "retrato" dos dados ficaria congelado pra sempre (nunca commitado),
+            # e toda query seguinte na mesma conexão devolveria dado desatualizado
+            # silenciosamente. Com autocommit, cada SELECT enxerga o dado atual.
+            autocommit=True,
         )
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao conectar no banco do Projectile: {e}") from e
 
 
-def fetch_employee_hours(employee_name: str, start_date: str, end_date: str) -> list[dict]:
-    """Busca por nome (parcial, sem diferenciar maiúscula/minúscula) — o Projectile
-    guarda o funcionário no "job" (`tjob.capEmployee`), não no lançamento em si."""
+# Conexão única, persistente entre requisições, em vez de abrir uma nova a
+# cada chamada — abrir conexão é o custo real nesse MySQL legado (medido: até
+# ~20s quando o servidor está sob carga, contra 0.02-0.05s num dia normal).
+# Como as rotas que tocam esse banco são síncronas (sem thread pool), o app
+# só processa uma operação de banco por vez, então uma única conexão
+# reaproveitada é suficiente — não precisa de um pool com várias. Ninguém
+# deve chamar `.close()` na conexão devolvida por `_get_connection()`: ela é
+# gerenciada por este módulo e reconectada sozinha (`ping(reconnect=True)`)
+# se a conexão cair (timeout do servidor, restart, etc.).
+_pooled_conn: pymysql.connections.Connection | None = None
+_pool_lock = threading.Lock()
+
+
+def _get_connection() -> pymysql.connections.Connection:
+    global _pooled_conn
+    with _pool_lock:
+        if _pooled_conn is not None:
+            try:
+                _pooled_conn.ping(reconnect=True)
+                return _pooled_conn
+            except pymysql.MySQLError:
+                try:
+                    _pooled_conn.close()
+                except Exception:
+                    pass
+                _pooled_conn = None
+        _pooled_conn = _open_new_connection()
+        return _pooled_conn
+
+
+def open_connection() -> pymysql.connections.Connection:
+    """Nome mantido por compatibilidade com quem já importa (ex:
+    `management.py`) — devolve a mesma conexão persistente de
+    `_get_connection`. Não precisa (nem deve) ser fechada pelo chamador."""
+    return _get_connection()
+
+
+def fetch_employee_hours(
+    start_date: str, end_date: str,
+    employee_id: str | None = None, employee_name: str | None = None,
+) -> list[dict]:
+    """Busca as horas do funcionário no período. Prefere `employee_id`
+    (`tjob.pEmployee`, FK de verdade — resolvida uma vez no login via
+    `temployee.pLogin`, ver `auth.py:verify_projectile_login`): usa
+    `IdxJobEmployee` com o filtro de `sysClientId` abaixo, então vira um
+    lookup indexado em vez de scan. Se não tiver `employee_id` (ex: login sem
+    registro correspondente em `temployee`), cai pro fallback por nome
+    parcial (`tjob.capEmployee LIKE`), mais lento mas sempre funciona."""
+    if not employee_id and not employee_name:
+        raise ValueError("informe employee_id ou employee_name")
     conn = _get_connection()
     try:
         with conn.cursor() as cur:
+            if employee_id:
+                match_clause, match_param = "tj.pEmployee = %s", employee_id
+            else:
+                match_clause, match_param = "tj.capEmployee LIKE %s", f"%{employee_name}%"
             cur.execute(
-                """
+                f"""
                 SELECT tb.pDate AS data, tb.pNote AS observacao, tb.pTime AS horas,
                        tb.capJob AS pacote, tj.capEmployee AS funcionario
                 FROM ttimebit tb
-                JOIN tjob tj ON tj.pJob = tb.pJob
-                WHERE tj.capEmployee LIKE %s
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                WHERE {match_clause}
+                  AND tb.sysClientId = %s
                   AND tb.pDate BETWEEN %s AND %s
                   AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
                 ORDER BY tb.pDate, tb.pStart
                 """,
-                (f"%{employee_name}%", start_date, end_date),
+                (match_param, _SYS_CLIENT_ID, start_date, end_date),
             )
             return cur.fetchall()
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao consultar horas do Projectile: {e}") from e
-    finally:
-        conn.close()
+
+
+def fetch_engineering_hours(
+    start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
+) -> list[dict]:
+    """Busca as horas de TODOS os funcionários dos centros de custo de
+    engenharia (CAD+CAE, sempre os dois — o recorte mais amplo permitido no
+    painel) no período — usado no painel de gerência, diferente de
+    `fetch_employee_hours` (que busca só o usuário logado). Aqui o join com
+    `temployee` é por ID (`tj.pEmployee = te.pEmployee`), uma FK de verdade —
+    mais confiável que o casamento por texto (`capEmployee LIKE`) usado
+    acima, que só existe porque não havia necessidade de filtrar por centro
+    de custo até agora.
+
+    Devolve TODAS as linhas de CAD+CAE (com `cost_center` e `project_id` de
+    cada uma) pra `management.py` cachear e filtrar por Centro de
+    Custo/Cliente/Projeto em Python — evita repetir essa query a cada troca
+    de filtro. NUNCA faz join direto com `tproject` aqui: já medido que isso
+    faz o otimizador escanear tudo e leva minutos — resolver cliente/projeto
+    por `pProject IN (...)` à parte (ver
+    `fetch_project_ids_for_clients`/`fetch_project_ids_for_names`) evita esse
+    plano ruim.
+
+    Filtra `sysClientId` em todas as tabelas (ver `_SYS_CLIENT_ID` no topo do
+    arquivo) — sem isso o MySQL não conseguia usar nenhum índice e cada
+    chamada levava ~37s (medido); com o filtro vira `ref`/`eq_ref` em
+    `IdxTimeBitDate`/`PRIMARY` e cai pra ~0.45s, mesmo resultado.
+
+    Aceita uma `conn` já aberta pra reaproveitar (opcional — desde que a
+    conexão passou a ser única e persistente no processo, ver
+    `_get_connection`, isso é só pra quem já tem uma em mãos e quer deixar a
+    reutilização explícita, ex: `management.py:compute_monthly_kpis`).
+    """
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
+                       tj.pProject AS project_id, te.pCostCenter AS cost_center
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
+                WHERE (te.pCostCenter LIKE %s OR te.pCostCenter LIKE %s)
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                ORDER BY tb.pDate
+                """,
+                ("%CAD%", "%CAE%", _SYS_CLIENT_ID, start_date, end_date),
+            )
+            return cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar horas de engenharia do Projectile: {e}") from e
+
+
+def fetch_clients_for_projects(
+    project_ids: list[str], conn: pymysql.connections.Connection | None = None
+) -> list[str]:
+    """Lista de clientes só dos projetos informados — usada pra popular o
+    filtro de Cliente com só quem tem horas no período em vista (últimos N
+    meses), não o histórico inteiro do Projectile. Consulta direta em
+    `tproject` filtrando por `pProject IN (...)` (PK, rápida) — sem join
+    com as tabelas de horas (ver aviso em `fetch_engineering_hours` sobre
+    por que esse join é evitado). Aceita `conn` já aberta, ver
+    `fetch_engineering_hours`."""
+    if not project_ids:
+        return []
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(project_ids))
+            cur.execute(
+                f"SELECT DISTINCT capCustomer FROM tproject "
+                f"WHERE pProject IN ({placeholders}) AND capCustomer IS NOT NULL AND capCustomer <> '' "
+                f"ORDER BY capCustomer",
+                project_ids,
+            )
+            return [html.unescape(row["capCustomer"]).strip() for row in cur.fetchall()]
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar clientes do Projectile: {e}") from e
+
+
+def fetch_project_ids_for_clients(
+    clients: list[str], conn: pymysql.connections.Connection | None = None
+) -> list[str]:
+    """Resolve nomes de cliente (`tproject.capCustomer`) pros IDs de projeto
+    (`tproject.pProject`) correspondentes — usado só quando o filtro de
+    Cliente está ativo, pra filtrar a query principal por `tj.pProject IN
+    (...)` em vez de fazer join direto (ver `fetch_engineering_hours`).
+    Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
+    if not clients:
+        return []
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(clients))
+            cur.execute(f"SELECT pProject FROM tproject WHERE capCustomer IN ({placeholders})", clients)
+            return [row["pProject"] for row in cur.fetchall()]
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
+
+
+def fetch_project_names_for_ids(
+    project_ids: list[str], conn: pymysql.connections.Connection | None = None
+) -> list[str]:
+    """Nomes de projeto (`tproject.pDescription`) só dos IDs informados — usado
+    pra popular o filtro de Projeto com só quem tem horas no período em vista.
+    Projeto aqui é `tproject` de verdade, não `capJob` (pacote de trabalho):
+    um projeto agrupa vários pacotes de trabalho, então usar `capJob` como
+    "Projeto" misturava os dois níveis. Mesma técnica de lookup rápido por
+    `pProject IN (...)` (PK) usada pra Cliente, sem join com as tabelas de
+    horas. Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
+    if not project_ids:
+        return []
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(project_ids))
+            cur.execute(
+                f"SELECT DISTINCT pDescription FROM tproject "
+                f"WHERE pProject IN ({placeholders}) AND pDescription IS NOT NULL AND pDescription <> '' "
+                f"ORDER BY pDescription",
+                project_ids,
+            )
+            return [html.unescape(row["pDescription"]).strip() for row in cur.fetchall()]
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar nomes de projeto do Projectile: {e}") from e
+
+
+def fetch_project_ids_for_names(
+    names: list[str], conn: pymysql.connections.Connection | None = None
+) -> list[str]:
+    """Resolve nomes de projeto (`tproject.pDescription`) pros IDs
+    correspondentes — usado quando o filtro de Projeto está ativo. Aceita
+    `conn` já aberta, ver `fetch_engineering_hours`."""
+    if not names:
+        return []
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(names))
+            cur.execute(f"SELECT pProject FROM tproject WHERE pDescription IN ({placeholders})", names)
+            return [row["pProject"] for row in cur.fetchall()]
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
 
 
 def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPackage], list[RowIssue]]:

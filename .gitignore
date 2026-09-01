@@ -32,3 +32,7 @@ dist/
 
 # artefatos de sessão do plugin Playwright (screenshots/logs de debug)
 .playwright-mcp/
+
+# dados do painel de gerência (KPIs manuais, lista de pacotes não faturáveis)
+# — persistência local simples, não faz parte do código do projeto
+backend/data/

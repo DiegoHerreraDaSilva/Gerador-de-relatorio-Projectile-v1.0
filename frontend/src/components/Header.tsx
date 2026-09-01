@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { Sun, Moon, LogOut } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { useAuthStore } from "../store/useAuthStore";
 
-export function Header() {
+type AppView = "report" | "management";
+
+export function Header({
+  view,
+  onNavigate,
+}: {
+  view: AppView;
+  onNavigate: (view: AppView) => void;
+}) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const canSeeManagementPanel = Boolean(user?.isManager);
   const [theme, setTheme] = useState<Theme>(() => {
     // theme already applied by inline script, just read it
     const t = document.documentElement.dataset.theme as Theme | undefined;
@@ -26,8 +35,24 @@ export function Header() {
 
   return (
     <header className="app-header">
-      <h1>Geração de Relatório de Horas</h1>
+      <h1>
+        {view === "management" ? (
+          <>Painel de <span className="app-header-accent">Gerência</span></>
+        ) : (
+          <>Geração de <span className="app-header-accent">Relatório de Horas</span></>
+        )}
+      </h1>
       <div className="app-header-actions">
+        {canSeeManagementPanel && (
+          <button
+            type="button"
+            className={`nav-tab ${view === "management" ? "active" : ""}`}
+            onClick={() => onNavigate(view === "management" ? "report" : "management")}
+          >
+            <LayoutDashboard size={15} strokeWidth={1.8} />
+            Painel de Gerência
+          </button>
+        )}
         {user && (
           <div className="user-info">
             <span className="user-name">{user.name}</span>

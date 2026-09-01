@@ -1,13 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "./components/Header";
 import { LoginScreen } from "./components/LoginScreen";
+import { ManagementPanel } from "./components/ManagementPanel";
 import { useAuthStore } from "./store/useAuthStore";
 import { Stepper } from "./components/Stepper";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
 import { PackageTabs } from "./components/PackageTabs";
-import { HeaderDataCard } from "./components/HeaderDataCard";
-import { GroupsPanel } from "./components/GroupsPanel";
 import { PackageFileName } from "./components/PackageFileName";
 import { Preview } from "./components/Preview/Preview";
 import { GenerateFooter } from "./components/GenerateFooter";
@@ -16,11 +15,12 @@ import { useReportStore } from "./store/useReportStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
 
+type AppView = "report" | "management";
+
 export default function App() {
+  const [view, setView] = useState<AppView>("report");
   const packages = useReportStore((s) => s.packages);
   const activeId = useReportStore((s) => s.activePackageId);
-  const previewCollapsed = useReportStore((s) => s.previewCollapsed);
-  const setPreviewCollapsed = useReportStore((s) => s.setPreviewCollapsed);
   const isSplit = useReportStore((s) => s.isSplit);
   const authStatus = useAuthStore((s) => s.status);
   const checkSession = useAuthStore((s) => s.checkSession);
@@ -48,9 +48,18 @@ export default function App() {
   if (authStatus === "loading") return null;
   if (authStatus === "unauthenticated") return <LoginScreen />;
 
+  if (view === "management") {
+    return (
+      <>
+        <Header view={view} onNavigate={setView} />
+        <ManagementPanel />
+      </>
+    );
+  }
+
   return (
     <>
-      <Header />
+      <Header view={view} onNavigate={setView} />
       <Stepper />
       {hasPackages && (
         <div className={`summary-row ${hasPackages ? "visible" : ""}`}>
@@ -92,38 +101,6 @@ export default function App() {
             >
               Trocar arquivo
             </button>
-            {!isSplit && (
-              <button
-                type="button"
-                id="btnTogglePreviewFloating"
-                onClick={() => {
-                  // replicate legacy fade logic
-                  const columns = document.querySelector(".app-body") as HTMLElement | null;
-                  const previewColumn = document.getElementById("previewColumn") as HTMLElement | null;
-                  const btn = document.getElementById("btnTogglePreviewFloating") as HTMLButtonElement | null;
-                  if (!previewColumn || !columns || !btn) return;
-                  const isCollapsing = !previewColumn.classList.contains("fade-out");
-                  if (isCollapsing) {
-                    previewColumn.classList.add("fade-out");
-                    btn.textContent = "« Mostrar preview";
-                    setTimeout(() => {
-                      previewColumn.classList.add("hidden");
-                      columns.classList.add("preview-collapsed");
-                      setPreviewCollapsed(true);
-                    }, 220);
-                  } else {
-                    previewColumn.classList.remove("hidden");
-                    columns.classList.remove("preview-collapsed");
-                    void previewColumn.offsetWidth;
-                    previewColumn.classList.remove("fade-out");
-                    btn.textContent = "Recolher preview »";
-                    setPreviewCollapsed(false);
-                  }
-                }}
-              >
-                {previewCollapsed ? "« Mostrar preview" : "Recolher preview »"}
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -134,12 +111,8 @@ export default function App() {
 
       <div id="step2" className={hasPackages ? "visible" : ""} style={{ display: hasPackages ? "block" : "none" }}>
         <PackageTabs />
-        <div className={`app-body ${previewCollapsed ? "preview-collapsed" : ""} ${isSplit ? "split-mode" : ""}`}>
-          <aside className="sidebar">
-            <PackageFileName />
-            <HeaderDataCard />
-            <GroupsPanel />
-          </aside>
+        <PackageFileName />
+        <div className={`app-body ${isSplit ? "split-mode" : ""}`}>
           <Preview />
         </div>
       </div>

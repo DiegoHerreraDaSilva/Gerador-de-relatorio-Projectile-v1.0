@@ -7,7 +7,7 @@ import uuid
 import zipfile
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,6 +48,7 @@ from .auth import (
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
 from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, _parse_month_label, generate_report
+from .management import MANAGEMENT_PANEL_LOGINS, compute_monthly_kpis, set_manual_entry, set_nonbillable_packages
 from .parser import parse_projectile_export
 from .projectile_db import ProjectileDbError, fetch_employee_hours, group_hours
 
@@ -117,6 +118,15 @@ def require_session(request: Request) -> dict:
     return session
 
 
+def require_manager(_user: dict = Depends(require_session)) -> dict:
+    """Barra com 403 quem não é gerente — o painel de gerência mostra dados
+    de TODOS os engenheiros, não só do usuário logado, então precisa de um
+    controle de acesso além da sessão comum."""
+    if _user["login"] not in MANAGEMENT_PANEL_LOGINS:
+        raise HTTPException(403, "Sem acesso ao painel de gerência.")
+    return _user
+
+
 class LoginRequest(BaseModel):
     login: str
     password: str
@@ -148,7 +158,10 @@ async def login_endpoint(payload: LoginRequest, request: Request, response: Resp
         # (rede interna), então isso já fica pronto pro dia que rodar atrás de TLS.
         secure=(request.url.scheme == "https"),
     )
-    return {"name": user["name"], "login": user["login"], "email": user["email"]}
+    return {
+        "name": user["name"], "login": user["login"], "email": user["email"],
+        "is_manager": user["login"] in MANAGEMENT_PANEL_LOGINS,
+    }
 
 
 @app.get("/auth/me")
@@ -156,7 +169,10 @@ async def me_endpoint(request: Request):
     session = get_session(request.cookies.get(SESSION_COOKIE))
     if not session:
         raise HTTPException(401, "Não autenticado.")
-    return {"name": session["name"], "login": session["login"], "email": session["email"]}
+    return {
+        "name": session["name"], "login": session["login"], "email": session["email"],
+        "is_manager": session["login"] in MANAGEMENT_PANEL_LOGINS,
+    }
 
 
 @app.post("/auth/logout")
@@ -231,7 +247,9 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     end_date = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
 
     try:
-        rows = fetch_employee_hours(employee_name, start_date, end_date)
+        rows = fetch_employee_hours(
+            start_date, end_date, employee_id=_user.get("employee_id"), employee_name=employee_name
+        )
     except ProjectileDbError as e:
         raise _log_and_generic_error(e)
 
@@ -244,6 +262,56 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
 
     packages, issues = group_hours(rows, split_by_package=(payload.mode == "multi"))
     return _build_parse_response(packages, issues)
+
+
+@app.get("/management/kpis")
+async def management_kpis_endpoint(
+    months: int = 12,
+    year: int | None = None,
+    cost_centers: list[str] = Query(default=[]),
+    clients: list[str] = Query(default=[]),
+    projects: list[str] = Query(default=[]),
+    force_refresh: bool = False,
+    _user: dict = Depends(require_manager),
+):
+    try:
+        return compute_monthly_kpis(
+            months,
+            year=year,
+            cost_centers=cost_centers or None,
+            clients=clients or None,
+            projects=projects or None,
+            force_refresh=force_refresh,
+        )
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+
+
+class ManualEntryPayload(BaseModel):
+    billed_hours: float | None = Field(default=None, allow_inf_nan=False)
+    elaboration_days: float | None = Field(default=None, allow_inf_nan=False)
+
+
+@app.put("/management/kpis/{month}")
+async def management_manual_entry_endpoint(
+    month: str, payload: ManualEntryPayload, _user: dict = Depends(require_manager)
+):
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
+    set_manual_entry(month, payload.billed_hours, payload.elaboration_days)
+    return {"ok": True}
+
+
+class NonbillablePackagesPayload(BaseModel):
+    packages: list[str]
+
+
+@app.put("/management/nonbillable-packages")
+async def management_nonbillable_packages_endpoint(
+    payload: NonbillablePackagesPayload, _user: dict = Depends(require_manager)
+):
+    set_nonbillable_packages(payload.packages)
+    return {"ok": True}
 
 
 class ActivityPayload(BaseModel):

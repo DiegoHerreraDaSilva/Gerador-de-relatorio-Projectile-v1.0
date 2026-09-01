@@ -73,14 +73,33 @@ def _hash_password(password: str, salt: str) -> str:
 
 
 def verify_projectile_login(login: str, password: str) -> dict:
-    """Consulta `auser` pelo login e confere a senha com o mesmo esquema de
-    hash do Projectile (sha256(senha+salt)). Levanta LoginError se não bater
-    — nunca deixa vazar se foi "usuário não existe" ou "senha errada"."""
+    """Consulta `auser` pelo login (+ `temployee` numa única query/conexão,
+    via LEFT JOIN) e confere a senha com o mesmo esquema de hash do
+    Projectile (sha256(senha+salt)). Levanta LoginError se não bater — nunca
+    deixa vazar se foi "usuário não existe" ou "senha errada".
+
+    `auser.rName` nem sempre é o nome usado nos relatórios (pode ser uma
+    matrícula/apelido interno) — o nome de exibição de verdade, o mesmo que
+    aparece em `tjob.capEmployee`, vem do cadastro de RH em `temployee`,
+    ligado pelo login. Também traz `temployee.pEmployee` (a FK de verdade
+    usada em `tjob.pEmployee`) pra guardar na sessão e usar depois em
+    `fetch_employee_hours` sem precisar de outro lookup.
+
+    Antes eram duas conexões seriais (uma pra `auser`, outra pra
+    `temployee`) — nesse MySQL legado, abrir conexão nova já é lento por si
+    só quando o servidor está sob carga, então unificar em uma só corta esse
+    custo pela metade."""
     conn = _get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT rId, rName, rLogin, rEmail, rPassword, rSalt FROM auser WHERE rLogin = %s",
+                """
+                SELECT au.rId, au.rName, au.rLogin, au.rEmail, au.rPassword, au.rSalt,
+                       te.pEmployee AS employee_id, te.pFirstName, te.pName
+                FROM auser au
+                LEFT JOIN temployee te ON te.pLogin = au.rLogin
+                WHERE au.rLogin = %s
+                """,
                 (login,),
             )
             row = cur.fetchone()
@@ -88,8 +107,6 @@ def verify_projectile_login(login: str, password: str) -> dict:
         raise
     except Exception as e:
         raise ProjectileDbError(f"Falha ao consultar usuário no Projectile: {e}") from e
-    finally:
-        conn.close()
 
     if not row or not row.get("rPassword") or not row.get("rSalt"):
         raise LoginError("Login ou senha incorretos.")
@@ -98,34 +115,13 @@ def verify_projectile_login(login: str, password: str) -> dict:
     if not hmac.compare_digest(expected, (row["rPassword"] or "").strip().lower()):
         raise LoginError("Login ou senha incorretos.")
 
-    display_name = _employee_display_name(row["rLogin"]) or row["rName"]
-    return {"id": row["rId"], "name": display_name, "login": row["rLogin"], "email": row.get("rEmail") or ""}
-
-
-def _employee_display_name(login: str) -> str | None:
-    """`auser.rName` nem sempre é o nome usado nos relatórios (pode ser uma
-    matrícula/apelido interno) — o nome de exibição de verdade, o mesmo que
-    aparece em `tjob.capEmployee` (usado pra buscar as horas), vem do cadastro
-    de RH em `temployee`, ligado pelo login."""
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pFirstName, pName FROM temployee WHERE pLogin = %s",
-                (login,),
-            )
-            row = cur.fetchone()
-    except Exception:
-        return None
-    finally:
-        conn.close()
-
-    if not row:
-        return None
     first_name = html.unescape(row.get("pFirstName") or "").strip()
     last_name = html.unescape(row.get("pName") or "").strip()
-    full_name = f"{first_name} {last_name}".strip()
-    return full_name or None
+    display_name = f"{first_name} {last_name}".strip() or row["rName"]
+    return {
+        "id": row["rId"], "name": display_name, "login": row["rLogin"],
+        "email": row.get("rEmail") or "", "employee_id": row.get("employee_id"),
+    }
 
 
 _sessions: dict[str, dict] = {}
