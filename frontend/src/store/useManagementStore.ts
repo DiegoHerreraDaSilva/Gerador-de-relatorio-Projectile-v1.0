@@ -13,7 +13,6 @@ export type MonthRow = {
 
 type KpisResponse = {
   months: MonthRow[];
-  nonbillable_packages: string[];
   cost_centers: string[];
   available_projects: string[];
   available_clients: string[];
@@ -26,7 +25,6 @@ export const ROLLING_PERIOD = "rolling";
 
 interface ManagementState {
   rows: MonthRow[] | null;
-  nonbillablePackages: string[];
   availableProjects: string[];
   availableClients: string[];
   error: string;
@@ -53,7 +51,6 @@ interface ManagementState {
   // trocar um filtro não precisa pagar o custo de uma busca nova no banco.
   load: (force?: boolean, bypassBackendCache?: boolean) => Promise<void>;
   updateRow: (month: string, patch: Partial<MonthRow>) => void;
-  setNonbillablePackages: (packages: string[]) => void;
   setError: (message: string) => void;
   setSelectedMonths: (months: string[]) => void;
   setCostCenters: (costCenters: string[]) => void;
@@ -81,7 +78,6 @@ function buildQuery(
 
 export const useManagementStore = create<ManagementState>((set, get) => ({
   rows: null,
-  nonbillablePackages: [],
   availableProjects: [],
   availableClients: [],
   error: "",
@@ -113,7 +109,6 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
       const data: KpisResponse = await res.json();
       set({
         rows: data.months,
-        nonbillablePackages: data.nonbillable_packages,
         availableProjects: data.available_projects,
         availableClients: data.available_clients,
         loaded: true,
@@ -139,7 +134,6 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
     }));
   },
 
-  setNonbillablePackages: (packages) => set({ nonbillablePackages: packages }),
   setError: (message) => set({ error: message }),
   setSelectedMonths: (months) => set({ selectedMonths: months }),
   setCostCenters: (costCenters) => {

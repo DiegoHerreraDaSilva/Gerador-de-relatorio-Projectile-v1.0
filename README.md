@@ -42,7 +42,9 @@ Três cartões, cada um com um *gauge* e uma tabela mês a mês (competência):
 |---|---|---|
 | **Performance em Horas** | mínimo 10% | `Trabalhadas` = soma de horas CAD+CAE no mês (banco); `Faturadas` = input manual do gerente; `Perf. H = Faturadas − Trabalhadas`; `KPI % = Perf. H / Trabalhadas` |
 | **Elaboração dos relatórios** | máximo 5 dias úteis | `KPI (Dias)` = 100% input manual, sem fórmula |
-| **Horas não faturáveis** | máximo 10% | `Horas NãoFat` = soma de horas cujo *pacote de trabalho* bate com uma lista configurável de nomes (ex: "Treinamento"); `KPI % = Horas NãoFat / Trabalhadas` |
+| **Horas não faturáveis** | máximo 10% | `Horas NãoFat` = soma de horas cujo pacote de trabalho tem `tjob.pExternal = '0'` no Projectile; `KPI % = Horas NãoFat / Trabalhadas` |
+
+Já existiu uma lista manual de nomes de pacote (ex: "Treinamento") pra decidir "não faturável" — trocada por `pExternal` depois de uma auditoria estatística mostrar que esse campo do Projectile já é consistente pro que realmente importa (pacotes ativos hoje e com apontamento nos últimos 12 meses batem 100% com a expectativa; a inconsistência real fica só no histórico antigo/fechado, fora de qualquer período que o painel consulta). Mais simples e sem lista pra manter.
 
 Filtros (`frontend/src/components/ManagementFilters.tsx`), todos client-side sobre o mesmo resultado cacheado, exceto quando mudam o recorte do banco:
 
@@ -50,9 +52,8 @@ Filtros (`frontend/src/components/ManagementFilters.tsx`), todos client-side sob
 - **Competência**: filtro de exibição, não refaz busca.
 - **Centro de Custo**: CAD/CAE (os dois por padrão).
 - **Cliente** / **Projeto**: só mostram quem teve horas no período em vista — `Projeto` usa `tproject` de verdade (não o pacote de trabalho, que é mais granular).
-- **Pacotes de trabalho não faturáveis**: lista editável (chips) que define o que conta como "não faturável".
 
-Persistência: os valores manuais (Faturadas, dias de elaboração) e a lista de pacotes não faturáveis sobrevivem a reinícios do backend num JSON simples, `backend/data/management_kpi.json` (fora do git — ver [Variáveis](#variáveis-e-credenciais)).
+Persistência: os valores manuais (Faturadas, dias de elaboração) sobrevivem a reinícios do backend num JSON simples, `backend/data/management_kpi.json` (fora do git — ver [Variáveis](#variáveis-e-credenciais)).
 
 ---
 
@@ -305,15 +306,11 @@ Validação `allow_inf_nan=False` evita `NaN/Infinity` virar `500`.
 
 ### `GET /management/kpis`
 
-Query params: `months` (default 12), `year` (opcional, ano fechado), `cost_centers`/`clients`/`projects` (listas repetíveis), `force_refresh` (bool, ignora o cache de 15min). Requer gerente. → `{ months: [...], nonbillable_packages, cost_centers, available_projects, available_clients }`.
+Query params: `months` (default 12), `year` (opcional, ano fechado), `cost_centers`/`clients`/`projects` (listas repetíveis), `force_refresh` (bool, ignora o cache de 15min). Requer gerente. → `{ months: [...], cost_centers, available_projects, available_clients }`.
 
 ### `PUT /management/kpis/{month}`
 
 `{ billed_hours, elaboration_days }` (mês `AAAA-MM`) — grava os valores manuais de um mês. Requer gerente.
-
-### `PUT /management/nonbillable-packages`
-
-`{ packages: string[] }` — substitui a lista de pacotes considerados não faturáveis. Requer gerente.
 
 ---
 

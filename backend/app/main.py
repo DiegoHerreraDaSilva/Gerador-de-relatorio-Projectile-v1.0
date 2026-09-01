@@ -48,7 +48,7 @@ from .auth import (
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
 from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, _parse_month_label, generate_report
-from .management import MANAGEMENT_PANEL_LOGINS, compute_monthly_kpis, set_manual_entry, set_nonbillable_packages
+from .management import MANAGEMENT_PANEL_LOGINS, compute_monthly_kpis, set_manual_entry
 from .parser import parse_projectile_export
 from .projectile_db import ProjectileDbError, fetch_employee_hours, group_hours
 
@@ -299,18 +299,6 @@ async def management_manual_entry_endpoint(
     if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
     set_manual_entry(month, payload.billed_hours, payload.elaboration_days)
-    return {"ok": True}
-
-
-class NonbillablePackagesPayload(BaseModel):
-    packages: list[str]
-
-
-@app.put("/management/nonbillable-packages")
-async def management_nonbillable_packages_endpoint(
-    payload: NonbillablePackagesPayload, _user: dict = Depends(require_manager)
-):
-    set_nonbillable_packages(payload.packages)
     return {"ok": True}
 
 

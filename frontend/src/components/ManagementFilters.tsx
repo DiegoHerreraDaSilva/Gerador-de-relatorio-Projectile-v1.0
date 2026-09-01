@@ -1,15 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { ALL_COST_CENTERS, ROLLING_PERIOD, useManagementStore } from "../store/useManagementStore";
-
-async function putJson(url: string, body: unknown) {
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
-}
 
 function SingleSelectDropdown({
   label,
@@ -145,37 +136,13 @@ export function ManagementFilters() {
   const projects = useManagementStore((s) => s.projects);
   const availableClients = useManagementStore((s) => s.availableClients);
   const availableProjects = useManagementStore((s) => s.availableProjects);
-  const nonbillablePackages = useManagementStore((s) => s.nonbillablePackages);
   const setPeriod = useManagementStore((s) => s.setPeriod);
   const setSelectedMonths = useManagementStore((s) => s.setSelectedMonths);
   const setCostCenters = useManagementStore((s) => s.setCostCenters);
   const setClients = useManagementStore((s) => s.setClients);
   const setProjects = useManagementStore((s) => s.setProjects);
-  const setNonbillablePackages = useManagementStore((s) => s.setNonbillablePackages);
-  const setError = useManagementStore((s) => s.setError);
-  const load = useManagementStore((s) => s.load);
-  const [newPackage, setNewPackage] = useState("");
 
   const monthOptions = (rows ?? []).map((r) => r.month);
-
-  const addPackage = () => {
-    const name = newPackage.trim();
-    if (!name || nonbillablePackages.includes(name)) return;
-    const next = [...nonbillablePackages, name];
-    setNonbillablePackages(next);
-    setNewPackage("");
-    putJson("/management/nonbillable-packages", { packages: next })
-      .then(() => load(true))
-      .catch(() => setError("Não consegui salvar a lista de pacotes."));
-  };
-
-  const removePackage = (name: string) => {
-    const next = nonbillablePackages.filter((p) => p !== name);
-    setNonbillablePackages(next);
-    putJson("/management/nonbillable-packages", { packages: next })
-      .then(() => load(true))
-      .catch(() => setError("Não consegui salvar a lista de pacotes."));
-  };
 
   return (
     <aside className="management-filters">
@@ -195,30 +162,6 @@ export function ManagementFilters() {
       />
       <MultiSelectDropdown label="Cliente" options={availableClients} selected={clients} onChange={setClients} />
       <MultiSelectDropdown label="Projeto" options={availableProjects} selected={projects} onChange={setProjects} />
-
-      <div className="mgmt-filter nonbillable-editor">
-        <span className="mgmt-filter-label">Pacotes de trabalho não faturáveis</span>
-        <div className="nonbillable-tags">
-          {nonbillablePackages.map((p) => (
-            <span key={p} className="tag-chip">
-              {p}
-              <button type="button" onClick={() => removePackage(p)} aria-label={`Remover ${p}`}>
-                <X size={12} strokeWidth={2.2} />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="nonbillable-add">
-          <input
-            type="text"
-            placeholder="ex: Treinamento"
-            value={newPackage}
-            onChange={(e) => setNewPackage(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addPackage()}
-          />
-          <button type="button" className="btn-secondary" onClick={addPackage}>Adicionar</button>
-        </div>
-      </div>
     </aside>
   );
 }

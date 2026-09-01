@@ -9,21 +9,27 @@ relatório Power BI de referência:
 - Faturadas = input manual do gerente (não existe no Projectile).
 - Perf. H = Faturadas - Trabalhadas (calculado).
 - KPI % (performance) = Perf. H / Trabalhadas.
-- Horas NãoFat = soma de horas cujo pacote de trabalho bate com a lista
-  configurável de nomes não faturáveis (ex: "Treinamento").
+- Horas NãoFat = soma de horas cujo pacote de trabalho tem `tjob.pExternal =
+  '0'`. Chegou a existir uma lista manual de nomes de pacote (ex:
+  "Treinamento") pra essa classificação, mas uma auditoria estatística nesta
+  sessão mostrou que `pExternal` bate de forma consistente pros pacotes que
+  importam de verdade (ativos hoje e com apontamento nos últimos 12 meses —
+  0 inconsistência nos dois recortes testados); o campo só é confuso no
+  histórico antigo/fechado, fora do que qualquer período do painel consulta
+  na prática. `pExternal` é mais confiável que qualquer lista mantida à mão
+  e não precisa de manutenção.
 - KPI % (não faturável) = Horas NãoFat / Trabalhadas.
 - Elaboração dos relatórios (dias) = 100% input manual, sem fórmula.
 
-Persistência: os valores manuais e a lista de pacotes não faturáveis
-precisam sobreviver a reinícios do backend, diferente do resto do app (que
-só usa `tempfile`, sem nada persistente). Guarda tudo num único JSON simples
-em `backend/data/management_kpi.json` — não é um banco, só um arquivo, no
-mesmo nível de simplicidade do resto do projeto.
+Persistência: os valores manuais precisam sobreviver a reinícios do backend,
+diferente do resto do app (que só usa `tempfile`, sem nada persistente).
+Guarda isso num único JSON simples em `backend/data/management_kpi.json` —
+não é um banco, só um arquivo, no mesmo nível de simplicidade do resto do
+projeto.
 """
 from __future__ import annotations
 
 import calendar
-import html
 import json
 import os
 import time
@@ -48,7 +54,7 @@ ENGINEERING_COST_CENTERS = ["CAD", "CAE"]
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 _DATA_FILE = os.path.join(_DATA_DIR, "management_kpi.json")
 
-_DEFAULT_DATA = {"manual_entries": {}, "nonbillable_packages": ["Treinamento"]}
+_DEFAULT_DATA = {"manual_entries": {}}
 
 # cache em memória das linhas cruas de `fetch_engineering_hours` por
 # intervalo de datas — essa query é o gargalo real do painel (~50s neste
@@ -72,11 +78,10 @@ def _get_cached_rows(start_date: str, end_date: str, force_refresh: bool = False
 
 def _load_data() -> dict:
     if not os.path.exists(_DATA_FILE):
-        return {"manual_entries": {}, "nonbillable_packages": list(_DEFAULT_DATA["nonbillable_packages"])}
+        return {"manual_entries": {}}
     with open(_DATA_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     data.setdefault("manual_entries", {})
-    data.setdefault("nonbillable_packages", list(_DEFAULT_DATA["nonbillable_packages"]))
     return data
 
 
@@ -89,12 +94,6 @@ def _save_data(data: dict) -> None:
 def set_manual_entry(month: str, billed_hours: float | None, elaboration_days: float | None) -> None:
     data = _load_data()
     data["manual_entries"][month] = {"billed_hours": billed_hours, "elaboration_days": elaboration_days}
-    _save_data(data)
-
-
-def set_nonbillable_packages(packages: list[str]) -> None:
-    data = _load_data()
-    data["nonbillable_packages"] = [p.strip() for p in packages if p.strip()]
     _save_data(data)
 
 
@@ -115,8 +114,6 @@ def compute_monthly_kpis(
 ) -> dict:
     data = _load_data()
     manual_entries: dict = data["manual_entries"]
-    nonbillable_packages = data["nonbillable_packages"]
-    keywords = [p.casefold() for p in nonbillable_packages]
 
     active_cost_centers = cost_centers or ENGINEERING_COST_CENTERS
 
@@ -170,12 +167,11 @@ def compute_monthly_kpis(
         row_date = row.get("data")
         month_key = row_date.strftime("%Y-%m") if hasattr(row_date, "strftime") else str(row_date)[:7]
         hours = round(float(row.get("horas") or 0), 3)
-        package = html.unescape(str(row.get("pacote") or "")).strip()
         if project_id:
             available_project_ids.add(project_id)
         bucket = buckets.setdefault(month_key, {"worked_hours": 0.0, "nonbillable_hours": 0.0})
         bucket["worked_hours"] += hours
-        if keywords and any(kw in package.casefold() for kw in keywords):
+        if row.get("external") == "0":
             bucket["nonbillable_hours"] += hours
 
     available_projects = fetch_project_names_for_ids(sorted(available_project_ids), conn=conn)
@@ -207,7 +203,6 @@ def compute_monthly_kpis(
 
     return {
         "months": result_months,
-        "nonbillable_packages": nonbillable_packages,
         "cost_centers": ENGINEERING_COST_CENTERS,
         "available_projects": available_projects,
         "available_clients": available_clients,
