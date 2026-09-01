@@ -3,7 +3,6 @@ import { Header } from "./components/Header";
 import { LoginScreen } from "./components/LoginScreen";
 import { ManagementPanel } from "./components/ManagementPanel";
 import { useAuthStore } from "./store/useAuthStore";
-import { Stepper } from "./components/Stepper";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
 import { PackageTabs } from "./components/PackageTabs";
@@ -60,7 +59,6 @@ export default function App() {
   return (
     <>
       <Header view={view} onNavigate={setView} />
-      <Stepper />
       {hasPackages && (
         <div className={`summary-row ${hasPackages ? "visible" : ""}`}>
           <div className="summary-bar">

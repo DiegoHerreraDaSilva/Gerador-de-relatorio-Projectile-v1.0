@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Clock, FileText, DollarSign, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Clock, FileText, DollarSign, RefreshCw, MailSearch } from "lucide-react";
 import { Gauge } from "./Gauge";
 import { ManagementFilters } from "./ManagementFilters";
 import { ExtraHoursInput } from "./ExtraHoursInput";
@@ -28,14 +28,26 @@ async function putJson(url: string, body: unknown) {
   if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
 }
 
+type CheckEmailsResult = { messages_found: number; samples_added: number; skipped: number };
+
+async function checkEmails(): Promise<CheckEmailsResult> {
+  const res = await fetch("/management/kpis/check-emails", { method: "POST" });
+  if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
+  return res.json();
+}
+
 export function ManagementPanel() {
   const rows = useManagementStore((s) => s.rows);
+  const nonbillableBreakdown = useManagementStore((s) => s.nonbillableBreakdown);
   const selectedMonths = useManagementStore((s) => s.selectedMonths);
   const error = useManagementStore((s) => s.error);
   const refreshing = useManagementStore((s) => s.refreshing);
   const load = useManagementStore((s) => s.load);
   const updateRow = useManagementStore((s) => s.updateRow);
   const setError = useManagementStore((s) => s.setError);
+
+  const [checkingEmails, setCheckingEmails] = useState(false);
+  const [checkEmailsMessage, setCheckEmailsMessage] = useState("");
 
   useEffect(() => {
     load();
@@ -46,6 +58,26 @@ export function ManagementPanel() {
       await putJson(`/management/kpis/${month}`, { billed_hours: row.billed_hours, elaboration_days: row.elaboration_days });
     } catch {
       setError("Não consegui salvar essa alteração. Tenta de novo.");
+    }
+  };
+
+  const handleCheckEmails = async () => {
+    setCheckingEmails(true);
+    setCheckEmailsMessage("");
+    try {
+      const result = await checkEmails();
+      setCheckEmailsMessage(
+        result.samples_added > 0
+          ? `${result.samples_added} relatório(s) novo(s) processado(s).`
+          : result.messages_found > 0
+            ? `${result.messages_found} e-mail(s) verificado(s), nenhum gerou dado novo.`
+            : "Nenhum e-mail novo do Alberto."
+      );
+      await load(true, true);
+    } catch {
+      setCheckEmailsMessage("Não consegui verificar os e-mails agora. Tenta de novo em instantes.");
+    } finally {
+      setCheckingEmails(false);
     }
   };
 
@@ -79,6 +111,20 @@ export function ManagementPanel() {
   const totalNonbillable = round2(displayRows.reduce((s, r) => s + r.nonbillable_hours, 0));
   const totalNonbillablePct = totalWorked > 0 ? totalNonbillable / totalWorked : null;
 
+  // segue os mesmos filtros da tela: Centro de Custo/Cliente/Projeto já vêm
+  // recortados do backend (ver compute_monthly_kpis), Competência é aplicada
+  // aqui do mesmo jeito que displayRows, filtrando por mês antes de somar por
+  // pacote.
+  const displayMonths = new Set(displayRows.map((r) => r.month));
+  const packageTotals = new Map<string, number>();
+  for (const row of nonbillableBreakdown) {
+    if (!displayMonths.has(row.month)) continue;
+    packageTotals.set(row.package, (packageTotals.get(row.package) ?? 0) + row.hours);
+  }
+  const packageRows = Array.from(packageTotals.entries())
+    .map(([pkg, hours]) => ({ pkg, hours: round2(hours) }))
+    .sort((a, b) => b.hours - a.hours);
+
   return (
     <div className="management-layout">
       <ManagementFilters />
@@ -90,6 +136,11 @@ export function ManagementPanel() {
           <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
           {refreshing ? "Atualizando..." : "Atualizar"}
         </button>
+        <button type="button" className="btn-secondary" onClick={handleCheckEmails} disabled={checkingEmails}>
+          <MailSearch size={14} strokeWidth={2} className={checkingEmails ? "spin" : ""} />
+          {checkingEmails ? "Verificando..." : "Verificar horas faturadas"}
+        </button>
+        {checkEmailsMessage && <span className="muted management-toolbar-message">{checkEmailsMessage}</span>}
       </div>
 
       <div className="kpi-grid">
@@ -210,6 +261,41 @@ export function ManagementPanel() {
               </tfoot>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div className="card nonbillable-packages-card">
+        <div className="kpi-card-head">
+          <DollarSign size={18} strokeWidth={1.8} />
+          <div>
+            <h3>Pacotes de trabalho não faturáveis</h3>
+          </div>
+        </div>
+        <div className="kpi-table-wrap nonbillable-packages-table-wrap">
+          <table className="kpi-table">
+            <thead>
+              <tr><th>Pacote de trabalho</th><th>Horas</th><th>% do não faturável</th></tr>
+            </thead>
+            <tbody>
+              {packageRows.length === 0 && (
+                <tr><td colSpan={3} className="muted">Nenhum pacote não faturável no período selecionado.</td></tr>
+              )}
+              {packageRows.map((p) => (
+                <tr key={p.pkg}>
+                  <td>{p.pkg}</td>
+                  <td>{fmtNum(p.hours)}</td>
+                  <td>{totalNonbillable > 0 ? `${fmtNum((p.hours / totalNonbillable) * 100)}%` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>{fmtNum(totalNonbillable)}</td>
+                <td>{totalNonbillable > 0 ? "100%" : "—"}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       </div>
       </div>

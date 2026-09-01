@@ -209,6 +209,27 @@ def _national_holidays(year: int) -> set[datetime.date]:
     return holidays
 
 
+def count_business_days(start: datetime.date, end: datetime.date) -> int:
+    """Conta dias úteis (seg-sex, sem feriado nacional) estritamente APÓS
+    `start` até `end` inclusive — usado por `email_ingest.py` pra medir quanto
+    tempo depois do fechamento do mês um relatório foi enviado. Diferente de
+    `_business_days_per_week` (que reparte um único mês em semanas pra tabela
+    do relatório): aqui o intervalo é entre duas datas quaisquer, possivelmente
+    cruzando anos, então o conjunto de feriados é recalculado por ano
+    conforme o cursor avança."""
+    if end <= start:
+        return 0
+    holidays_by_year: dict[int, set[datetime.date]] = {}
+    count = 0
+    day = start + datetime.timedelta(days=1)
+    while day <= end:
+        holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
+        if day.weekday() < 5 and day not in holidays:
+            count += 1
+        day += datetime.timedelta(days=1)
+    return count
+
+
 def _business_days_per_week(month_label: str) -> list[int]:
     """Divide o mês do relatório em semanas de calendário (segunda a domingo,
     cortadas nas bordas do mês) e conta, em cada uma, os dias úteis (seg-sex)

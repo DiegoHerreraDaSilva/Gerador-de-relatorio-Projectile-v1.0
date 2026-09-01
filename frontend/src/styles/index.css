@@ -149,7 +149,8 @@
   .mgmt-filter-empty { padding: 8px 10px; font-size: 0.8rem; color: var(--text-muted); }
   .management-panel { flex: 1 1 auto; min-width: 0; }
 
-  .management-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+  .management-toolbar { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-bottom: 6px; }
+  .management-toolbar-message { font-size: 0.8rem; }
   .management-toolbar button svg.spin { animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) {
@@ -201,6 +202,15 @@
   .kpi-pct.good { color: var(--ok); font-weight: 700; }
   .kpi-pct.warn { color: var(--warn); font-weight: 700; }
   .kpi-pct.bad { color: var(--bad); font-weight: 700; }
+
+  /* seção de pacotes não faturáveis, abaixo dos 3 cards de gauge — largura
+     cheia (não é item do .kpi-grid), lista pode crescer bastante conforme o
+     período/filtros, então rola por dentro em vez de esticar o card. */
+  .nonbillable-packages-card { margin-top: 16px; }
+  .nonbillable-packages-table-wrap { justify-content: flex-start; max-height: 320px; overflow-y: auto; }
+  .nonbillable-packages-table-wrap .kpi-table { width: 100%; }
+  .nonbillable-packages-table-wrap .kpi-table th:not(:first-child),
+  .nonbillable-packages-table-wrap .kpi-table td:not(:first-child) { width: 140px; }
 
   .login-screen {
     min-height: 100vh;
@@ -319,55 +329,6 @@
   h3 { font-size: 0.92rem; font-weight: 600; margin: 0 0 8px; }
 
   .muted { color: var(--text-muted); font-size: 0.85rem; }
-
-  /* ---------- Stepper: trilho de percurso, não crachás soltos — os passos são
-     uma sequência real e obrigatória, então o trilho contínuo (que preenche
-     conforme avança) comunica progresso de um jeito que badges isolados não
-     comunicam. Marcadores usam código de duas casas (01-04), no vocabulário
-     mono já usado no resto do app pra dado técnico/sequencial. ---------- */
-  .stepper {
-    display: flex;
-    align-items: center;
-    margin-bottom: 18px;
-    padding: 14px 20px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    flex-wrap: wrap;
-  }
-  .step-wrap { display: flex; align-items: center; }
-  .stepper .step { display: flex; align-items: center; gap: 9px; font-size: 0.86rem; font-weight: 600; }
-  .stepper .step .dot {
-    display: flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px; border-radius: 7px;
-    font-family: var(--font-mono);
-    font-size: 0.72rem; font-weight: 700; flex: 0 0 auto;
-    border: 1.5px solid var(--border); color: var(--text-muted);
-    background: var(--surface);
-  }
-  .stepper .step.pending .dot { border-color: var(--border); color: var(--text-muted); }
-  .stepper .step.pending .label { color: var(--text-muted); }
-  .stepper .step.active .dot {
-    border-color: var(--accent);
-    color: var(--accent-hi);
-    background: color-mix(in srgb, var(--accent) 18%, var(--surface));
-    box-shadow: 0 0 10px -1px var(--accent-glow);
-  }
-  .stepper .step.active .label { color: var(--text); }
-  .stepper .step.done .dot { border-color: var(--ok); color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, var(--surface)); }
-  .stepper .step.done .label { color: var(--text-muted); }
-  .rail {
-    width: 34px;
-    height: 2px;
-    margin: 0 10px;
-    flex: 0 0 auto;
-    background: var(--border);
-    border-radius: 2px;
-  }
-  .rail.done { background: var(--ok); }
-  @media (max-width: 640px) {
-    .rail { width: 18px; }
-  }
 
   /* ---------- Barra de resumo ---------- */
   .summary-row {

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import math
 import os
@@ -48,7 +49,13 @@ from .auth import (
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
 from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, _parse_month_label, generate_report
-from .management import MANAGEMENT_PANEL_LOGINS, compute_monthly_kpis, set_manual_entry
+from . import email_ingest
+from .management import (
+    MANAGEMENT_PANEL_LOGINS,
+    compute_monthly_kpis,
+    get_kpi_samples_for_month,
+    set_manual_entry,
+)
 from .parser import parse_projectile_export
 from .projectile_db import ProjectileDbError, fetch_employee_hours, group_hours
 
@@ -66,6 +73,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _poll_emails_loop() -> None:
+    """Ciclo de polling da automação de e-mail (ver `email_ingest.py`) — só
+    roda se as variáveis `AZURE_*`/`GRAPH_MAILBOX`/`ALBERTO_EMAIL` estiverem
+    configuradas no `.env`; sem elas, fica ocioso (não impede o resto do app
+    de funcionar). Idempotência por `message_id` (ver
+    `management.is_message_processed`) torna reinícios do `--reload` no meio
+    de um ciclo inofensivos — na pior hipótese uma mensagem é buscada de novo
+    e descartada por já estar processada."""
+    interval = int(os.environ.get("EMAIL_POLL_INTERVAL_SECONDS", "30"))
+    while True:
+        if os.environ.get("AZURE_CLIENT_ID"):
+            try:
+                await asyncio.to_thread(email_ingest.process_new_emails)
+            except Exception:
+                logging.getLogger(__name__).exception("Falha no ciclo de polling de e-mail")
+        await asyncio.sleep(interval)
+
+
+@app.on_event("startup")
+async def _start_email_polling() -> None:
+    asyncio.create_task(_poll_emails_loop())
 
 
 def _sanitize_nonfinite(obj):
@@ -285,6 +315,31 @@ async def management_kpis_endpoint(
         )
     except ProjectileDbError as e:
         raise _log_and_generic_error(e)
+
+
+@app.post("/management/kpis/check-emails")
+async def management_check_emails_endpoint(_user: dict = Depends(require_manager)):
+    """Dispara sob demanda o mesmo ciclo de `_poll_emails_loop` (botão
+    "Verificar horas faturadas" no painel), sem esperar o próximo intervalo
+    de polling. Síncrono/bloqueante por natureza (Graph + openpyxl), por isso
+    roda em thread separada (`to_thread`) pra não travar o event loop."""
+    if not os.environ.get("AZURE_CLIENT_ID"):
+        raise HTTPException(400, "Automação de e-mail não configurada (AZURE_* ausente no .env).")
+    try:
+        return await asyncio.to_thread(email_ingest.process_new_emails)
+    except (email_ingest.EmailIngestError, ProjectileDbError) as e:
+        raise _log_and_generic_error(e)
+
+
+@app.get("/management/kpis/samples")
+async def management_kpi_samples_endpoint(month: str, _user: dict = Depends(require_manager)):
+    """Diagnóstico só-leitura: mostra de quais e-mails vieram as horas
+    faturadas/dias automáticos de um mês (e o que foi pulado e por quê) —
+    necessário porque o match de projeto é automático, sem fila de revisão
+    humana (ver `email_ingest.match_project`)."""
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
+    return get_kpi_samples_for_month(month)
 
 
 class ManualEntryPayload(BaseModel):

@@ -298,6 +298,29 @@ def fetch_project_ids_for_names(
         raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
 
 
+def fetch_all_projects(conn: pymysql.connections.Connection | None = None) -> dict[str, str]:
+    """Todos os projetos (`pProject` -> `pDescription`) do Projectile, sem
+    recorte por período/cliente — usado por `email_ingest.py` como universo de
+    candidatos pro fuzzy match do nome de projeto extraído do relatório
+    (texto livre digitado pelo Alberto, não necessariamente idêntico ao nome
+    oficial). `tproject` é pequena (poucos milhares de linhas, sem join), não
+    tem o mesmo risco de scan lento de `fetch_engineering_hours`. Aceita
+    `conn` já aberta, ver `fetch_engineering_hours`."""
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pProject, pDescription FROM tproject "
+                "WHERE pDescription IS NOT NULL AND pDescription <> ''"
+            )
+            return {
+                row["pProject"]: html.unescape(row["pDescription"]).strip()
+                for row in cur.fetchall()
+            }
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
+
+
 def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPackage], list[RowIssue]]:
     """Agrupa as linhas retornadas pelo banco em WorkPackage/Group/Activity.
 

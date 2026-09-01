@@ -1,14 +1,24 @@
 import { create } from "zustand";
 
+export type KpiSource = "manual" | "auto" | null;
+
 export type MonthRow = {
   month: string;
   worked_hours: number;
   billed_hours: number | null;
+  billed_hours_source: KpiSource;
   perf_hours: number | null;
   perf_kpi_pct: number | null;
   elaboration_days: number | null;
+  elaboration_days_source: KpiSource;
   nonbillable_hours: number;
   nonbillable_kpi_pct: number | null;
+};
+
+export type NonbillablePackageRow = {
+  month: string;
+  package: string;
+  hours: number;
 };
 
 type KpisResponse = {
@@ -16,6 +26,7 @@ type KpisResponse = {
   cost_centers: string[];
   available_projects: string[];
   available_clients: string[];
+  nonbillable_breakdown: NonbillablePackageRow[];
 };
 
 export const ALL_COST_CENTERS = ["CAD", "CAE"];
@@ -25,6 +36,7 @@ export const ROLLING_PERIOD = "rolling";
 
 interface ManagementState {
   rows: MonthRow[] | null;
+  nonbillableBreakdown: NonbillablePackageRow[];
   availableProjects: string[];
   availableClients: string[];
   error: string;
@@ -78,6 +90,7 @@ function buildQuery(
 
 export const useManagementStore = create<ManagementState>((set, get) => ({
   rows: null,
+  nonbillableBreakdown: [],
   availableProjects: [],
   availableClients: [],
   error: "",
@@ -109,6 +122,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
       const data: KpisResponse = await res.json();
       set({
         rows: data.months,
+        nonbillableBreakdown: data.nonbillable_breakdown,
         availableProjects: data.available_projects,
         availableClients: data.available_clients,
         loaded: true,
