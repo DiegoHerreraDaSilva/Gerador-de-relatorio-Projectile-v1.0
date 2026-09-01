@@ -293,10 +293,38 @@ def process_new_emails() -> dict:
                 summary["skipped"] += 1
                 continue
 
-            xlsx_path = attachments[0]
+            # Alberto pode mandar mais de um relatório (projetos diferentes)
+            # no mesmo e-mail — processa TODOS os anexos .xlsx, não só o
+            # primeiro, cada um virando sua própria amostra (mesmo
+            # `email_message_id`, projetos/horas/dias possivelmente
+            # diferentes entre si).
+            sender = (msg.get("from") or {}).get("emailAddress", {}).get("address", "")
+            attachment_errors: list[str] = []
             try:
-                billed_hours, month_label = resolve_total_hours(xlsx_path)
-                _, report_project_name = read_project_identity(xlsx_path)
+                for xlsx_path in attachments:
+                    try:
+                        billed_hours, month_label = resolve_total_hours(xlsx_path)
+                        _, report_project_name = read_project_identity(xlsx_path)
+                        project_id, project_name, score = match_project(report_project_name, candidates)
+                        business_days = compute_business_days_elapsed(month_label, sent_at)
+                        parsed_month = _parse_month_label(month_label)
+                        month_key = f"{parsed_month[0]:04d}-{parsed_month[1]:02d}"
+
+                        management.append_project_kpi_sample({
+                            "email_message_id": message_id,
+                            "received_at": received_at,
+                            "sender": sender,
+                            "report_project_text": report_project_name,
+                            "project_id": project_id,
+                            "project_name": project_name,
+                            "match_score": score,
+                            "month": month_key,
+                            "billed_hours": billed_hours,
+                            "business_days": business_days,
+                        })
+                        summary["samples_added"] += 1
+                    except (EmailIngestError, ProjectileDbError) as e:
+                        attachment_errors.append(str(e))
             finally:
                 for path in attachments:
                     try:
@@ -304,24 +332,9 @@ def process_new_emails() -> dict:
                     except OSError:
                         pass
 
-            project_id, project_name, score = match_project(report_project_name, candidates)
-            business_days = compute_business_days_elapsed(month_label, sent_at)
-            parsed_month = _parse_month_label(month_label)
-            month_key = f"{parsed_month[0]:04d}-{parsed_month[1]:02d}"
-
-            management.append_project_kpi_sample({
-                "email_message_id": message_id,
-                "received_at": received_at,
-                "sender": (msg.get("from") or {}).get("emailAddress", {}).get("address", ""),
-                "report_project_text": report_project_name,
-                "project_id": project_id,
-                "project_name": project_name,
-                "match_score": score,
-                "month": month_key,
-                "billed_hours": billed_hours,
-                "business_days": business_days,
-            })
-            summary["samples_added"] += 1
+            if attachment_errors:
+                management.append_skipped_message(message_id, received_at, "; ".join(attachment_errors))
+                summary["skipped"] += 1
         except (EmailIngestError, ProjectileDbError) as e:
             management.append_skipped_message(message_id, received_at, str(e))
             summary["skipped"] += 1

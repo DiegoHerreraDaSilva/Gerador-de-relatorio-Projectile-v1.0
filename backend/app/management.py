@@ -141,22 +141,29 @@ def is_message_processed(message_id: str) -> bool:
 def append_project_kpi_sample(sample: dict) -> None:
     """Registra uma amostra vinda de um e-mail processado com sucesso
     (`email_ingest.process_new_emails`) e marca o e-mail como processado, na
-    mesma escrita — evita reprocessar o mesmo e-mail numa chamada futura."""
+    mesma escrita — evita reprocessar o mesmo e-mail numa chamada futura. Um
+    e-mail com vários anexos (vários projetos) chama isso uma vez por anexo,
+    todas com o mesmo `email_message_id` — só adiciona o id à lista de
+    processados na primeira vez, pra não duplicar."""
     data = _load_data()
     data["project_kpi_samples"].append(sample)
-    data["processed_message_ids"].append(sample["email_message_id"])
+    if sample["email_message_id"] not in data["processed_message_ids"]:
+        data["processed_message_ids"].append(sample["email_message_id"])
     _save_data(data)
 
 
 def append_skipped_message(message_id: str, received_at: str, reason: str) -> None:
-    """Registra um e-mail que não gerou amostra (sem anexo .xlsx reconhecível,
-    "Total de horas" não encontrado, etc) e o marca como processado — não fica
-    tentando de novo a cada polling, mas fica visível no diagnóstico."""
+    """Registra um e-mail (ou um anexo específico dele, quando outros anexos
+    do mesmo e-mail já geraram amostra com sucesso) que não gerou amostra
+    (sem anexo .xlsx reconhecível, "Total de horas" não encontrado, etc) e
+    marca o e-mail como processado — não fica tentando de novo a cada
+    polling, mas fica visível no diagnóstico."""
     data = _load_data()
     data["skipped_messages"].append({
         "message_id": message_id, "received_at": received_at, "reason": reason,
     })
-    data["processed_message_ids"].append(message_id)
+    if message_id not in data["processed_message_ids"]:
+        data["processed_message_ids"].append(message_id)
     _save_data(data)
 
 
