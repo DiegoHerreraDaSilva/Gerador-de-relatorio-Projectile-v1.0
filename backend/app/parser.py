@@ -98,6 +98,117 @@ def _parse_hs_value(value) -> float:
     raise ValueError(f"valor de Hs não numérico: {value!r}")
 
 
+# Chave interna de pacote usada no modo "relatório único" (tudo cai num só
+# WorkPackage) antes de o nome real ficar conhecido — nunca deve vazar pra
+# tela/relatório final (ver o rename feito via _PackageAccumulator.rename_package
+# ao final de parse_projectile_export/group_hours). Compartilhada entre os dois
+# formatos (Excel e MySQL, ver backend/app/projectile_db.py) por serem, nesse
+# ponto, a mesma regra: "sem split por pacote, um WorkPackage só".
+SINGLE_PACKAGE_KEY = "__single__"
+
+
+class _PackageAccumulator:
+    """Acumula apontamentos (de qualquer origem — linha de Excel ou linha de
+    banco) em WorkPackage/Group/Activity: agrupa por pacote e, dentro de cada
+    pacote, por prefixo (Group), somando horas de atividades com a mesma
+    descrição (case-insensitive) em vez de duplicá-las.
+
+    Extraído porque `parser.parse_projectile_export` e
+    `projectile_db.group_hours` implementavam essa acumulação de forma
+    idêntica — só a resolução de package_key/package_name/prefixo/descrição/
+    horas antes de chamar `add_activity` difere entre os dois (validação de
+    linha incompleta e conversão de Hs texto-livre só existem no Excel;
+    dedupe de HTML entities só existe no MySQL).
+    """
+
+    def __init__(self) -> None:
+        self._packages: dict[str, WorkPackage] = {}
+        self._package_order: list[str] = []
+        self._groups_by_package: dict[str, dict[str, Group]] = {}
+        self._group_order_by_package: dict[str, list[str]] = {}
+
+    def add_activity(
+        self, package_key: str, package_name: str, group_name: str, description: str, hours: float
+    ) -> None:
+        if package_key not in self._packages:
+            self._packages[package_key] = WorkPackage(key=package_key, project_name=package_name)
+            self._package_order.append(package_key)
+            self._groups_by_package[package_key] = {}
+            self._group_order_by_package[package_key] = []
+
+        groups = self._groups_by_package[package_key]
+        group_order = self._group_order_by_package[package_key]
+        if group_name not in groups:
+            groups[group_name] = Group(name=group_name)
+            group_order.append(group_name)
+        group = groups[group_name]
+
+        existing = next(
+            (a for a in group.activities if a.description.casefold() == description.casefold()), None
+        )
+        if existing:
+            existing.hours = round(existing.hours + hours, 3)
+        else:
+            group.activities.append(Activity(description=description, hours=hours))
+
+    def rename_package(self, package_key: str, name: str) -> None:
+        """Ajusta `project_name`/`key` de um pacote já acumulado — usado no modo
+        "relatório único", onde o pacote é criado sob o sentinel
+        SINGLE_PACKAGE_KEY (nome real só fica conhecido depois de percorrer
+        todas as linhas) e precisa ser renomeado ao final. Não faz nada se
+        `package_key` nunca foi acumulado (ex: nenhuma linha válida)."""
+        pkg = self._packages.get(package_key)
+        if pkg is not None:
+            pkg.project_name = name
+            pkg.key = name
+
+    def build(self) -> list[WorkPackage]:
+        result = []
+        for key in self._package_order:
+            pkg = self._packages[key]
+            pkg.groups = [
+                self._groups_by_package[key][name] for name in self._group_order_by_package[key]
+            ]
+            result.append(pkg)
+        return result
+
+
+def _classify_incomplete_row(
+    row_number: int, hs_value, obs_filled: bool, hs_filled: bool, dados_filled: bool
+) -> RowIssue | None:
+    """Decide se uma linha com Hs/Observação parcialmente preenchidos é um
+    apontamento incompleto de verdade (devolve um RowIssue) ou deve ser
+    ignorada silenciosamente — só é chamada quando pelo menos um dos dois
+    campos está vazio.
+
+    Não reporta como incompleta: uma linha totalmente em branco (comum no
+    fim da planilha exportada), boilerplate de rodapé/assinatura (ex: uma
+    fileira de "_______" ou os rótulos "Supervisor"/"Colaborador"/"Gerente",
+    que às vezes caem na coluna Hs por causa do layout do export), ou uma
+    linha de subtotal que o Projectile insere sozinho (só "Hs" preenchido e
+    nem a Data presente, ex: "98,63" sozinho) — nenhuma dessas é um
+    apontamento real esquecido pela metade.
+    """
+    is_real_partial = False
+    if obs_filled and not hs_filled:
+        is_real_partial = True
+    elif hs_filled and not obs_filled:
+        try:
+            _parse_hs_value(hs_value)
+            is_real_partial = dados_filled
+        except ValueError:
+            is_real_partial = False
+
+    if not is_real_partial:
+        return None
+    falta = "Observação" if not obs_filled else "Hs"
+    return RowIssue(
+        row=row_number,
+        reason="dados_incompletos",
+        message=f"Linha {row_number}: apontamento incompleto, falta preencher \"{falta}\".",
+    )
+
+
 def _find_header_row(ws) -> int:
     for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
         values = [c.value for c in row]
@@ -154,11 +265,7 @@ def parse_projectile_export(
     projeto_col = col_index.get("Projeto")
     pacote_col = col_index.get("Pacote de Trabalho") if split_by_package else None
 
-    SINGLE_PACKAGE_KEY = "__single__"
-    packages: dict[str, WorkPackage] = {}
-    package_order: list[str] = []
-    groups_by_package: dict[str, dict[str, Group]] = {}
-    group_order_by_package: dict[str, list[str]] = {}
+    accumulator = _PackageAccumulator()
     single_project_name = ""
     issues: list[RowIssue] = []
 
@@ -177,31 +284,10 @@ def parse_projectile_export(
         hs_filled = hs_value not in (None, "")
 
         if not obs_filled or not hs_filled:
-            # só é reportado como "apontamento incompleto" quando o lado preenchido
-            # parece dado real de timesheet — não boilerplate de rodapé/assinatura
-            # (ex: uma linha de "_______" ou os rótulos "Supervisor"/"Colaborador",
-            # que às vezes caem na coluna Hs por causa do layout do export).
-            is_real_partial = False
-            if obs_filled and not hs_filled:
-                is_real_partial = True
-            elif hs_filled and not obs_filled:
-                dados_filled = bool(row[dados_col - 1].value) if dados_col else True
-                try:
-                    _parse_hs_value(hs_value)
-                    # Uma linha com só "Hs" preenchido e nem a Data presente
-                    # provavelmente é uma linha de subtotal/soma que o Projectile
-                    # insere na planilha (ex: "98,63" sozinho, sem nenhum outro
-                    # dado) — não um apontamento real esquecido pela metade.
-                    is_real_partial = dados_filled
-                except ValueError:
-                    is_real_partial = False
-            if is_real_partial:
-                falta = "Observação" if not obs_filled else "Hs"
-                issues.append(RowIssue(
-                    row=row_number,
-                    reason="dados_incompletos",
-                    message=f"Linha {row_number}: apontamento incompleto, falta preencher \"{falta}\".",
-                ))
+            dados_filled = bool(row[dados_col - 1].value) if dados_col else True
+            issue = _classify_incomplete_row(row_number, hs_value, obs_filled, hs_filled, dados_filled)
+            if issue:
+                issues.append(issue)
             continue
 
         obs_value = obs_stripped
@@ -263,38 +349,19 @@ def parse_projectile_export(
         else:
             package_key = SINGLE_PACKAGE_KEY
 
-        if package_key not in packages:
-            packages[package_key] = WorkPackage(key=package_key, project_name=package_key)
-            package_order.append(package_key)
-            groups_by_package[package_key] = {}
-            group_order_by_package[package_key] = []
-
-        groups = groups_by_package[package_key]
-        group_order = group_order_by_package[package_key]
-        if prefix not in groups:
-            groups[prefix] = Group(name=prefix)
-            group_order.append(prefix)
-        group = groups[prefix]
-
-        existing = next(
-            (a for a in group.activities if a.description.casefold() == description.casefold()), None
+        accumulator.add_activity(
+            package_key=package_key,
+            package_name=package_key,
+            group_name=prefix,
+            description=description,
+            hours=hs_float,
         )
-        if existing:
-            existing.hours = round(existing.hours + hs_float, 3)
-        else:
-            group.activities.append(Activity(description=description, hours=hs_float))
 
-    if not split_by_package and SINGLE_PACKAGE_KEY in packages:
+    if not split_by_package:
         # Se a coluna "Projeto" não existir ou vier vazia em todas as linhas, deixa
         # o nome do pacote realmente vazio em vez de vazar o sentinel interno
         # SINGLE_PACKAGE_KEY para a tela/relatório final — um campo vazio é óbvio
         # de notar e corrigir, um placeholder de implementação não é.
-        packages[SINGLE_PACKAGE_KEY].project_name = single_project_name
-        packages[SINGLE_PACKAGE_KEY].key = single_project_name
+        accumulator.rename_package(SINGLE_PACKAGE_KEY, single_project_name)
 
-    result = []
-    for key in package_order:
-        pkg = packages[key]
-        pkg.groups = [groups_by_package[key][name] for name in group_order_by_package[key]]
-        result.append(pkg)
-    return result, issues
+    return accumulator.build(), issues

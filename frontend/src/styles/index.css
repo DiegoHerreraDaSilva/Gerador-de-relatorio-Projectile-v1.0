@@ -356,8 +356,6 @@
     gap: 12px;
     flex: 0 0 auto;
   }
-  #btnTogglePreviewFloating { padding: 8px 14px; font-size: 0.82rem; background: none; border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
-  #btnTogglePreviewFloating:hover { color: var(--accent-hi); background: none; border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
 
   .card {
     position: relative;
@@ -376,22 +374,12 @@
     box-shadow: 0 0 12px 0 var(--accent-glow);
     opacity: .8;
   }
-  .card-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .card-header-row h2 { margin: 0; }
   .btn-toggle {
     padding: 5px 12px; font-size: 0.78rem; background: none; border: 1px solid var(--border); color: var(--text-muted);
   }
   .btn-toggle:hover { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: none; }
-  .group-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-  .group-card-header h2 { margin: 0; }
-  .group-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-toggle:disabled:hover { color: var(--text-muted); border-color: var(--border); }
-
-  .header-data-summary { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 0.88rem; }
-  .header-data-summary .field { display: flex; flex-direction: column; gap: 2px; }
-  .header-data-summary .field-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.02em; }
-  .header-data-summary .field-value { color: var(--text); font-weight: 500; }
 
   /* ---------- Abas de pacote de trabalho ---------- */
   .package-tabs {
@@ -791,57 +779,8 @@
   .file-chip-size { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
   .dropzone .btn-remove-file { flex: 0 0 auto; }
 
-  .group {
-    position: relative;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 0;
-    margin-bottom: 16px;
-    overflow: hidden;
-  }
-  .group:last-child { margin-bottom: 0; }
-  .group-header {
-    display: flex; align-items: center; gap: 10px;
-    padding: 14px 16px;
-    cursor: pointer;
-    user-select: none;
-    transition: background-color .15s ease;
-  }
-  .group-header:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-  .group-header:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-  .group-header .chevron {
-    flex: 0 0 auto; font-size: 0.75rem; color: var(--text-muted);
-    transition: transform .15s ease;
-  }
-  .group.collapsed .group-header .chevron { transform: rotate(-90deg); }
-  .group-header .group-title { flex: 1; font-weight: 600; font-size: 0.92rem; }
-  .idx-badge {
-    flex: 0 0 auto;
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 20px; height: 20px; padding: 0 5px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
-    color: var(--accent-hi);
-    font-size: 0.72rem; font-weight: 700;
-  }
-  .activity-row .idx-badge { background: var(--surface-2); color: var(--text-muted); }
-  .group-header .group-hours { font-size: 0.85rem; color: var(--accent-hi); font-weight: 600; }
-  .group-body { padding: 0 16px 16px; }
-  .group.collapsed .group-body { display: none; }
-
-  .perf-card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    padding: 12px 14px; margin-bottom: 14px;
-  }
-  .perf-card label { margin-top: 0; }
-  .perf-card input { max-width: 120px; }
-  .perf-card .perf-breakdown { margin-top: 8px; font-size: 0.8rem; color: var(--text-muted); }
-  .perf-card .perf-breakdown strong { color: var(--text); }
-
   label { display: block; margin: 14px 0 6px; font-size: 0.85rem; font-weight: 500; color: var(--text); }
   label:first-of-type { margin-top: 0; }
-  .required-mark { color: var(--warn); margin-left: 2px; }
 
   /* ---------- Banner de validação de linhas ignoradas no parse ---------- */
   .validation-banner {
@@ -898,10 +837,6 @@
     outline: none;
     transition: border-color .15s ease, box-shadow .15s ease;
   }
-  input.field-missing {
-    border-color: var(--warn);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
-  }
   input[type=text]:focus, input[type=number]:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--ring);
@@ -932,10 +867,6 @@
     color: var(--text-muted);
   }
   .btn-secondary:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
-
-  .activity-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
-  .activity-row .desc { flex: 1; }
-  .activity-row .hours { width: 90px; }
 
   button {
     cursor: pointer;
@@ -971,37 +902,6 @@
     filter: brightness(0.95);
   }
 
-  .add-activity {
-    font-size: 0.85rem;
-    background: none;
-    border: none;
-    color: var(--accent-hi);
-    padding: 6px 0;
-    font-weight: 500;
-  }
-  .add-activity:hover { background: none; text-decoration: underline; }
-
-  .remove-activity {
-    flex: 0 0 auto;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-muted);
-    font-size: 1rem;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .remove-activity:hover {
-    background: color-mix(in srgb, var(--bad) 16%, var(--surface));
-    color: var(--bad);
-    border-color: color-mix(in srgb, var(--bad) 40%, var(--border));
-  }
-
   #step2 { display: none; }
   #step2.visible { display: block; }
 
@@ -1018,8 +918,6 @@
     opacity: 1;
     transition: opacity .22s ease;
   }
-  .preview-column.fade-out { opacity: 0; }
-  .preview-column.hidden { display: none; }
   /* O card vira uma coluna flex: a barra de título fica de tamanho fixo (nunca rola,
      nunca precisa de sticky/recorte de canto — está sempre no topo de verdade) e só
      a planilha (.preview-sheet-wrap) recebe a barra de rolagem, dentro dela mesma.
@@ -1034,11 +932,11 @@
     min-height: 0;
   }
 
-  .sidebar::-webkit-scrollbar, .preview-sheet-wrap::-webkit-scrollbar { width: 10px; }
-  .sidebar::-webkit-scrollbar-thumb, .preview-sheet-wrap::-webkit-scrollbar-thumb {
+  .preview-sheet-wrap::-webkit-scrollbar { width: 10px; }
+  .preview-sheet-wrap::-webkit-scrollbar-thumb {
     background: var(--border); border-radius: 8px;
   }
-  .sidebar::-webkit-scrollbar-thumb:hover, .preview-sheet-wrap::-webkit-scrollbar-thumb:hover {
+  .preview-sheet-wrap::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--accent) 50%, var(--border));
   }
 
@@ -1072,12 +970,6 @@
     padding: 14px 32px;
     font-size: 1rem;
   }
-  /* min-height reserva o espaço da mensagem ("Gerando...") mesmo vazia — sem isso, o
-     texto aparecendo/sumindo muda a altura do rodapé de repente, e como a altura dele
-     é usada pra calcular o espaço reservado no corpo da página (--footer-height),
-     esse pulo de altura faz o rodapé inteiro saltar de posição. */
-  #generateStatus { margin: 4px 0 0; text-align: center; min-height: 1.45em; }
-
   /* ---------- Chat de edição (assistente IA) — mesmos tokens do resto do app,
      tema claro/escuro incluso (nenhuma cor fixa própria como antes). ---------- */
   .chat-fab {
@@ -1399,16 +1291,16 @@
   /* botões de estrutura (adicionar/remover grupo ou atividade) dentro do
      preview — usam cor de marca em vez do preto/branco do "papel" da planilha,
      pra ficar claro que são controles do app, não parte do relatório em si */
-  .pv-remove-activity, .pv-remove-group, .remove-group {
+  .pv-remove-activity, .pv-remove-group {
     width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%;
     background: color-mix(in srgb, var(--text-muted) 45%, transparent);
     position: relative; flex: 0 0 auto; cursor: pointer;
   }
-  .pv-remove-activity::before, .pv-remove-group::before, .remove-group::before {
+  .pv-remove-activity::before, .pv-remove-group::before {
     content: ""; position: absolute; inset: 0; margin: auto;
     width: 8px; height: 1.5px; border-radius: 1px; background: #fff;
   }
-  .pv-remove-activity:hover, .pv-remove-group:hover, .remove-group:hover {
+  .pv-remove-activity:hover, .pv-remove-group:hover {
     background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
   }
   .pv-remove-activity[draggable="true"] { cursor: grab; }

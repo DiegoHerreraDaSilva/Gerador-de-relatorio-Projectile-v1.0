@@ -14,7 +14,7 @@ import { useReportStore } from "./store/useReportStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
 
-type AppView = "report" | "management";
+export type AppView = "report" | "management";
 
 export default function App() {
   const [view, setView] = useState<AppView>("report");

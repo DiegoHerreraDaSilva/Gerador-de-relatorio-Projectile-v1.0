@@ -10,8 +10,8 @@ const ISSUE_HIGHLIGHT_PHRASES: Record<string, string[]> = {
 
 function renderIssueDetail(reason: string, message: string) {
   const rawDetail = message.replace(/^Linha \d+:\s*/, "");
-  // escapeHtml is handled by React, but we need to highlight phrase
-  // We'll split and wrap with span
+  // React já escapa o texto renderizado — o destaque abaixo só recorta o
+  // texto em pedaços e envolve o trecho da frase com um <span>.
   let parts: Array<string | JSX.Element> = [rawDetail];
   const phrases = ISSUE_HIGHLIGHT_PHRASES[reason] || [];
   phrases.forEach((phrase) => {

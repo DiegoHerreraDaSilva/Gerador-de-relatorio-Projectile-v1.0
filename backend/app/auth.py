@@ -20,7 +20,7 @@ import html
 import secrets
 import time
 
-from .projectile_db import ProjectileDbError, _get_connection
+from .projectile_db import ProjectileDbError, open_connection
 
 SESSION_TTL_SECONDS = 8 * 60 * 60  # uma jornada de trabalho
 
@@ -89,7 +89,7 @@ def verify_projectile_login(login: str, password: str) -> dict:
     `temployee`) — nesse MySQL legado, abrir conexão nova já é lento por si
     só quando o servidor está sob carga, então unificar em uma só corta esse
     custo pela metade."""
-    conn = _get_connection()
+    conn = open_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -109,6 +109,12 @@ def verify_projectile_login(login: str, password: str) -> dict:
         raise ProjectileDbError(f"Falha ao consultar usuário no Projectile: {e}") from e
 
     if not row or not row.get("rPassword") or not row.get("rSalt"):
+        # Calcula um hash "dummy" mesmo quando não há linha/senha/salt reais,
+        # só pra gastar CPU equivalente ao caminho abaixo — reduz a diferença
+        # de tempo entre "login não existe" e "login existe, senha errada"
+        # (mitigação de timing attack teórico; não muda nenhum retorno).
+        _hash_password(password, "dummy-salt-tempo-constante")
+        hmac.compare_digest("0" * 64, "1" * 64)
         raise LoginError("Login ou senha incorretos.")
 
     expected = _hash_password(password, row["rSalt"])

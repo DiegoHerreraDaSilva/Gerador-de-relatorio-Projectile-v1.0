@@ -175,6 +175,12 @@ _SHARED_FIELDS = {
 }
 
 
+def _find_target_group(state: dict, op: dict) -> dict:
+    """Atalho para o par pacote+grupo usado por toda operação que só precisa do
+    grupo (não do pacote em si) — repetido em várias operações abaixo."""
+    return _find_group(_find_package(state, op["packageKey"]), op["group"])
+
+
 def _apply_one(state: dict, op: dict) -> None:
     kind = op.get("op")
     if kind == "rename_group":
@@ -185,7 +191,7 @@ def _apply_one(state: dict, op: dict) -> None:
             raise OperationError(f'Já existe um grupo "{new_name}" no pacote "{pkg["key"]}".')
         group["name"] = new_name
     elif kind == "set_group_performance":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group = _find_target_group(state, op)
         group["performance"] = float(op["performance"])
     elif kind == "add_group":
         pkg = _find_package(state, op["packageKey"])
@@ -197,22 +203,22 @@ def _apply_one(state: dict, op: dict) -> None:
         target = _find_group(pkg, op["group"])
         pkg["groups"] = [g for g in pkg["groups"] if g is not target]
     elif kind == "set_activity_hours":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group = _find_target_group(state, op)
         activity = _find_activity(group, op["activity"])
         activity["hours"] = op["hours"]
     elif kind == "set_activity_description":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group = _find_target_group(state, op)
         activity = _find_activity(group, op["activity"])
         activity["description"] = op["newDescription"]
     elif kind == "add_activity":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group = _find_target_group(state, op)
         group["activities"].append({"description": op["description"], "hours": op.get("hours")})
     elif kind == "remove_activity":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group = _find_target_group(state, op)
         target = _find_activity(group, op["activity"])
         group["activities"] = [a for a in group["activities"] if a is not target]
     elif kind == "sort_activities_alphabetically":
-        group = _find_group(_find_package(state, op["packageKey"]), op["group"])
+        group = _find_target_group(state, op)
         group["activities"].sort(key=lambda a: a["description"].strip().lower())
     elif kind == "set_package_field":
         pkg = _find_package(state, op["packageKey"])

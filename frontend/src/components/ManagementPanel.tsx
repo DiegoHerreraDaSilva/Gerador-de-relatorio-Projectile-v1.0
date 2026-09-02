@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Clock, FileText, DollarSign, RefreshCw, MailSearch } from "lucide-react";
-import { Gauge } from "./Gauge";
+import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
 import { ExtraHoursInput } from "./ExtraHoursInput";
 import { fmtNum } from "../utils/fmt";
-import { useManagementStore, type MonthRow } from "../store/useManagementStore";
+import { useManagementStore, round2, type MonthRow } from "../store/useManagementStore";
 
 function pctClass(value: number | null, metaValue: number, metaType: "min" | "max"): string {
   if (value === null) return "";
@@ -144,124 +144,121 @@ export function ManagementPanel() {
       </div>
 
       <div className="kpi-grid">
-        <div className="card kpi-card">
-          <div className="kpi-card-head">
-            <Clock size={18} strokeWidth={1.8} />
-            <div>
-              <h3>Performance em Horas</h3>
-              <p className="muted">Meta = mínimo 10%</p>
-            </div>
-          </div>
-          <Gauge value={totalPerfPct === null ? null : totalPerfPct * 100} metaValue={10} metaType="min" gaugeMax={30} label={fmtPct(totalPerfPct)} />
-          <div className="kpi-table-wrap">
-            <table className="kpi-table">
-              <thead>
-                <tr><th>Competência</th><th>Trabalhadas</th><th>Faturadas</th><th>Perf. H</th><th>KPI %</th></tr>
-              </thead>
-              <tbody>
-                {displayRows.map((r) => (
-                  <tr key={r.month}>
-                    <td>{r.month}</td>
-                    <td>{fmtNum(r.worked_hours)}</td>
-                    <td>
-                      <ExtraHoursInput
-                        className="kpi-input"
-                        value={r.billed_hours}
-                        placeholder="—"
-                        onCommit={(v) => updateRow(r.month, { billed_hours: v })}
-                        onBlur={() => saveEntry(r.month, r)}
-                      />
-                    </td>
-                    <td>{r.perf_hours === null ? "—" : fmtNum(r.perf_hours)}</td>
-                    <td className={`kpi-pct ${pctClass(r.perf_kpi_pct, 10, "min")}`}>{fmtPct(r.perf_kpi_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Total</td>
-                  <td>{fmtNum(totalWorkedForPerf)}</td>
-                  <td>{fmtNum(totalBilled)}</td>
-                  <td>{fmtNum(totalPerf)}</td>
-                  <td className={`kpi-pct ${pctClass(totalPerfPct, 10, "min")}`}>{fmtPct(totalPerfPct)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <KpiCard
+          icon={<Clock size={18} strokeWidth={1.8} />}
+          title="Performance em Horas"
+          metaText="Meta = mínimo 10%"
+          gauge={{
+            value: totalPerfPct === null ? null : totalPerfPct * 100,
+            metaValue: 10,
+            metaType: "min",
+            gaugeMax: 30,
+            label: fmtPct(totalPerfPct),
+          }}
+        >
+          <thead>
+            <tr><th>Competência</th><th>Trabalhadas</th><th>Faturadas</th><th>Perf. H</th><th>KPI %</th></tr>
+          </thead>
+          <tbody>
+            {displayRows.map((r) => (
+              <tr key={r.month}>
+                <td>{r.month}</td>
+                <td>{fmtNum(r.worked_hours)}</td>
+                <td>
+                  <ExtraHoursInput
+                    className="kpi-input"
+                    value={r.billed_hours}
+                    placeholder="—"
+                    onCommit={(v) => updateRow(r.month, { billed_hours: v })}
+                    onBlur={() => saveEntry(r.month, r)}
+                  />
+                </td>
+                <td>{r.perf_hours === null ? "—" : fmtNum(r.perf_hours)}</td>
+                <td className={`kpi-pct ${pctClass(r.perf_kpi_pct, 10, "min")}`}>{fmtPct(r.perf_kpi_pct)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td>{fmtNum(totalWorkedForPerf)}</td>
+              <td>{fmtNum(totalBilled)}</td>
+              <td>{fmtNum(totalPerf)}</td>
+              <td className={`kpi-pct ${pctClass(totalPerfPct, 10, "min")}`}>{fmtPct(totalPerfPct)}</td>
+            </tr>
+          </tfoot>
+        </KpiCard>
 
-        <div className="card kpi-card">
-          <div className="kpi-card-head">
-            <FileText size={18} strokeWidth={1.8} />
-            <div>
-              <h3>Elaboração dos relatórios</h3>
-              <p className="muted">Meta = máximo 5 dias úteis</p>
-            </div>
-          </div>
-          <Gauge value={avgDays} metaValue={5} metaType="max" gaugeMax={15} label={avgDays === null ? "—" : fmtNum(avgDays)} />
-          <div className="kpi-table-wrap">
-            <table className="kpi-table">
-              <thead>
-                <tr><th>Competência</th><th>KPI (Dias)</th></tr>
-              </thead>
-              <tbody>
-                {displayRows.map((r) => (
-                  <tr key={r.month}>
-                    <td>{r.month}</td>
-                    <td>
-                      <ExtraHoursInput
-                        className="kpi-input kpi-input-days"
-                        value={r.elaboration_days}
-                        placeholder="—"
-                        onCommit={(v) => updateRow(r.month, { elaboration_days: v })}
-                        onBlur={() => saveEntry(r.month, r)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr><td>Total</td><td>{avgDays === null ? "—" : fmtNum(avgDays)}</td></tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <KpiCard
+          icon={<FileText size={18} strokeWidth={1.8} />}
+          title="Elaboração dos relatórios"
+          metaText="Meta = máximo 5 dias úteis"
+          gauge={{
+            value: avgDays,
+            metaValue: 5,
+            metaType: "max",
+            gaugeMax: 15,
+            label: avgDays === null ? "—" : fmtNum(avgDays),
+          }}
+        >
+          <thead>
+            <tr><th>Competência</th><th>KPI (Dias)</th></tr>
+          </thead>
+          <tbody>
+            {displayRows.map((r) => (
+              <tr key={r.month}>
+                <td>{r.month}</td>
+                <td>
+                  <ExtraHoursInput
+                    className="kpi-input kpi-input-days"
+                    value={r.elaboration_days}
+                    placeholder="—"
+                    onCommit={(v) => updateRow(r.month, { elaboration_days: v })}
+                    onBlur={() => saveEntry(r.month, r)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr><td>Total</td><td>{avgDays === null ? "—" : fmtNum(avgDays)}</td></tr>
+          </tfoot>
+        </KpiCard>
 
-        <div className="card kpi-card">
-          <div className="kpi-card-head">
-            <DollarSign size={18} strokeWidth={1.8} />
-            <div>
-              <h3>Horas não faturáveis</h3>
-              <p className="muted">Meta = máximo 10%</p>
-            </div>
-          </div>
-          <Gauge value={totalNonbillablePct === null ? null : totalNonbillablePct * 100} metaValue={10} metaType="max" gaugeMax={30} label={fmtPct(totalNonbillablePct)} />
-          <div className="kpi-table-wrap">
-            <table className="kpi-table">
-              <thead>
-                <tr><th>Competência</th><th>Total Horas</th><th>Horas NãoFat</th><th>KPI %</th></tr>
-              </thead>
-              <tbody>
-                {displayRows.map((r) => (
-                  <tr key={r.month}>
-                    <td>{r.month}</td>
-                    <td>{fmtNum(r.worked_hours)}</td>
-                    <td>{fmtNum(r.nonbillable_hours)}</td>
-                    <td className={`kpi-pct ${pctClass(r.nonbillable_kpi_pct, 10, "max")}`}>{fmtPct(r.nonbillable_kpi_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td>Total</td>
-                  <td>{fmtNum(totalWorked)}</td>
-                  <td>{fmtNum(totalNonbillable)}</td>
-                  <td className={`kpi-pct ${pctClass(totalNonbillablePct, 10, "max")}`}>{fmtPct(totalNonbillablePct)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <KpiCard
+          icon={<DollarSign size={18} strokeWidth={1.8} />}
+          title="Horas não faturáveis"
+          metaText="Meta = máximo 10%"
+          gauge={{
+            value: totalNonbillablePct === null ? null : totalNonbillablePct * 100,
+            metaValue: 10,
+            metaType: "max",
+            gaugeMax: 30,
+            label: fmtPct(totalNonbillablePct),
+          }}
+        >
+          <thead>
+            <tr><th>Competência</th><th>Total Horas</th><th>Horas NãoFat</th><th>KPI %</th></tr>
+          </thead>
+          <tbody>
+            {displayRows.map((r) => (
+              <tr key={r.month}>
+                <td>{r.month}</td>
+                <td>{fmtNum(r.worked_hours)}</td>
+                <td>{fmtNum(r.nonbillable_hours)}</td>
+                <td className={`kpi-pct ${pctClass(r.nonbillable_kpi_pct, 10, "max")}`}>{fmtPct(r.nonbillable_kpi_pct)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td>{fmtNum(totalWorked)}</td>
+              <td>{fmtNum(totalNonbillable)}</td>
+              <td className={`kpi-pct ${pctClass(totalNonbillablePct, 10, "max")}`}>{fmtPct(totalNonbillablePct)}</td>
+            </tr>
+          </tfoot>
+        </KpiCard>
       </div>
 
       <div className="card nonbillable-packages-card">
@@ -301,8 +298,4 @@ export function ManagementPanel() {
       </div>
     </div>
   );
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }

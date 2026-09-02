@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import math
 import os
@@ -48,7 +49,7 @@ from .auth import (
 )
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
-from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, _parse_month_label, generate_report
+from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, parse_month_label, generate_report
 from . import email_ingest
 from .management import (
     MANAGEMENT_PANEL_LOGINS,
@@ -61,7 +62,16 @@ from .projectile_db import ProjectileDbError, fetch_employee_hours, group_hours
 
 load_dotenv()
 
-app = FastAPI(title="Automação de Relatório de Horas")
+app = FastAPI(
+    title="Automação de Relatório de Horas",
+    # Ferramenta interna sem uso legítimo de Swagger UI/ReDoc em operação normal —
+    # /docs, /redoc e /openapi.json expunham toda a estrutura de rotas/schema pra
+    # qualquer um com acesso de rede, sem exigir login. Desativado incondicionalmente
+    # (sem flag dev/prod).
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 # Restrito às origens locais de dev/prod deste app — "*" deixava QUALQUER site
 # que o usuário visitasse no navegador chamar /parse, /generate e /chat (que usa
 # a chave da Anthropic do servidor) e ler a resposta. Em prod (backend servindo
@@ -73,6 +83,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _security_headers_middleware(request: Request, call_next):
+    """Cabeçalhos de reforço básicos, sem impacto funcional conhecido: impedem
+    o navegador de "sniffar" o Content-Type (mitiga alguns vetores de XSS via
+    upload/arquivo servido com tipo errado), bloqueiam a página de ser
+    embutida em <iframe> de outra origem (clickjacking na tela de login) e
+    evitam vazar a URL completa (que pode incluir dados de sessão/estado) no
+    cabeçalho Referer de navegação para fora do app."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
 
 
 async def _poll_emails_loop() -> None:
@@ -212,15 +237,44 @@ async def logout_endpoint(request: Request, response: Response):
     return {"ok": True}
 
 
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
+_MAX_UNCOMPRESSED_XLSX_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+def _reject_if_oversized_xlsx(content: bytes) -> None:
+    """Duas camadas de defesa pro upload de /parse: (1) tamanho do próprio
+    upload e (2) tamanho DESCOMPRIMIDO do conteúdo do zip (.xlsx é um ZIP) —
+    um "zip bomb" pode pesar poucos KB no disco e ainda assim descomprimir pra
+    gigabytes, derrubando o servidor quando openpyxl carrega o workbook. Zip
+    inválido não é rejeitado aqui: deixa o erro de "arquivo inválido" existente
+    de parse_projectile_export tratar. Duplicado de propósito em
+    email_ingest.py pro anexo de e-mail (ponto de entrada diferente, bytes já
+    vêm decodificados de base64 lá) — ver CLAUDE.md."""
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Arquivo muito grande. O limite é 25 MB.")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile:
+        return
+
+    if total_uncompressed > _MAX_UNCOMPRESSED_XLSX_BYTES:
+        raise HTTPException(413, "Arquivo .xlsx com conteúdo descomprimido excessivo — recusado por segurança.")
+
+
 @app.post("/parse")
 async def parse_endpoint(
     file: UploadFile = File(...),
     mode: Literal["single", "multi"] = Form("single"),
     _user: dict = Depends(require_session),
 ):
+    content = await file.read()
+    _reject_if_oversized_xlsx(content)
+
     suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
+        tmp.write(content)
         tmp_path = tmp.name
     try:
         packages, issues = parse_projectile_export(tmp_path, split_by_package=(mode == "multi"))
@@ -269,7 +323,7 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     # request e puxar as horas de outra pessoa.
     employee_name = _user["name"]
 
-    parsed_month = _parse_month_label(payload.month_label)
+    parsed_month = parse_month_label(payload.month_label)
     if not parsed_month:
         raise HTTPException(400, f'Mês de referência inválido: "{payload.month_label}" (use o formato "Julho/2026").')
     year, month = parsed_month
@@ -343,8 +397,8 @@ async def management_kpi_samples_endpoint(month: str, _user: dict = Depends(requ
 
 
 class ManualEntryPayload(BaseModel):
-    billed_hours: float | None = Field(default=None, allow_inf_nan=False)
-    elaboration_days: float | None = Field(default=None, allow_inf_nan=False)
+    billed_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    elaboration_days: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 @app.put("/management/kpis/{month}")

@@ -152,7 +152,7 @@ def _strip_accents(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
 
 
-def _parse_month_label(label: str) -> tuple[int, int] | None:
+def parse_month_label(label: str) -> tuple[int, int] | None:
     """'Julho/2026' -> (2026, 7). Retorna None se o texto não seguir esse padrão
     (ex: o usuário apagou/reescreveu o campo com outro formato)."""
     match = re.match(r"\s*([^/]+?)\s*/\s*(\d{4})\s*$", label or "")
@@ -238,7 +238,7 @@ def _business_days_per_week(month_label: str) -> list[int]:
     de semana e tem 31 dias), o excedente é somado na última linha, já que a
     tabela do template só tem esse tanto de linhas. Se o rótulo do mês não for
     reconhecido, retorna tudo zerado em vez de arriscar um valor errado."""
-    parsed = _parse_month_label(month_label)
+    parsed = parse_month_label(month_label)
     if parsed is None:
         return [0] * HOURS_WEEK_TABLE_ROWS
     year, month = parsed
@@ -295,16 +295,30 @@ def _replace_header_cell(sheet_xml: str, ref: str, style: int, text: str) -> str
     return new_xml
 
 
-def _build_groups_xml(groups: list[GroupInput], month_label: str):
-    """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
-    rows_by_number: dict[int, list[str]] = {}
+def _add_cells(rows_by_number: dict[int, list[str]], row_number: int, cells: list[str]) -> None:
+    rows_by_number.setdefault(row_number, []).extend(cells)
+
+
+def _build_group_rows(
+    rows_by_number: dict[int, list[str]], groups: list[GroupInput]
+) -> tuple[list[str], list[str], list[str], set[int], int]:
+    """Escreve em `rows_by_number` o cabeçalho + atividades de cada grupo, a
+    partir de GROUP_START_ROW. Retorna (merges, total_hours_cells,
+    total_bruto_cells, activity_rows, next_row):
+    - total_hours_cells: célula C da primeira atividade de cada grupo (a
+      fórmula "Total de horas" soma exatamente essas, na mesma ordem);
+    - total_bruto_cells: célula E da primeira atividade de cada grupo;
+    - activity_rows: linhas com texto de atividade, para altura de linha extra;
+    - next_row: primeira linha livre após o último grupo, onde o chamador
+      posiciona a linha de totais.
+    """
     merges: list[str] = []
     total_hours_cells: list[str] = []
     total_bruto_cells: list[str] = []
     activity_rows: set[int] = set()  # linhas com texto de atividade -> ganham altura extra
 
     def add_cells(row_number: int, cells: list[str]) -> None:
-        rows_by_number.setdefault(row_number, []).extend(cells)
+        _add_cells(rows_by_number, row_number, cells)
 
     row = GROUP_START_ROW
     for group in groups:
@@ -401,9 +415,25 @@ def _build_groups_xml(groups: list[GroupInput], month_label: str):
 
         row = last_row + 2  # uma linha em branco entre grupos
 
-    total_row = row + 1
+    return merges, total_hours_cells, total_bruto_cells, activity_rows, row
+
+
+def _build_totals_row(
+    rows_by_number: dict[int, list[str]],
+    next_row: int,
+    month_label: str,
+    total_hours_cells: list[str],
+    total_bruto_cells: list[str],
+) -> int:
+    """Escreve a linha "Total de horas {mês}:" (soma das células C de cada
+    grupo) e, logo abaixo, a linha de resumo bruto/performance (E = soma das
+    células E de cada grupo, F = razão total/bruto). Retorna bruto_row — a
+    última linha de dados usada pelo relatório (== last_data_row retornado por
+    _build_groups_xml)."""
+    total_row = next_row + 1
     total_value = f"=SUM({','.join(total_hours_cells)})" if total_hours_cells else "0"
-    add_cells(
+    _add_cells(
+        rows_by_number,
         total_row,
         [
             _inline_str_cell(f"B{total_row}", S_TOTAL_LABEL, f"Total de horas {month_label}:"),
@@ -415,20 +445,36 @@ def _build_groups_xml(groups: list[GroupInput], month_label: str):
 
     bruto_row = total_row + 1
     bruto_formula = f"SUM({','.join(total_bruto_cells)})" if total_bruto_cells else "0"
-    add_cells(
+    _add_cells(
+        rows_by_number,
         bruto_row,
         [
             _formula_cell(f"E{bruto_row}", S_SUM_E, bruto_formula),
             _formula_cell(f"F{bruto_row}", S_RATIO_F, f"C{total_row}/E{bruto_row}") if total_bruto_cells else _empty_cell(f"F{bruto_row}", S_RATIO_F),
         ],
     )
+    return bruto_row
 
-    # reconstrói a tabela "Week/AK/days/Hours/week" (colunas H:K) do template
-    # original, com os dias úteis do mês do relatório, nas mesmas linhas
-    # 15-20 usadas pelos grupos
+
+def _build_hours_week_table(rows_by_number: dict[int, list[str]], month_label: str) -> None:
+    """Reconstrói a tabela "Week/AK/days/Hours/week" (colunas H:K) do template
+    original, com os dias úteis do mês do relatório, nas mesmas linhas 15-20
+    usadas pelos grupos — tabela independente do conteúdo dos grupos, só
+    compartilha a faixa de linhas."""
     days_per_week = _business_days_per_week(month_label)
     for hours_week_row in range(15, 21):
-        add_cells(hours_week_row, _hours_week_table_cells(hours_week_row, days_per_week))
+        _add_cells(rows_by_number, hours_week_row, _hours_week_table_cells(hours_week_row, days_per_week))
+
+
+def _build_groups_xml(groups: list[GroupInput], month_label: str):
+    """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
+    rows_by_number: dict[int, list[str]] = {}
+
+    merges, total_hours_cells, total_bruto_cells, activity_rows, next_row = _build_group_rows(
+        rows_by_number, groups
+    )
+    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells)
+    _build_hours_week_table(rows_by_number, month_label)
 
     rows = [
         _row(number, cells, height=ACTIVITY_ROW_HEIGHT if number in activity_rows else DEFAULT_ROW_HEIGHT)

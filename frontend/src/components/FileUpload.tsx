@@ -1,20 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Database, FileSpreadsheet, Upload } from "lucide-react";
-import { useReportStore, MESES_PT } from "../store/useReportStore";
+import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
+import { useClickOutside } from "../hooks/useClickOutside";
 import type { ParseResponse } from "../api/types";
 
 function MonthDropdown({ value, onChange }: { value: string; onChange: (m: string) => void }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onOutside = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onOutside);
-    return () => document.removeEventListener("mousedown", onOutside);
-  }, [open]);
+  useClickOutside(wrapRef, () => setOpen(false), open);
 
   return (
     <div className="month-dropdown" ref={wrapRef}>
@@ -72,11 +66,6 @@ function parseMonthLabel(label: string): { month: string; year: string } {
   if (!match) return { month: MESES_PT[0], year: String(new Date().getFullYear()) };
   const found = MESES_PT.find((m) => m.toLowerCase() === match[1].trim().toLowerCase());
   return { month: found || MESES_PT[0], year: match[2] };
-}
-
-function genId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return Math.random().toString(36).slice(2, 9);
 }
 
 function formatFileSize(bytes: number): string {
@@ -222,11 +211,6 @@ export function FileUpload() {
     }
   };
 
-  const changeFile = () => {
-    const step1 = document.getElementById("step1");
-    if (step1) step1.style.display = "block";
-  };
-
   return (
     <>
       <div className="card upload-card" id="step1">
@@ -332,7 +316,6 @@ export function FileUpload() {
 
         <p className="muted">{status}</p>
       </div>
-      <button type="button" id="btnChangeFileHidden" style={{ display: "none" }} onClick={changeFile} />
     </>
   );
 }

@@ -16,9 +16,3 @@ export function parseExtraHoursInput(value: string): number | null {
   const parsed = parseLocaleNumber(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
-
-export function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text ?? "";
-  return div.innerHTML;
-}

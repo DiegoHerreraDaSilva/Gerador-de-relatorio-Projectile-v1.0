@@ -71,7 +71,7 @@ interface ManagementState {
   setPeriod: (period: string) => void;
 }
 
-function round2(n: number): number {
+export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 

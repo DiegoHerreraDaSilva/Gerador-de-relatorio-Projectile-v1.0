@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Sun, Moon, LogOut, LayoutDashboard } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { useAuthStore } from "../store/useAuthStore";
-
-type AppView = "report" | "management";
+import type { AppView } from "../App";
 
 export function Header({
   view,

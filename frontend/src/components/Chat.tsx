@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { FileText, GripVertical, User, Sparkles, AlertTriangle, Send, X } from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
 
+// desfaz o pushUndo() otimista feito antes da requisição (ver comentário em
+// applyChatState no store) — usado nos 3 caminhos de falha de send() abaixo.
+function revertPushedUndo() {
+  const state = useReportStore.getState();
+  state.undoStack.pop();
+  useReportStore.setState({ undoStack: [...state.undoStack] });
+}
+
 export function Chat() {
   const packages = useReportStore((s) => s.packages);
   const header = useReportStore((s) => s.header);
@@ -80,17 +88,13 @@ export function Chat() {
       if (!res.ok) {
         const detail = data && (data as any).detail ? (data as any).detail : `Erro ${res.status} ao falar com o assistente.`;
         append("error", detail);
-        const state = useReportStore.getState();
-        state.undoStack.pop();
-        useReportStore.setState({ undoStack: [...state.undoStack] });
+        revertPushedUndo();
         return;
       }
       const ok = applyChatState((data as any).state);
       if (!ok) {
         append("error", "O assistente devolveu uma resposta inesperada. Nada foi alterado.");
-        const state = useReportStore.getState();
-        state.undoStack.pop();
-        useReportStore.setState({ undoStack: [...state.undoStack] });
+        revertPushedUndo();
         return;
       }
       const summaryText = (data as any).reply || "Alterações aplicadas.";
@@ -98,9 +102,7 @@ export function Chat() {
     } catch {
       setMessages((prev) => prev.filter((m) => m.role !== "pending"));
       append("error", "Não foi possível falar com o assistente. Verifique sua conexão e tente de novo.");
-      const state = useReportStore.getState();
-      state.undoStack.pop();
-      useReportStore.setState({ undoStack: [...state.undoStack] });
+      revertPushedUndo();
     } finally {
       setLoading(false);
       requestAnimationFrame(() => textareaRef.current?.focus());

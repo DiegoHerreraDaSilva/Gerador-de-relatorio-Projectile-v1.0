@@ -133,7 +133,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
             value={pkg.projectCode}
             placeholder="SE.XX.XXX"
             onFocus={() => pushUndo()}
-            onChange={(e) => handleHeaderInput("projectCode" as any, e.target.value)}
+            onChange={(e) => handleHeaderInput("projectCode", e.target.value)}
           />
         </div>
         <div className="right">
@@ -146,7 +146,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                 value={header.locationDate}
                 placeholder="Local, DD.MM.AAAA"
                 onFocus={() => pushUndo()}
-                onChange={(e) => handleHeaderInput("locationDate" as any, e.target.value)}
+                onChange={(e) => handleHeaderInput("locationDate", e.target.value)}
               />
             </strong>
           </div>
@@ -158,7 +158,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
               value={pkg.projectName}
               placeholder="Nome do projeto"
               onFocus={() => pushUndo()}
-              onChange={(e) => handleHeaderInput("projectName" as any, e.target.value)}
+              onChange={(e) => handleHeaderInput("projectName", e.target.value)}
             />
           </div>
           <div>
@@ -188,7 +188,6 @@ export function PreviewSheet({ paneId, packageId }: Props) {
 
       {pkg.groups.map((group, gIdx) => {
         const { bruto, resultado, hasRealActivities } = computeGroupTotals(group);
-        const isSelectedGroup = false;
         return (
           <div
             key={group.id}
@@ -218,9 +217,6 @@ export function PreviewSheet({ paneId, packageId }: Props) {
             <div
               className="preview-group"
               data-gindex={gIdx}
-              onDragEnter={(e) => {
-                // needed for group handle? handled via pane
-              }}
             >
               <div className="preview-group-header">
                 <span
@@ -255,6 +251,18 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                   {group.activities.map((activity, aIdx) => {
                     const key = `${group.id}:${activity.id}`;
                     const isSelected = selectedByPane.has(key);
+                    // se a atividade clicada/arrastada faz parte de uma seleção
+                    // multipla (Ctrl+clique), a ação vale pra seleção inteira;
+                    // senão, só pra ela mesma.
+                    const activityOrSelection = () => {
+                      const isMulti = selectedByPane.size > 1 && selectedByPane.has(key);
+                      return isMulti
+                        ? Array.from(selectedByPane).map((k) => {
+                            const [g, a] = k.split(":");
+                            return { groupId: g, activityId: a };
+                          })
+                        : [{ groupId: group.id, activityId: activity.id }];
+                    };
                     return (
                       <div
                         key={activity.id}
@@ -301,23 +309,10 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                           aria-label="Remover atividade"
                           onClick={(e) => {
                             if (e.ctrlKey || e.metaKey) return;
-                            const isMulti = selectedByPane.size > 1 && selectedByPane.has(key);
-                            const items = isMulti
-                              ? Array.from(selectedByPane).map((k) => {
-                                  const [g, a] = k.split(":");
-                                  return { groupId: g, activityId: a };
-                                })
-                              : [{ groupId: group.id, activityId: activity.id }];
-                            removeActivities(packageId, items);
+                            removeActivities(packageId, activityOrSelection());
                           }}
                           onDragStart={(e) => {
-                            const isMulti = selectedByPane.size > 1 && selectedByPane.has(key);
-                            const items = isMulti
-                              ? Array.from(selectedByPane).map((k) => {
-                                  const [g, a] = k.split(":");
-                                  return { groupId: g, activityId: a };
-                                })
-                              : [{ groupId: group.id, activityId: activity.id }];
+                            const items = activityOrSelection();
                             setDraggedActivities({ fromPackageId: packageId, items });
                             e.dataTransfer.effectAllowed = "move";
                             e.dataTransfer.setData("text/plain", "activity");

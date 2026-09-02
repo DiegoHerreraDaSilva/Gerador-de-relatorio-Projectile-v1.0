@@ -41,7 +41,7 @@ npm --prefix frontend run build   # tsc -b && vite build → frontend/dist/
 python -m uvicorn backend.app.main:app --port 8011  # serve dist em /
 ```
 
-- **Env**: `cp .env.example .env` → `ANTHROPIC_API_KEY` (obrigatória p/ chat) e `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001` `backend/app/chatbot.py:144`). `load_dotenv()` sem path lê `.env` da raiz.
+- **Env**: `cp .env.example .env` → `ANTHROPIC_API_KEY` (obrigatória p/ chat) e `ANTHROPIC_MODEL` (default `claude-sonnet-5` `backend/app/chatbot.py:68`). `load_dotenv()` sem path lê `.env` da raiz.
 - **Launch**: `.claude/launch.json:7` `backend.app.main:app --port 8011`.
 - **Lint**: não configurado.
 
@@ -53,7 +53,7 @@ backend/
     main.py        # FastAPI, 3 rotas + NoCacheStaticFiles + mount (linha 311)
     parser.py      # parse_projectile_export(), _extract_package_key() :77, _parse_hs_value()
     generator.py   # generate_report() :461, feriados, BUSINESS_DAYS, ZIP/XML
-    chatbot.py     # call_chat() :136, SYSTEM_PROMPT, TOOL_SCHEMA, truststore
+    chatbot.py     # call_chat() :59, truststore.inject_into_ssl(); SYSTEM_PROMPT/TOOL_SCHEMA vêm de chat_ops.py
   templates/
     relatorio_final_template.xlsx  # 49KB, nunca recriar
   requirements.txt
@@ -69,10 +69,11 @@ frontend/
     store/useReportStore.ts  # Zustand+immer, snapshot JSON com Set→{__set}, split, drag, undo
     styles/index.css  # 38853 chars extraídos (visual idêntico)
     components/
-      Header.tsx (theme toggle svg), Stepper.tsx, FileUpload.tsx (FormData), ValidationBanner.tsx
-      PackageTabs.tsx (drag merge), PackageFileName.tsx, HeaderDataCard.tsx, GroupsPanel.tsx
-      Preview/Preview.tsx (2 panes, drop zone grupo) + PreviewSheet.tsx (drag atividade/grupo, marquee)
-      Chat.tsx (drag/resize, pushUndo), GenerateFooter.tsx (blob download), SummaryBar.tsx
+      Header.tsx (theme toggle svg), LoginScreen.tsx, FileUpload.tsx (FormData), ValidationBanner.tsx
+      PackageTabs.tsx (drag merge), PackageFileName.tsx
+      Preview/Preview.tsx (2 panes, drop zone grupo) + PreviewSheet.tsx (drag atividade/grupo, marquee — inclui edição de cabeçalho/grupo)
+      Chat.tsx (drag/resize, pushUndo), GenerateFooter.tsx (blob download)
+      ManagementPanel.tsx (painel de gerência, KPIs mensais) + ManagementFilters.tsx, KpiCard.tsx, Gauge.tsx (SVG semicircular), ExtraHoursInput.tsx
 ```
 
 ## Conventions
@@ -110,7 +111,7 @@ frontend/
 | Mudar parse/agrupamento | `backend/app/parser.py:109` |
 | Mudar geração/feriados | `backend/app/generator.py:165` (`_easter_sunday`), `:208` (`_business_days_per_week`) |
 | Mudar cálculo horas | `frontend/src/utils/calc.ts:1` + `backend/app/generator.py:273` (devem espelhar) |
-| Mudar IA prompt | `backend/app/chatbot.py:39` `SYSTEM_PROMPT` |
+| Mudar IA prompt | `backend/app/chat_ops.py:17` `SYSTEM_PROMPT` |
 | Mudar tema/layout | `frontend/src/styles/index.css:19` vars + `frontend/src/components/Header.tsx:1` |
 | Adicionar rota API | `backend/app/main.py:75` + `BaseModel` com `allow_inf_nan=False` |
 | Adicionar componente | `frontend/src/components/` + estado em `useReportStore.ts:15` |
@@ -126,5 +127,5 @@ frontend/
 ## Tarefas comuns
 
 - **Adicionar validação de linha**: `backend/app/parser.py:179` + `frontend/src/components/ValidationBanner.tsx:1` `ISSUE_HIGHLIGHT_PHRASES`
-- **Adicionar campo cabeçalho**: `backend/app/main.py:122` `HeaderPayload` + `frontend/src/store/useReportStore.ts` `header` + `HeaderDataCard.tsx`
+- **Adicionar campo cabeçalho**: `backend/app/main.py:122` `HeaderPayload` + `frontend/src/store/useReportStore.ts` `header` + `Preview/PreviewSheet.tsx` (`setHeaderField`)
 - **Mudar performance/bruto**: `frontend/src/utils/calc.ts` + `backend/app/generator.py:273` `_build_groups_xml`

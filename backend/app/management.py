@@ -64,7 +64,17 @@ from .projectile_db import (
     open_connection,
 )
 
-MANAGEMENT_PANEL_LOGINS = {"dherrera"}
+def _load_management_panel_logins() -> set[str]:
+    """Allowlist de logins com acesso ao Painel de Gerência, via
+    MANAGEMENT_PANEL_LOGINS (logins separados por vírgula). Fallback pra
+    {"dherrera"} se a env var estiver ausente/vazia — muda quem tem acesso
+    sem precisar de commit + redeploy."""
+    raw = os.environ.get("MANAGEMENT_PANEL_LOGINS", "")
+    logins = {login.strip() for login in raw.split(",") if login.strip()}
+    return logins or {"dherrera"}
+
+
+MANAGEMENT_PANEL_LOGINS = _load_management_panel_logins()
 
 # times/centros de custo de engenharia disponíveis pro filtro — o usuário
 # confirmou que "CAD + CAE juntos" é a equipe (não existe um valor literal
@@ -184,6 +194,71 @@ def _add_months(base: date, delta: int) -> date:
     return date(year, month, 1)
 
 
+def _resolve_period(months: int, year: int | None) -> tuple[date, date, list[str]]:
+    """Resolve o período de consulta: "ano" fechado (Jan-Dez de um ano
+    específico, quando `year` é passado) ou os últimos `months` meses
+    corridos a partir de hoje (padrão). Retorna (range_start, range_end,
+    month_keys) — `month_keys` em ordem decrescente ("YYYY-MM")."""
+    if year is not None:
+        range_start = date(year, 1, 1)
+        range_end = date(year, 12, 31)
+        month_keys = sorted({date(year, m, 1).strftime("%Y-%m") for m in range(1, 13)}, reverse=True)
+    else:
+        today = date.today()
+        range_start = _add_months(date(today.year, today.month, 1), -(months - 1))
+        range_end_day = calendar.monthrange(today.year, today.month)[1]
+        range_end = date(today.year, today.month, range_end_day)
+        month_keys = sorted({_add_months(range_start, i).strftime("%Y-%m") for i in range(months)}, reverse=True)
+    return range_start, range_end, month_keys
+
+
+def _build_month_row(month_key: str, bucket: dict | None, manual: dict, auto: dict | None) -> dict:
+    """Monta a linha de resultado de um mês a partir do bucket agregado do
+    banco (worked_hours/nonbillable_hours), do override manual do gerente e
+    da amostra automática (`project_kpi_samples`) — mesma regra de
+    precedência de sempre: manual > auto > None."""
+    bucket = bucket or {"worked_hours": 0.0, "nonbillable_hours": 0.0}
+    worked_hours = round(bucket["worked_hours"], 2)
+    nonbillable_hours = round(bucket["nonbillable_hours"], 2)
+
+    if manual.get("billed_hours") is not None:
+        billed_hours = manual.get("billed_hours")
+        billed_hours_source = "manual"
+    elif auto:
+        billed_hours = round(auto["billed_hours"], 2)
+        billed_hours_source = "auto"
+    else:
+        billed_hours = None
+        billed_hours_source = None
+
+    if manual.get("elaboration_days") is not None:
+        elaboration_days = manual.get("elaboration_days")
+        elaboration_days_source = "manual"
+    elif auto and auto["days"]:
+        elaboration_days = round(sum(auto["days"]) / len(auto["days"]), 2)
+        elaboration_days_source = "auto"
+    else:
+        elaboration_days = None
+        elaboration_days_source = None
+
+    perf_hours = round(billed_hours - worked_hours, 2) if billed_hours is not None else None
+    perf_kpi_pct = (perf_hours / worked_hours) if perf_hours is not None and worked_hours > 0 else None
+    nonbillable_kpi_pct = (nonbillable_hours / worked_hours) if worked_hours > 0 else None
+
+    return {
+        "month": month_key,
+        "worked_hours": worked_hours,
+        "billed_hours": billed_hours,
+        "billed_hours_source": billed_hours_source,
+        "perf_hours": perf_hours,
+        "perf_kpi_pct": perf_kpi_pct,
+        "elaboration_days": elaboration_days,
+        "elaboration_days_source": elaboration_days_source,
+        "nonbillable_hours": nonbillable_hours,
+        "nonbillable_kpi_pct": nonbillable_kpi_pct,
+    }
+
+
 def compute_monthly_kpis(
     months: int,
     year: int | None = None,
@@ -199,16 +274,7 @@ def compute_monthly_kpis(
 
     # dois modos de período: "ano" fechado (Jan-Dez de um ano específico) ou
     # os últimos N meses corridos a partir de hoje (padrão).
-    if year is not None:
-        range_start = date(year, 1, 1)
-        range_end = date(year, 12, 31)
-        month_keys = sorted({date(year, m, 1).strftime("%Y-%m") for m in range(1, 13)}, reverse=True)
-    else:
-        today = date.today()
-        range_start = _add_months(date(today.year, today.month, 1), -(months - 1))
-        range_end_day = calendar.monthrange(today.year, today.month)[1]
-        range_end = date(today.year, today.month, range_end_day)
-        month_keys = sorted({_add_months(range_start, i).strftime("%Y-%m") for i in range(months)}, reverse=True)
+    range_start, range_end, month_keys = _resolve_period(months, year)
 
     # uma única conexão pras 4 consultas pequenas + a busca cara (quando não
     # está em cache) — a conexão em si é persistente/reaproveitada entre
@@ -283,50 +349,15 @@ def compute_monthly_kpis(
         if days is not None:
             auto_bucket["days"].append(days)
 
-    result_months = []
-    for month_key in month_keys:
-        bucket = buckets.get(month_key, {"worked_hours": 0.0, "nonbillable_hours": 0.0})
-        worked_hours = round(bucket["worked_hours"], 2)
-        nonbillable_hours = round(bucket["nonbillable_hours"], 2)
-        manual = manual_entries.get(month_key) or {}
-        auto = auto_by_month.get(month_key)
-
-        if manual.get("billed_hours") is not None:
-            billed_hours = manual.get("billed_hours")
-            billed_hours_source = "manual"
-        elif auto:
-            billed_hours = round(auto["billed_hours"], 2)
-            billed_hours_source = "auto"
-        else:
-            billed_hours = None
-            billed_hours_source = None
-
-        if manual.get("elaboration_days") is not None:
-            elaboration_days = manual.get("elaboration_days")
-            elaboration_days_source = "manual"
-        elif auto and auto["days"]:
-            elaboration_days = round(sum(auto["days"]) / len(auto["days"]), 2)
-            elaboration_days_source = "auto"
-        else:
-            elaboration_days = None
-            elaboration_days_source = None
-
-        perf_hours = round(billed_hours - worked_hours, 2) if billed_hours is not None else None
-        perf_kpi_pct = (perf_hours / worked_hours) if perf_hours is not None and worked_hours > 0 else None
-        nonbillable_kpi_pct = (nonbillable_hours / worked_hours) if worked_hours > 0 else None
-
-        result_months.append({
-            "month": month_key,
-            "worked_hours": worked_hours,
-            "billed_hours": billed_hours,
-            "billed_hours_source": billed_hours_source,
-            "perf_hours": perf_hours,
-            "perf_kpi_pct": perf_kpi_pct,
-            "elaboration_days": elaboration_days,
-            "elaboration_days_source": elaboration_days_source,
-            "nonbillable_hours": nonbillable_hours,
-            "nonbillable_kpi_pct": nonbillable_kpi_pct,
-        })
+    result_months = [
+        _build_month_row(
+            month_key,
+            buckets.get(month_key),
+            manual_entries.get(month_key) or {},
+            auto_by_month.get(month_key),
+        )
+        for month_key in month_keys
+    ]
 
     nonbillable_breakdown = [
         {"month": month_key, "package": package, "hours": round(hours, 2)}

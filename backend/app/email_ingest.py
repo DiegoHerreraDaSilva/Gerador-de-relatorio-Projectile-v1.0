@@ -21,10 +21,12 @@ reconhecendo só as 3 formas exatas que `generator._build_groups_xml` escreve.
 from __future__ import annotations
 
 import base64
+import binascii
 import difflib
 import os
 import re
 import tempfile
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 
 import msal
@@ -32,7 +34,7 @@ import requests
 from openpyxl import load_workbook
 
 from . import management
-from .generator import _parse_month_label, count_business_days
+from .generator import parse_month_label, count_business_days
 from .projectile_db import ProjectileDbError, fetch_all_projects
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -101,7 +103,10 @@ def _graph_get(url: str, params: dict | None = None) -> dict:
         )
         resp.raise_for_status()
         return resp.json()
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError) as e:
+        # ValueError cobre json.JSONDecodeError: um 2xx com corpo não-JSON (ex:
+        # página de erro HTML de um proxy corporativo) não é RequestException,
+        # mas ainda é uma falha de infra, não um bug — mesmo tratamento genérico.
         raise EmailIngestError(f"Falha ao consultar o Microsoft Graph: {e}") from e
 
 
@@ -123,7 +128,7 @@ def fetch_new_messages() -> list[dict]:
     url = f"{GRAPH_BASE}/users/{mailbox}/messages"
     params = {
         "$filter": f"from/emailAddress/address eq '{sender}' and hasAttachments eq true",
-        "$select": "id,subject,receivedDateTime,from",
+        "$select": "id,subject,receivedDateTime,from,internetMessageHeaders",
         "$top": "50",
     }
     messages: list[dict] = []
@@ -137,22 +142,80 @@ def fetch_new_messages() -> list[dict]:
     return messages
 
 
-def fetch_xlsx_attachments(message_id: str) -> list[str]:
+_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25 MB
+_MAX_UNCOMPRESSED_ATTACHMENT_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+def fetch_xlsx_attachments(message_id: str) -> tuple[list[str], list[str]]:
     """Baixa os anexos `.xlsx` da mensagem pra arquivos temporários (mesmo
     padrão de `parser.py`/`generator.py`, que também usam `tempfile`) e
-    devolve os caminhos."""
+    devolve `(paths, skip_reasons)` — caminhos utilizáveis e, separadamente,
+    o motivo de cada anexo que foi pulado.
+
+    Duas camadas de defesa contra "zip bomb", mesma spec de
+    `main._reject_if_oversized_xlsx` (duplicado aqui de propósito: ponto de
+    entrada diferente, bytes já vêm decodificados de base64 — ver
+    CLAUDE.md): (1) tamanho do payload decodificado e (2) tamanho
+    DESCOMPRIMIDO do conteúdo do zip. Zip inválido não é rejeitado aqui,
+    mesma escolha de `main.py` — deixa a validação existente mais adiante
+    (`resolve_total_hours`/`read_project_identity`, via openpyxl) reportar
+    como anexo inválido/corrompido.
+
+    Cada anexo é isolado no próprio try/except dentro do loop: um anexo
+    grande demais, com Base64 malformado ou que falhe de qualquer outra
+    forma nunca aborta a mensagem inteira — só é pulado (motivo registrado
+    em `skip_reasons`, ver `process_new_emails`) — e nunca deixa órfão em
+    disco o temp file de um anexo anterior já baixado com sucesso, já que a
+    limpeza de um anexo que falhou acontece aqui mesmo, antes de seguir pro
+    próximo."""
     mailbox = _require_env("GRAPH_MAILBOX")
     data = _graph_get(f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/attachments")
-    paths = []
+    paths: list[str] = []
+    skip_reasons: list[str] = []
     for att in data.get("value", []):
         name = att.get("name") or ""
         content_bytes = att.get("contentBytes")
         if not content_bytes or not name.lower().endswith(".xlsx"):
             continue
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp.write(base64.b64decode(content_bytes))
-            paths.append(tmp.name)
-    return paths
+
+        try:
+            decoded = base64.b64decode(content_bytes)
+        except (binascii.Error, ValueError) as e:
+            skip_reasons.append(f"anexo '{name}' com conteúdo Base64 inválido: {e}")
+            continue
+
+        if len(decoded) > _MAX_ATTACHMENT_BYTES:
+            skip_reasons.append(f"anexo '{name}' excede o limite de tamanho (25 MB)")
+            continue
+
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                tmp.write(decoded)
+                tmp_path = tmp.name
+
+            try:
+                with zipfile.ZipFile(tmp_path) as zf:
+                    total_uncompressed = sum(info.file_size for info in zf.infolist())
+                if total_uncompressed > _MAX_UNCOMPRESSED_ATTACHMENT_BYTES:
+                    skip_reasons.append(
+                        f"anexo '{name}' excede o limite de tamanho descomprimido (200 MB)"
+                    )
+                    os.remove(tmp_path)
+                    continue
+            except zipfile.BadZipFile:
+                pass  # não é um zip válido — deixa a validação existente adiante rejeitar
+
+            paths.append(tmp_path)
+        except Exception as e:
+            if tmp_path is not None:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            skip_reasons.append(f"falha ao baixar anexo '{name}': {e}")
+
+    return paths, skip_reasons
 
 
 def _resolve_cell(ws, ref: str, seen: set[str], depth: int = 0) -> float:
@@ -255,12 +318,37 @@ def _month_end(year: int, month: int) -> date:
 def compute_business_days_elapsed(month_label: str, sent_at: datetime) -> int:
     """Dias úteis entre o último dia do mês do relatório (competência lida da
     própria label "Total de horas <mês/ano>:") e a data de envio do e-mail."""
-    parsed = _parse_month_label(month_label)
+    parsed = parse_month_label(month_label)
     if parsed is None:
         raise EmailIngestError(f"Não reconheço o formato de competência: {month_label!r}")
     year, month = parsed
     anchor = _month_end(year, month)
     return count_business_days(anchor, sent_at.date())
+
+
+def _sender_failed_dmarc(msg: dict) -> bool:
+    """Defesa em profundidade além do `$filter` por `from/emailAddress/address`
+    em `fetch_new_messages` — esse filtro só reflete o header `From:` como
+    entregue, que pode ser forjado se a política DMARC do tenant não
+    rejeitar/colocar em quarentena e-mail forjado do domínio. Procura o
+    header `Authentication-Results` (exposto pelo Graph via
+    `internetMessageHeaders`, incluído no `$select` de `fetch_new_messages`).
+
+    Falha fechado (`True`) só numa falha DMARC CONFIRMADA (`dmarc=fail`
+    explícito no valor do header). Falha aberto (`False`) em qualquer
+    ambiguidade — header ausente, ou presente sem esse valor exato
+    (`dmarc=pass`, `dmarc=bestguesspass`, `dmarc=none`) — porque e-mail
+    intra-organização comumente não carrega esse header dependendo da
+    config do tenant/Exchange, e esta automação já foi validada
+    funcionando ponta a ponta e alimenta KPIs de negócio reais: não deve
+    parar de processar tudo silenciosamente por causa de um header que nem
+    sempre está presente nesse cenário comum."""
+    for header in msg.get("internetMessageHeaders") or []:
+        name = (header.get("name") or "").strip().lower()
+        if name == "authentication-results":
+            if "dmarc=fail" in (header.get("value") or "").lower():
+                return True
+    return False
 
 
 def process_new_emails() -> dict:
@@ -286,9 +374,16 @@ def process_new_emails() -> dict:
         except ValueError:
             sent_at = datetime.now(timezone.utc)
 
+        if _sender_failed_dmarc(msg):
+            management.append_skipped_message(
+                message_id, received_at, "Falha na verificação DMARC do remetente — possível spoofing"
+            )
+            summary["skipped"] += 1
+            continue
+
         try:
-            attachments = fetch_xlsx_attachments(message_id)
-            if not attachments:
+            attachments, download_skip_reasons = fetch_xlsx_attachments(message_id)
+            if not attachments and not download_skip_reasons:
                 management.append_skipped_message(message_id, received_at, "anexo .xlsx não encontrado")
                 summary["skipped"] += 1
                 continue
@@ -299,7 +394,7 @@ def process_new_emails() -> dict:
             # `email_message_id`, projetos/horas/dias possivelmente
             # diferentes entre si).
             sender = (msg.get("from") or {}).get("emailAddress", {}).get("address", "")
-            attachment_errors: list[str] = []
+            attachment_errors: list[str] = list(download_skip_reasons)
             try:
                 for xlsx_path in attachments:
                     try:
@@ -307,7 +402,7 @@ def process_new_emails() -> dict:
                         _, report_project_name = read_project_identity(xlsx_path)
                         project_id, project_name, score = match_project(report_project_name, candidates)
                         business_days = compute_business_days_elapsed(month_label, sent_at)
-                        parsed_month = _parse_month_label(month_label)
+                        parsed_month = parse_month_label(month_label)
                         month_key = f"{parsed_month[0]:04d}-{parsed_month[1]:02d}"
 
                         management.append_project_kpi_sample({
@@ -325,6 +420,14 @@ def process_new_emails() -> dict:
                         summary["samples_added"] += 1
                     except (EmailIngestError, ProjectileDbError) as e:
                         attachment_errors.append(str(e))
+                    except Exception as e:
+                        # Anexo corrompido/não é realmente um .xlsx válido
+                        # (zipfile.BadZipFile, openpyxl InvalidFileException etc.)
+                        # não é EmailIngestError/ProjectileDbError — sem este except,
+                        # um único anexo malformado derrubava o processamento de TODA
+                        # a mensagem (ver except mais abaixo) em vez de só marcar esse
+                        # anexo como pulado e seguir com os demais.
+                        attachment_errors.append(f"Anexo inválido ou corrompido: {e}")
             finally:
                 for path in attachments:
                     try:
@@ -337,6 +440,15 @@ def process_new_emails() -> dict:
                 summary["skipped"] += 1
         except (EmailIngestError, ProjectileDbError) as e:
             management.append_skipped_message(message_id, received_at, str(e))
+            summary["skipped"] += 1
+        except Exception as e:
+            # Falha inesperada só nesta mensagem (ex: Base64 corrompido em
+            # fetch_xlsx_attachments, erro de I/O ao gravar management_kpi.json) não
+            # pode derrubar o ciclo inteiro: sem isto, as mensagens seguintes do
+            # mesmo polling nunca seriam processadas, e como esta mensagem nunca é
+            # marcada como processada, ela travaria a automação tentando de novo a
+            # cada ciclo, para sempre.
+            management.append_skipped_message(message_id, received_at, f"Erro inesperado: {e}")
             summary["skipped"] += 1
 
     return summary

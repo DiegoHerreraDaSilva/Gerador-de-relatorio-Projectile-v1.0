@@ -20,8 +20,8 @@ import threading
 import pymysql
 import pymysql.cursors
 
-from .db_credentials import get_projectile_db_password
-from .parser import Activity, Group, RowIssue, WorkPackage
+from .db_credentials import DbCredentialsError, get_projectile_db_password
+from .parser import SINGLE_PACKAGE_KEY, RowIssue, WorkPackage, _PackageAccumulator
 
 
 class ProjectileDbError(RuntimeError):
@@ -50,7 +50,14 @@ def _open_new_connection() -> pymysql.connections.Connection:
             "Configuração do banco do Projectile ausente. Defina PROJECTILE_DB_HOST e "
             "PROJECTILE_DB_USER no .env (veja .env.example)."
         )
-    password = get_projectile_db_password(user)
+    try:
+        password = get_projectile_db_password(user)
+    except DbCredentialsError as e:
+        # Sem isso, a ausência de senha no Credential Manager vazava como uma
+        # exceção crua (DbCredentialsError não é ProjectileDbError) — nenhuma rota
+        # em main.py a captura, então virava um 500 sem a mensagem genérica de
+        # infra (ver `_log_and_generic_error`), quebrando o contrato de erro do app.
+        raise ProjectileDbError(str(e)) from e
     try:
         return pymysql.connect(
             host=host,
@@ -330,11 +337,7 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
     de Observação em Prefixo/Descrição é reaproveitada, por ser a mesma regra
     de negócio dos dois formatos.
     """
-    SINGLE_PACKAGE_KEY = "__single__"
-    packages: dict[str, WorkPackage] = {}
-    package_order: list[str] = []
-    groups_by_package: dict[str, dict[str, Group]] = {}
-    group_order_by_package: dict[str, list[str]] = {}
+    accumulator = _PackageAccumulator()
     issues: list[RowIssue] = []
 
     for i, row in enumerate(rows, start=1):
@@ -369,35 +372,16 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
         package_name = html.unescape(str(row.get("pacote") or "")).strip() or "Geral"
         package_key = package_name if split_by_package else SINGLE_PACKAGE_KEY
 
-        if package_key not in packages:
-            packages[package_key] = WorkPackage(key=package_key, project_name=package_name)
-            package_order.append(package_key)
-            groups_by_package[package_key] = {}
-            group_order_by_package[package_key] = []
-
-        groups = groups_by_package[package_key]
-        group_order = group_order_by_package[package_key]
-        if prefix not in groups:
-            groups[prefix] = Group(name=prefix)
-            group_order.append(prefix)
-        group = groups[prefix]
-
-        existing = next(
-            (a for a in group.activities if a.description.casefold() == description.casefold()), None
+        accumulator.add_activity(
+            package_key=package_key,
+            package_name=package_name,
+            group_name=prefix,
+            description=description,
+            hours=hs_float,
         )
-        if existing:
-            existing.hours = round(existing.hours + hs_float, 3)
-        else:
-            group.activities.append(Activity(description=description, hours=hs_float))
 
-    if not split_by_package and SINGLE_PACKAGE_KEY in packages and rows:
+    if not split_by_package and rows:
         name = html.unescape(str(rows[0].get("pacote") or "")).strip()
-        packages[SINGLE_PACKAGE_KEY].project_name = name
-        packages[SINGLE_PACKAGE_KEY].key = name
+        accumulator.rename_package(SINGLE_PACKAGE_KEY, name)
 
-    result = []
-    for key in package_order:
-        pkg = packages[key]
-        pkg.groups = [groups_by_package[key][name] for name in group_order_by_package[key]]
-        result.append(pkg)
-    return result, issues
+    return accumulator.build(), issues

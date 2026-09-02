@@ -26,7 +26,6 @@ export function GenerateFooter() {
   const grandTotalAll = packages.reduce((sum, p) => sum + computeGrandTotalFor(p.groups), 0);
   const singleTotal = packages[0] ? computeGrandTotalFor(packages[0].groups) : 0;
 
-  const isSingle = packages.length === 1;
   const defaultName = computeDefaultFileName(header.monthLabel, packages.map((p) => ({ projectCode: p.projectCode, projectName: p.projectName })));
   const displayFileName = fileNameEdited ? fileName : defaultName;
 
@@ -65,8 +64,7 @@ export function GenerateFooter() {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const isZip = packages.length !== 1;
-      let outName = (isSingle ? displayFileName : displayFileName) || defaultName;
-      outName = outName.trim();
+      let outName = (displayFileName || defaultName).trim();
       const wantedExt = isZip ? ".zip" : ".xlsx";
       if (!outName.toLowerCase().endsWith(wantedExt)) outName += wantedExt;
       const a = document.createElement("a");

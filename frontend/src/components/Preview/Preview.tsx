@@ -21,6 +21,32 @@ function PieChartIcon() {
   );
 }
 
+// Shared drag-and-drop handlers for a preview pane (used by both pane 0 and pane 1
+// in split-view). `paneId` is the package id that pane is currently showing — group
+// drops from another package land here via moveGroupToPackage.
+function createPaneDragHandlers(paneId: string | null) {
+  return {
+    onDragEnter: (e: React.DragEvent<HTMLDivElement>) => {
+      const dg = useReportStore.getState().draggedGroup;
+      if (dg && paneId && dg.fromPackageId !== paneId) (e.currentTarget as HTMLElement).classList.add("drop-target");
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => (e.currentTarget as HTMLElement).classList.remove("drop-target"),
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      if (useReportStore.getState().draggedGroup) e.preventDefault();
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      const dg = useReportStore.getState().draggedGroup;
+      (e.currentTarget as HTMLElement).classList.remove("drop-target");
+      if (!dg || !paneId) return;
+      e.preventDefault();
+      if (dg.fromPackageId !== paneId) {
+        useReportStore.getState().moveGroupToPackage(dg.fromPackageId, dg.groupId, paneId);
+        useReportStore.getState().setDraggedGroup(null);
+      }
+    },
+  };
+}
+
 export function Preview() {
   const packages = useReportStore((s) => s.packages);
   const activeId = useReportStore((s) => s.activePackageId);
@@ -43,6 +69,9 @@ export function Preview() {
   const primaryPaneId = activeId;
   const secondaryPaneId = isSplit ? (paneBPackage?.id ?? null) : null;
 
+  const primaryPaneDragHandlers = createPaneDragHandlers(primaryPaneId);
+  const secondaryPaneDragHandlers = createPaneDragHandlers(secondaryPaneId);
+
   // Apply zoom via CSS zoom property on preview sheets
   useEffect(() => {
     document.querySelectorAll<HTMLDivElement>(".preview-sheet").forEach((el) => {
@@ -50,7 +79,15 @@ export function Preview() {
     });
     const label = document.getElementById("zoomLabel");
     if (label) label.textContent = `${previewZoom}%`;
-  }, [previewZoom, packages, isSplit, activeId, paneBId]);
+    // Intentionally NOT depending on `packages`: immer gives that array a new
+    // reference on every edit (any hours/description keystroke), which would make
+    // this DOM query re-run on every keystroke in the whole report. This effect
+    // only needs to react to zoom level, split mode, and which package/pane is
+    // being shown — all covered by the deps below. The "no packages -> packages
+    // just loaded" transition stays covered without `packages` because
+    // setPackages() always resets activePackageId (null -> the first loaded
+    // package's freshly generated id) in that same store update.
+  }, [previewZoom, isSplit, activeId, paneBId]);
 
   if (!hasPackages || !activePkg) {
     return (
@@ -140,24 +177,7 @@ export function Preview() {
           <div
             className="preview-pane"
             data-pane="0"
-            onDragEnter={(e) => {
-              const dg = useReportStore.getState().draggedGroup;
-              if (dg && dg.fromPackageId !== primaryPaneId) (e.currentTarget as HTMLElement).classList.add("drop-target");
-            }}
-            onDragLeave={(e) => (e.currentTarget as HTMLElement).classList.remove("drop-target")}
-            onDragOver={(e) => {
-              if (useReportStore.getState().draggedGroup) e.preventDefault();
-            }}
-            onDrop={(e) => {
-              const dg = useReportStore.getState().draggedGroup;
-              (e.currentTarget as HTMLElement).classList.remove("drop-target");
-              if (!dg || !primaryPaneId) return;
-              e.preventDefault();
-              if (dg.fromPackageId !== primaryPaneId) {
-                useReportStore.getState().moveGroupToPackage(dg.fromPackageId, dg.groupId, primaryPaneId);
-                useReportStore.getState().setDraggedGroup(null);
-              }
-            }}
+            {...primaryPaneDragHandlers}
           >
             {isSplit && (
               <div className="preview-pane-header">
@@ -184,24 +204,7 @@ export function Preview() {
               className="preview-pane"
               data-pane="1"
               id="previewPane2"
-              onDragEnter={(e) => {
-                const dg = useReportStore.getState().draggedGroup;
-                if (dg && secondaryPaneId && dg.fromPackageId !== secondaryPaneId) (e.currentTarget as HTMLElement).classList.add("drop-target");
-              }}
-              onDragLeave={(e) => (e.currentTarget as HTMLElement).classList.remove("drop-target")}
-              onDragOver={(e) => {
-                if (useReportStore.getState().draggedGroup) e.preventDefault();
-              }}
-              onDrop={(e) => {
-                const dg = useReportStore.getState().draggedGroup;
-                (e.currentTarget as HTMLElement).classList.remove("drop-target");
-                if (!dg || !secondaryPaneId) return;
-                e.preventDefault();
-                if (dg.fromPackageId !== secondaryPaneId) {
-                  useReportStore.getState().moveGroupToPackage(dg.fromPackageId, dg.groupId, secondaryPaneId);
-                  useReportStore.getState().setDraggedGroup(null);
-                }
-              }}
+              {...secondaryPaneDragHandlers}
             >
               <div className="preview-pane-header">
                 <select
