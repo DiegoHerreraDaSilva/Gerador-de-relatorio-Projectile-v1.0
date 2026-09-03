@@ -131,8 +131,37 @@
     border: 1px solid var(--border);
     background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
     box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+    /* vira um header fixo ao rolar a página — fica sempre visível/acessível
+       em vez de sumir pra cima junto com o resto do conteúdo. `top: 0` +
+       margem negativa igual ao padding do body (:68) faz ele grudar rente
+       no topo/largura da viewport quando fixo, sem sobra de espaço em
+       volta; o padding interno compensa pra o conteúdo não colar na borda. */
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    margin: 0 -24px;
+    padding-left: 24px;
+    padding-right: 24px;
+    border-radius: 0;
   }
   .mgmt-filter { display: flex; flex-direction: column; gap: 5px; flex: 0 0 200px; }
+  .mgmt-filter-reset {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-family: inherit;
+    cursor: pointer;
+    align-self: flex-end;
+  }
+  .mgmt-filter-reset:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+  .mgmt-filter-reset:disabled { opacity: 0.45; cursor: default; }
   .mgmt-filter-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
   .management-filters .month-dropdown { flex: none; width: 100%; }
   .management-filters .month-dropdown-list { width: 200px; max-height: 260px; }
@@ -203,14 +232,256 @@
   .kpi-pct.warn { color: var(--warn); font-weight: 700; }
   .kpi-pct.bad { color: var(--bad); font-weight: 700; }
 
-  /* seção de pacotes não faturáveis, abaixo dos 3 cards de gauge — largura
-     cheia (não é item do .kpi-grid), lista pode crescer bastante conforme o
-     período/filtros, então rola por dentro em vez de esticar o card. */
-  .nonbillable-packages-card { margin-top: 16px; }
-  .nonbillable-packages-table-wrap { justify-content: flex-start; max-height: 320px; overflow-y: auto; }
-  .nonbillable-packages-table-wrap .kpi-table { width: 100%; }
-  .nonbillable-packages-table-wrap .kpi-table th:not(:first-child),
-  .nonbillable-packages-table-wrap .kpi-table td:not(:first-child) { width: 140px; }
+  /* seção de pacotes não faturáveis + relatórios enviados, abaixo dos 3
+     cards de gauge — empilhados. `align-items: center` (em vez do stretch
+     padrão de flex-direction:column) faz cada card encolher pra largura do
+     próprio conteúdo (a tabela) em vez de esticar pra largura cheia — cresce/
+     encolhe sozinho conforme a tabela muda, e fica centralizado na coluna.
+     Listas podem crescer bastante conforme o período/filtros, então rolam
+     por dentro em vez de esticar o card. */
+  .side-by-side-cards { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 16px; }
+  .side-by-side-cards > .card { margin-top: 0; max-width: 100%; }
+
+  .nonbillable-packages-card .kpi-card-head,
+  .send-status-card .kpi-card-head { flex-direction: column; align-items: center; text-align: center; gap: 4px; }
+  .nonbillable-packages-card .kpi-card-head h3,
+  .send-status-card .kpi-card-head h3 { font-size: 1.2rem; }
+
+  .send-status-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .send-status-tabs button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-family: inherit;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .send-status-tabs button:hover { color: var(--text); }
+  .send-status-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .send-status-tab-count {
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 6px;
+    color: var(--text-muted);
+  }
+  .send-status-tabs button.active .send-status-tab-count { color: var(--accent); border-color: var(--accent); }
+
+  .send-status-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 12px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .send-status-search:focus-within { border-color: var(--accent); color: var(--text); }
+  .send-status-search input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: inherit;
+    min-width: 0;
+  }
+  .send-status-search input::placeholder { color: var(--text-muted); }
+  .send-status-search-clear {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .send-status-search-clear:hover { color: var(--text); }
+
+  .nonbillable-packages-table-wrap,
+  .send-status-table-wrap {
+    justify-content: center;
+    max-height: 320px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .nonbillable-packages-table-wrap::-webkit-scrollbar,
+  .send-status-table-wrap::-webkit-scrollbar { width: 8px; }
+  .nonbillable-packages-table-wrap::-webkit-scrollbar-track,
+  .send-status-table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .nonbillable-packages-table-wrap::-webkit-scrollbar-thumb,
+  .send-status-table-wrap::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .nonbillable-packages-table-wrap::-webkit-scrollbar-thumb:hover,
+  .send-status-table-wrap::-webkit-scrollbar-thumb:hover { background-color: var(--accent); }
+
+  .send-status-table-wrap .kpi-table th:last-child,
+  .send-status-table-wrap .kpi-table td:last-child { text-align: center; }
+
+  .send-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    color: transparent;
+    vertical-align: middle;
+  }
+  .send-status-badge.sent {
+    background: var(--ok);
+    border-color: var(--ok);
+    color: #fff;
+    box-shadow: 0 0 8px 0 color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+
+  /* tela de Diagnóstico — editar/apagar/cadastrar amostra de e-mail */
+  .diagnostics-panel { display: flex; flex-direction: column; gap: 16px; }
+  .diagnostics-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .diagnostics-card-head-actions { display: flex; align-items: center; gap: 10px; }
+  .diagnostics-card-head-actions button svg.spin { animation: spin 0.9s linear infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .diagnostics-card-head-actions button svg.spin { animation: none; }
+  }
+  /* mesma largura pros dois cards (Amostras tem 7 colunas, E-mails pulados
+     só 2 — sem isso cada um encolhe pro próprio conteúdo e ficam com
+     tamanhos bem diferentes). */
+  .diagnostics-table-card { align-self: center; width: 100%; max-width: 1150px; }
+  .diagnostics-table-card h3 { margin: 0; font-size: 1.05rem; }
+  .diagnostics-create-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 60%, transparent);
+  }
+  .diagnostics-create-fields select { flex: 1 1 220px; min-width: 0; }
+  .diagnostics-create-fields select,
+  .diagnostics-create-fields input {
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.85rem;
+  }
+
+  /* seletor de projeto customizado (reaproveita o visual dos dropdowns de
+     .month-dropdown já usados nos filtros) — encolhe/estica dentro do
+     flex-wrap do form em vez de vazar pra fora com o texto longo de
+     "Cliente — Projeto", e o painel de opções fica com scroll próprio. */
+  .diagnostics-panel .diagnostics-project-dropdown { flex: 1 1 280px; min-width: 0; max-width: 100%; }
+  .diagnostics-panel .diagnostics-month-dropdown { flex: 0 0 140px; }
+  .diagnostics-project-dropdown .month-dropdown-trigger,
+  .diagnostics-month-dropdown .month-dropdown-trigger {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    padding: 0 10px;
+    font-size: 0.85rem;
+    font-weight: 400;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: none;
+  }
+  .diagnostics-project-dropdown .month-dropdown-trigger:hover,
+  .diagnostics-month-dropdown .month-dropdown-trigger:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .diagnostics-project-dropdown .mgmt-filter-summary {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diagnostics-project-dropdown .month-dropdown-list { width: 100%; min-width: 280px; }
+  .diagnostics-month-dropdown .month-dropdown-list { width: 140px; }
+  td .diagnostics-project-dropdown,
+  td .diagnostics-month-dropdown { display: inline-block; text-align: left; }
+  .diagnostics-table-wrap { justify-content: flex-start; max-height: 420px; overflow-y: auto; }
+  .diagnostics-table-wrap .kpi-table { width: 100%; }
+  .diagnostics-table-wrap .kpi-table select {
+    height: 30px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.82rem;
+    max-width: 220px;
+  }
+  /* wrapper interno em vez de display:flex direto na <td> — flex na própria
+     célula bagunça o cálculo de largura de coluna do table layout. Sem
+     text-align próprio aqui: herda o padrão de .kpi-table td (right), igual
+     ao cabeçalho "Ações" (.kpi-table th, também right por padrão) — os dois
+     alinham pelo mesmo mecanismo em vez de brigar com regras conflitantes. */
+  .diagnostics-actions { display: inline-flex; gap: 6px; }
+  .diagnostics-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .diagnostics-actions button svg { display: block; stroke: currentColor; pointer-events: none; }
+  .diagnostics-actions button:hover { color: var(--text); border-color: var(--accent); }
+  .diagnostics-source-badge {
+    display: inline-block;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .diagnostics-source-badge.manual { color: var(--accent); border-color: var(--accent); }
+  .diagnostics-edited-badge {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
+    color: var(--warn);
+  }
 
   .login-screen {
     min-height: 100vh;
@@ -366,6 +637,7 @@
     padding: 20px 22px;
     margin-bottom: 22px;
   }
+  .upload-card { max-width: 1300px; margin-left: auto; margin-right: auto; }
   .card::after {
     content: "";
     position: absolute; left: 16px; right: 16px; bottom: -1px;
@@ -379,6 +651,129 @@
   }
   .btn-toggle:hover { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: none; }
   .btn-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* modal genérico (backdrop + card) — hoje só usado pelo popup de "Enviar
+     Relatório", mas as classes não são específicas dele de propósito. */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: color-mix(in srgb, black 55%, transparent);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-card {
+    position: relative;
+    width: 100%;
+    max-width: 480px;
+    /* altura máxima do modal cabe na viewport; cabeçalho/rodapé (fora de
+       .modal-body) sempre visíveis — só o meio rola quando o conteúdo não
+       cabe, em vez do popup inteiro cortar os botões pra fora da tela. */
+    max-height: calc(100vh - 40px);
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .modal-body { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; }
+  .modal-head h2 { margin: 0; font-size: 1.15rem; }
+  .modal-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .modal-close:hover { color: var(--text); border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; flex: 0 0 auto; }
+
+  .send-report-sender { margin: -4px 0 0; }
+  .send-report-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82rem; color: var(--text-muted); }
+  .send-report-field input,
+  .send-report-field textarea {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.88rem;
+    padding: 8px 10px;
+    resize: vertical;
+  }
+  .send-report-packages {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 60%, transparent);
+  }
+  .send-report-packages > .mgmt-filter-label {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .send-report-package-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    padding: 9px 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .send-report-package-option:has(input:checked) {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  }
+  .send-report-package-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    flex: 0 0 auto;
+  }
+  .send-report-package-option span:first-of-type { flex: 1; font-weight: 500; }
+  .send-report-one-email {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+  .send-report-ok { color: var(--ok); }
+  .send-report-bad { color: var(--bad); font-size: 0.82rem; }
+  .send-report-success {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--border));
+    background: color-mix(in srgb, var(--ok) 14%, var(--surface));
+    color: var(--ok);
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
   .btn-toggle:disabled:hover { color: var(--text-muted); border-color: var(--border); }
 
   /* ---------- Abas de pacote de trabalho ---------- */
@@ -599,7 +994,69 @@
     .source-switch-indicator { transition: none; }
   }
 
+  .source-switch-small { margin-bottom: 14px; }
+  .source-switch-small .source-switch-option { padding: 9px 12px; font-size: 0.82rem; }
+
   .db-search-date-block { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .db-search-date-block .client-dropdown { flex: none; width: 420px; max-width: 92vw; margin-bottom: 4px; }
+  .client-dropdown-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .db-search-date-block .client-dropdown-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: visible;
+    max-height: none;
+  }
+  .client-dropdown-list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    max-height: 320px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .client-dropdown-search {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: inherit;
+  }
+
+  .client-projects-select {
+    width: 420px;
+    max-width: 92vw;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0 16px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 60%, transparent);
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .client-projects-select-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+  .client-projects-select-actions { display: flex; gap: 6px; }
+  .client-projects-select-all {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    border-radius: 6px;
+  }
+  .client-report-mode-grid { margin-bottom: 14px; }
+  .client-dropdown .month-dropdown-list { width: 280px; }
+  .month-dropdown-empty { padding: 10px 12px; font-size: 0.82rem; color: var(--text-muted); }
   .db-search-label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px; }
   .db-search-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0 0 16px; }
   .db-search-month-row {
@@ -867,6 +1324,16 @@
     color: var(--text-muted);
   }
   .btn-secondary:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  .diagnostics-btn-danger {
+    border-color: color-mix(in srgb, var(--bad) 40%, var(--border));
+    background: color-mix(in srgb, var(--bad) 14%, var(--surface));
+    color: var(--bad);
+  }
+  .diagnostics-btn-danger:hover {
+    background: color-mix(in srgb, var(--bad) 26%, var(--surface));
+    border-color: var(--bad);
+    color: var(--bad);
+  }
 
   button {
     cursor: pointer;
@@ -960,8 +1427,13 @@
   }
   .generate-footer.visible { display: block; }
   .generate-footer-inner {
-    display: flex; align-items: flex-end; justify-content: center; gap: 24px; flex-wrap: wrap;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;
   }
+  .generate-footer-main {
+    display: flex; align-items: flex-end; justify-content: center; gap: 24px; flex-wrap: wrap;
+    flex: 1 1 auto;
+  }
+  .generate-footer-send { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
   .generate-total { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 9px; }
   .generate-total strong { color: var(--text); font-size: 1.1rem; }
   .filename-field { width: 100%; max-width: 380px; }
