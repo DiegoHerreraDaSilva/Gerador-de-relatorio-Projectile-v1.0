@@ -83,14 +83,25 @@ def _open_new_connection() -> pymysql.connections.Connection:
 # Conexão única, persistente entre requisições, em vez de abrir uma nova a
 # cada chamada — abrir conexão é o custo real nesse MySQL legado (medido: até
 # ~20s quando o servidor está sob carga, contra 0.02-0.05s num dia normal).
-# Como as rotas que tocam esse banco são síncronas (sem thread pool), o app
-# só processa uma operação de banco por vez, então uma única conexão
-# reaproveitada é suficiente — não precisa de um pool com várias. Ninguém
-# deve chamar `.close()` na conexão devolvida por `_get_connection()`: ela é
-# gerenciada por este módulo e reconectada sozinha (`ping(reconnect=True)`)
-# se a conexão cair (timeout do servidor, restart, etc.).
+# Ninguém deve chamar `.close()` na conexão devolvida por `_get_connection()`:
+# ela é gerenciada por este módulo e reconectada sozinha
+# (`ping(reconnect=True)`) se a conexão cair (timeout do servidor, restart,
+# etc.).
+#
+# `_pool_lock` serializa toda query deste módulo (não só a decisão de
+# reconectar) — necessário porque nem toda chamada roda bloqueando o event
+# loop: o polling de e-mail em background e o botão "Verificar e-mails"
+# (`main.py`) rodam via `asyncio.to_thread`, numa thread OS de verdade,
+# concorrente com o resto. Sem essa exclusão mútua cobrindo o uso do cursor
+# (não só `_get_connection()`), duas threads podiam ler/reconectar a MESMA
+# conexão ao mesmo tempo — foi exatamente isso que causou
+# `ValueError: read of closed file` em produção com 2+ usuários simultâneos.
+# RLock (não Lock comum) porque cada `fetch_*` já entra no lock ao redor de
+# `conn := conn or _get_connection()`, e essa chamada tenta pegar o MESMO
+# lock de novo por dentro — com um Lock comum isso trava (deadlock na
+# própria thread); RLock permite a mesma thread reentrar.
 _pooled_conn: pymysql.connections.Connection | None = None
-_pool_lock = threading.Lock()
+_pool_lock = threading.RLock()
 
 
 def _get_connection() -> pymysql.connections.Connection:
@@ -130,9 +141,8 @@ def fetch_employee_hours(
     parcial (`tjob.capEmployee LIKE`), mais lento mas sempre funciona."""
     if not employee_id and not employee_name:
         raise ValueError("informe employee_id ou employee_name")
-    conn = _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := _get_connection()).cursor() as cur:
             if employee_id:
                 match_clause, match_param = "tj.pEmployee = %s", employee_id
             else:
@@ -189,9 +199,8 @@ def fetch_engineering_hours(
     `_get_connection`, isso é só pra quem já tem uma em mãos e quer deixar a
     reutilização explícita, ex: `management.py:compute_monthly_kpis`).
     """
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             cur.execute(
                 """
                 SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
@@ -283,9 +292,8 @@ def fetch_project_hours(
     `group_hours_by_project` no modo "um relatório por projeto"."""
     if not project_ids:
         return []
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"""
@@ -359,9 +367,8 @@ def fetch_clients_for_projects(
     `fetch_engineering_hours`."""
     if not project_ids:
         return []
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"SELECT DISTINCT capCustomer FROM tproject "
@@ -384,9 +391,8 @@ def fetch_project_ids_for_clients(
     Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
     if not clients:
         return []
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             placeholders = ",".join(["%s"] * len(clients))
             cur.execute(f"SELECT pProject FROM tproject WHERE capCustomer IN ({placeholders})", clients)
             return [row["pProject"] for row in cur.fetchall()]
@@ -406,9 +412,8 @@ def fetch_project_names_for_ids(
     horas. Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
     if not project_ids:
         return []
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"SELECT DISTINCT pDescription FROM tproject "
@@ -433,9 +438,8 @@ def fetch_project_details(
     `fetch_engineering_hours`."""
     if not project_ids:
         return {}
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"SELECT pProject, pDescription, capCustomer FROM tproject "
@@ -461,9 +465,8 @@ def fetch_project_ids_for_names(
     `conn` já aberta, ver `fetch_engineering_hours`."""
     if not names:
         return []
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             placeholders = ",".join(["%s"] * len(names))
             cur.execute(f"SELECT pProject FROM tproject WHERE pDescription IN ({placeholders})", names)
             return [row["pProject"] for row in cur.fetchall()]
@@ -479,9 +482,8 @@ def fetch_all_projects(conn: pymysql.connections.Connection | None = None) -> di
     oficial). `tproject` é pequena (poucos milhares de linhas, sem join), não
     tem o mesmo risco de scan lento de `fetch_engineering_hours`. Aceita
     `conn` já aberta, ver `fetch_engineering_hours`."""
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             cur.execute(
                 "SELECT pProject, pDescription FROM tproject "
                 "WHERE pDescription IS NOT NULL AND pDescription <> ''"
@@ -502,9 +504,8 @@ def fetch_all_projects_with_details(conn: pymysql.connections.Connection | None 
     (diferente de `fetch_project_details`, que exige uma lista de ids).
     Mesmo universo de `fetch_all_projects`, só que devolve cliente junto.
     Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
-    conn = conn or _get_connection()
     try:
-        with conn.cursor() as cur:
+        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
             cur.execute(
                 "SELECT pProject, pDescription, capCustomer FROM tproject "
                 "WHERE pDescription IS NOT NULL AND pDescription <> '' "
