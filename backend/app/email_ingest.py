@@ -110,6 +110,30 @@ def _graph_get(url: str, params: dict | None = None) -> dict:
         raise EmailIngestError(f"Falha ao consultar o Microsoft Graph: {e}") from e
 
 
+def _graph_post(url: str, json_body: dict) -> None:
+    """Mesmo isolamento de `_graph_get`, mas pra chamadas POST sem corpo de
+    resposta relevante (ex: `sendMail`, que devolve 202 vazio em sucesso)."""
+    token = _get_graph_token()
+    try:
+        resp = requests.post(
+            url, json=json_body, headers={"Authorization": f"Bearer {token}"}, timeout=30
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        # o corpo da resposta de erro do Graph costuma ter o motivo real
+        # (ex: "não encontrei a caixa X", "sem permissão pra enviar como Y")
+        # — inclui aqui pra ajudar a diagnosticar, já que quem chama isso é
+        # sempre uma ação explícita do usuário (enviar relatório), não uma
+        # automação silenciosa de fundo.
+        detail = ""
+        if e.response is not None:
+            try:
+                detail = f" — {e.response.json().get('error', {}).get('message', '')}"
+            except ValueError:
+                detail = f" — {e.response.text[:200]}"
+        raise EmailIngestError(f"Falha ao enviar e-mail pelo Microsoft Graph{detail}") from e
+
+
 def fetch_new_messages() -> list[dict]:
     """Mensagens do Alberto na caixa `GRAPH_MAILBOX` com anexo, ainda não
     processadas (ver `management.is_message_processed`). Filtra no próprio
@@ -349,6 +373,55 @@ def _sender_failed_dmarc(msg: dict) -> bool:
             if "dmarc=fail" in (header.get("value") or "").lower():
                 return True
     return False
+
+
+def send_report_email(
+    sender_email: str,
+    to_email: str,
+    subject: str,
+    body_text: str,
+    attachments: list[tuple[str, bytes]],
+) -> None:
+    """Envia relatório(s) por e-mail via Microsoft Graph, "como" o usuário
+    logado (`sender_email` — vem da sessão, `auser.rEmail`, nunca digitado
+    pelo cliente, pra não dar pra forjar remetente) — `POST
+    /users/{sender_email}/sendMail`. `attachments` é uma lista de
+    `(nome_do_arquivo, bytes)` — cada um vira um anexo `.xlsx` SEPARADO no
+    mesmo e-mail (nunca zipado junto — decisão do usuário: mais de um
+    relatório pro mesmo destinatário pode ir num único e-mail, cada `.xlsx`
+    continua individual). Sempre copia `GRAPH_MAILBOX` (a caixa do agente),
+    fixo e não editável pelo usuário, pra automação de KPI
+    (`process_new_emails`) capturar o envio do mesmo jeito que já captura
+    os e-mails do Alberto — inclusive quando o e-mail tem vários anexos
+    (já suportado desde a correção de mensagens com múltiplos relatórios).
+
+    Exige a permissão de aplicação `Mail.Send` no Graph (além do `Mail.Read`
+    já usado pra ler a caixa do agente) — sem uma Application Access Policy
+    restringindo o escopo, essa permissão deixa o app capaz de mandar e-mail
+    "como" qualquer caixa do tenant, não só a de quem está logado; ver
+    CLAUDE.md/README pra essa configuração externa (ação de admin do Azure,
+    fora do código)."""
+    mailbox = _require_env("GRAPH_MAILBOX")
+    url = f"{GRAPH_BASE}/users/{sender_email}/sendMail"
+    body = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "Text", "content": body_text},
+            "toRecipients": [{"emailAddress": {"address": to_email}}],
+            "ccRecipients": [{"emailAddress": {"address": mailbox}}],
+            "attachments": [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": name,
+                    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "contentBytes": base64.b64encode(content).decode("ascii"),
+                }
+                for name, content in attachments
+            ],
+        },
+        "saveToSentItems": True,
+    }
+    _graph_post(url, body)
 
 
 def process_new_emails() -> dict:

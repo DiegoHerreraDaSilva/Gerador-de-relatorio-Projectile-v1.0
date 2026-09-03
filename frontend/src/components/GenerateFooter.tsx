@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { Send } from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
 import { computeGrandTotalFor } from "../utils/calc";
 import { fmtNum } from "../utils/fmt";
 import { computeDefaultFileName, computeDefaultFileNameFor } from "../utils/fileName";
 import { drawGroupsChart } from "../utils/chart";
+import { SendReportModal } from "./SendReportModal";
 import type { WorkPackage } from "../api/types";
 
 function chartPng(groups: WorkPackage["groups"], type: "bar" | "pie"): string {
@@ -20,6 +22,7 @@ export function GenerateFooter() {
   const setFileName = useReportStore((s) => s.setFileName);
   const setHasGeneratedOnce = useReportStore((s) => s.setHasGeneratedOnce);
   const [status, setStatus] = useState("");
+  const [showSendModal, setShowSendModal] = useState(false);
 
   if (packages.length === 0) return null;
 
@@ -30,6 +33,12 @@ export function GenerateFooter() {
   const displayFileName = fileNameEdited ? fileName : defaultName;
 
   const handleGenerate = async () => {
+    const missingCode = packages.find((pkg) => !pkg.projectCode.trim());
+    if (missingCode) {
+      setStatus(`Preencha o número do relatório (SE.XX.XXX) de "${missingCode.projectName}" antes de gerar.`);
+      return;
+    }
+
     const payload = {
       packages: packages.map((pkg) => ({
         header: {
@@ -92,28 +101,35 @@ export function GenerateFooter() {
   return (
     <div className="generate-footer visible" id="generateSection">
       <div className="generate-footer-inner">
-        <div className="generate-total">
-          {packages.length > 1 ? (
-            <>
-              Total geral: <strong>{fmtNum(grandTotalAll)} horas</strong> em {packages.length} relatórios
-            </>
-          ) : (
-            <>
-              Total: <strong>{fmtNum(singleTotal)} horas</strong>
-            </>
-          )}
+        <div className="generate-footer-main">
+          <div className="generate-total">
+            {packages.length > 1 ? (
+              <>
+                Total geral: <strong>{fmtNum(grandTotalAll)} horas</strong> em {packages.length} relatórios
+              </>
+            ) : (
+              <>
+                Total: <strong>{fmtNum(singleTotal)} horas</strong>
+              </>
+            )}
+          </div>
+          <button className="primary" onClick={handleGenerate}>
+            Gerar relatório final
+          </button>
+          <div className="filename-field">
+            <label>{packages.length > 1 ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
+            <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
+          </div>
         </div>
-        <button className="primary" onClick={handleGenerate}>
-          Gerar relatório final
+        <button type="button" className="primary generate-footer-send" onClick={() => setShowSendModal(true)}>
+          <Send size={14} strokeWidth={2} />
+          Enviar Relatório
         </button>
-        <div className="filename-field">
-          <label>{packages.length > 1 ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
-          <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
-        </div>
       </div>
       <p className="muted" style={{ textAlign: "center", minHeight: "1.45em", margin: "4px 0 0" }}>
         {status}
       </p>
+      {showSendModal && <SendReportModal onClose={() => setShowSendModal(false)} />}
     </div>
   );
 }
