@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Header } from "./components/Header";
 import { LoginScreen } from "./components/LoginScreen";
 import { ManagementPanel } from "./components/ManagementPanel";
+import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { useAuthStore } from "./store/useAuthStore";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
@@ -14,7 +15,7 @@ import { useReportStore } from "./store/useReportStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
 
-export type AppView = "report" | "management";
+export type AppView = "report" | "management" | "diagnostics";
 
 export default function App() {
   const [view, setView] = useState<AppView>("report");
@@ -52,6 +53,15 @@ export default function App() {
       <>
         <Header view={view} onNavigate={setView} />
         <ManagementPanel />
+      </>
+    );
+  }
+
+  if (view === "diagnostics") {
+    return (
+      <>
+        <Header view={view} onNavigate={setView} />
+        <DiagnosticsPanel />
       </>
     );
   }

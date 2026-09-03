@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sun, Moon, LogOut, LayoutDashboard } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { useAuthStore } from "../store/useAuthStore";
 import type { AppView } from "../App";
@@ -37,20 +37,40 @@ export function Header({
       <h1>
         {view === "management" ? (
           <>Painel de <span className="app-header-accent">Gerência</span></>
+        ) : view === "diagnostics" ? (
+          <>Diagnóstico de <span className="app-header-accent">relatórios</span></>
         ) : (
           <>Geração de <span className="app-header-accent">Relatório de Horas</span></>
         )}
       </h1>
       <div className="app-header-actions">
+        <button
+          type="button"
+          className={`nav-tab ${view === "report" ? "active" : ""}`}
+          onClick={() => onNavigate("report")}
+        >
+          <FileText size={15} strokeWidth={1.8} />
+          Gerar Relatório
+        </button>
         {canSeeManagementPanel && (
-          <button
-            type="button"
-            className={`nav-tab ${view === "management" ? "active" : ""}`}
-            onClick={() => onNavigate(view === "management" ? "report" : "management")}
-          >
-            <LayoutDashboard size={15} strokeWidth={1.8} />
-            Painel de Gerência
-          </button>
+          <>
+            <button
+              type="button"
+              className={`nav-tab ${view === "management" ? "active" : ""}`}
+              onClick={() => onNavigate("management")}
+            >
+              <LayoutDashboard size={15} strokeWidth={1.8} />
+              Painel de Gerência
+            </button>
+            <button
+              type="button"
+              className={`nav-tab ${view === "diagnostics" ? "active" : ""}`}
+              onClick={() => onNavigate("diagnostics")}
+            >
+              <Stethoscope size={15} strokeWidth={1.8} />
+              Diagnóstico de relatórios
+            </button>
+          </>
         )}
         {user && (
           <div className="user-info">
