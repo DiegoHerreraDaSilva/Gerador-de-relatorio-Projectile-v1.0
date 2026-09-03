@@ -134,14 +134,6 @@ def _row(number: int, cells: list[str], height: float = DEFAULT_ROW_HEIGHT) -> s
     return f'<row r="{number}" ht="{height}" customHeight="1">' + "".join(cells) + "</row>"
 
 
-# tabela "Week/AK/days/Hours/week" do template original (colunas H:K, linhas
-# 15-20) — fica nas mesmas linhas onde os grupos são escritos, então precisa
-# ser reconstruída a cada relatório: Week sempre 1, AK em branco (preenchido
-# manualmente depois, por linha, conforme o adicional aplicável), Days
-# calculado a partir do mês do relatório (dias úteis por semana, descontando
-# feriados nacionais) e Hours/week com a fórmula original do template.
-HOURS_WEEK_TABLE_ROWS = 5
-
 _MESES_PT = [
     "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
@@ -212,11 +204,9 @@ def _national_holidays(year: int) -> set[datetime.date]:
 def count_business_days(start: datetime.date, end: datetime.date) -> int:
     """Conta dias úteis (seg-sex, sem feriado nacional) estritamente APÓS
     `start` até `end` inclusive — usado por `email_ingest.py` pra medir quanto
-    tempo depois do fechamento do mês um relatório foi enviado. Diferente de
-    `_business_days_per_week` (que reparte um único mês em semanas pra tabela
-    do relatório): aqui o intervalo é entre duas datas quaisquer, possivelmente
-    cruzando anos, então o conjunto de feriados é recalculado por ano
-    conforme o cursor avança."""
+    tempo depois do fechamento do mês um relatório foi enviado. O intervalo é
+    entre duas datas quaisquer, possivelmente cruzando anos, então o conjunto
+    de feriados é recalculado por ano conforme o cursor avança."""
     if end <= start:
         return 0
     holidays_by_year: dict[int, set[datetime.date]] = {}
@@ -228,62 +218,6 @@ def count_business_days(start: datetime.date, end: datetime.date) -> int:
             count += 1
         day += datetime.timedelta(days=1)
     return count
-
-
-def _business_days_per_week(month_label: str) -> list[int]:
-    """Divide o mês do relatório em semanas de calendário (segunda a domingo,
-    cortadas nas bordas do mês) e conta, em cada uma, os dias úteis (seg-sex)
-    que não caem em feriado nacional. Se o mês precisar de mais de
-    HOURS_WEEK_TABLE_ROWS semanas (raro — só quando o mês começa perto do fim
-    de semana e tem 31 dias), o excedente é somado na última linha, já que a
-    tabela do template só tem esse tanto de linhas. Se o rótulo do mês não for
-    reconhecido, retorna tudo zerado em vez de arriscar um valor errado."""
-    parsed = parse_month_label(month_label)
-    if parsed is None:
-        return [0] * HOURS_WEEK_TABLE_ROWS
-    year, month = parsed
-    first_day = datetime.date(year, month, 1)
-    next_month = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
-    last_day = next_month - datetime.timedelta(days=1)
-    holidays = _national_holidays(year)
-
-    weeks_days: list[int] = []
-    cursor = first_day
-    while cursor <= last_day:
-        week_end = cursor + datetime.timedelta(days=6 - cursor.weekday())
-        clipped_end = min(week_end, last_day)
-        count = 0
-        day = cursor
-        while day <= clipped_end:
-            if day.weekday() < 5 and day not in holidays:
-                count += 1
-            day += datetime.timedelta(days=1)
-        weeks_days.append(count)
-        cursor = clipped_end + datetime.timedelta(days=1)
-
-    if len(weeks_days) > HOURS_WEEK_TABLE_ROWS:
-        overflow = sum(weeks_days[HOURS_WEEK_TABLE_ROWS - 1:])
-        weeks_days = weeks_days[:HOURS_WEEK_TABLE_ROWS - 1] + [overflow]
-    while len(weeks_days) < HOURS_WEEK_TABLE_ROWS:
-        weeks_days.append(0)
-    return weeks_days
-
-
-def _hours_week_table_cells(row_number: int, days_per_week: list[int]) -> list[str]:
-    if 15 <= row_number <= 19:
-        days = days_per_week[row_number - 15]
-        return [
-            _number_cell(f"H{row_number}", 23, 1),
-            _empty_cell(f"I{row_number}", 23),
-            _number_cell(f"J{row_number}", 23, days),
-            _formula_cell(f"K{row_number}", 23, f"I{row_number}*J{row_number}*$K$13"),
-        ]
-    if row_number == 20:
-        return [
-            _inline_str_cell("J20", 24, "total:"),
-            _formula_cell("K20", 25, "K15+K16+K17+K18+K19"),
-        ]
-    return []
 
 
 def _replace_header_cell(sheet_xml: str, ref: str, style: int, text: str) -> str:
@@ -301,20 +235,18 @@ def _add_cells(rows_by_number: dict[int, list[str]], row_number: int, cells: lis
 
 def _build_group_rows(
     rows_by_number: dict[int, list[str]], groups: list[GroupInput]
-) -> tuple[list[str], list[str], list[str], set[int], int]:
+) -> tuple[list[str], list[str], set[int], int]:
     """Escreve em `rows_by_number` o cabeçalho + atividades de cada grupo, a
     partir de GROUP_START_ROW. Retorna (merges, total_hours_cells,
-    total_bruto_cells, activity_rows, next_row):
+    activity_rows, next_row):
     - total_hours_cells: célula C da primeira atividade de cada grupo (a
       fórmula "Total de horas" soma exatamente essas, na mesma ordem);
-    - total_bruto_cells: célula E da primeira atividade de cada grupo;
     - activity_rows: linhas com texto de atividade, para altura de linha extra;
     - next_row: primeira linha livre após o último grupo, onde o chamador
       posiciona a linha de totais.
     """
     merges: list[str] = []
     total_hours_cells: list[str] = []
-    total_bruto_cells: list[str] = []
     activity_rows: set[int] = set()  # linhas com texto de atividade -> ganham altura extra
 
     def add_cells(row_number: int, cells: list[str]) -> None:
@@ -339,8 +271,10 @@ def _build_group_rows(
                 _inline_str_cell(f"B{header_row}", S_GROUP_NAME, group.name),
                 _empty_cell(f"C{header_row}", S_GROUP_C),
                 _empty_cell(f"D{header_row}", S_FILLER),
-                _inline_str_cell(f"E{header_row}", S_LABEL, "Bruto"),
-                _inline_str_cell(f"F{header_row}", S_LABEL, "Performance"),
+                # Bruto/Performance não aparecem no relatório final pro cliente —
+                # colunas E/F ficam em branco (ver E{calc_row}/H{calc_row} abaixo).
+                _empty_cell(f"E{header_row}", S_LABEL),
+                _empty_cell(f"F{header_row}", S_LABEL),
                 _empty_cell(f"G{header_row}", S_FILLER),
             ],
         )
@@ -356,10 +290,13 @@ def _build_group_rows(
                 first_row,
                 [
                     _inline_str_cell(f"B{first_row}", S_ACTIVITY_DESC, real_activities[0].description),
-                    _formula_cell(f"C{first_row}", S_ACTIVITY_C_FORMULA, f"E{calc_row}"),
+                    _formula_cell(f"C{first_row}", S_ACTIVITY_C_FORMULA, f"H{calc_row}"),
                     _empty_cell(f"D{first_row}", S_FILLER),
-                    _number_cell(f"E{first_row}", S_ACTIVITY_HOURS, bruto_total),
-                    _number_cell(f"F{first_row}", S_ACTIVITY_PERF, group.performance),
+                    # Bruto/Performance não aparecem no relatório final pro cliente —
+                    # o valor calculado (bruto * performance) vai pra H{calc_row},
+                    # fora da área visível do relatório (ver mais abaixo).
+                    _empty_cell(f"E{first_row}", S_ACTIVITY_HOURS),
+                    _empty_cell(f"F{first_row}", S_ACTIVITY_PERF),
                     _empty_cell(f"G{first_row}", S_FILLER),
                 ],
             )
@@ -371,8 +308,12 @@ def _build_group_rows(
                     _inline_str_cell(f"B{calc_row}", S_ACTIVITY_DESC, calc_desc) if calc_desc else _empty_cell(f"B{calc_row}", S_ACTIVITY_DESC),
                     _empty_cell(f"C{calc_row}", S_ACTIVITY_C_FORMULA),
                     _empty_cell(f"D{calc_row}", S_FILLER),
-                    _formula_cell(f"E{calc_row}", S_CALC_E, f"E{first_row}*F{first_row}"),
+                    _empty_cell(f"E{calc_row}", S_CALC_E),
                     _empty_cell(f"G{calc_row}", S_FILLER),
+                    # valor literal (bruto * performance) que C{first_row} referencia —
+                    # fica na coluna H (fora da área do relatório/Bruto removida)
+                    # em vez de aparecer visível numa das colunas B:G.
+                    _number_cell(f"H{calc_row}", S_CALC_E, round(bruto_total * group.performance, 3)),
                 ],
             )
 
@@ -391,7 +332,6 @@ def _build_group_rows(
                 )
 
             total_hours_cells.append(f"C{first_row}")
-            total_bruto_cells.append(f"E{first_row}")
         else:
             last_row = first_row
             for offset, activity in enumerate(extra_activities):
@@ -415,7 +355,7 @@ def _build_group_rows(
 
         row = last_row + 2  # uma linha em branco entre grupos
 
-    return merges, total_hours_cells, total_bruto_cells, activity_rows, row
+    return merges, total_hours_cells, activity_rows, row
 
 
 def _build_totals_row(
@@ -423,13 +363,12 @@ def _build_totals_row(
     next_row: int,
     month_label: str,
     total_hours_cells: list[str],
-    total_bruto_cells: list[str],
 ) -> int:
     """Escreve a linha "Total de horas {mês}:" (soma das células C de cada
-    grupo) e, logo abaixo, a linha de resumo bruto/performance (E = soma das
-    células E de cada grupo, F = razão total/bruto). Retorna bruto_row — a
-    última linha de dados usada pelo relatório (== last_data_row retornado por
-    _build_groups_xml)."""
+    grupo) e, logo abaixo, uma linha em branco no lugar do antigo resumo
+    Bruto/Performance (não aparece mais no relatório final). Retorna
+    bruto_row — a última linha de dados usada pelo relatório (==
+    last_data_row retornado por _build_groups_xml)."""
     total_row = next_row + 1
     total_value = f"=SUM({','.join(total_hours_cells)})" if total_hours_cells else "0"
     _add_cells(
@@ -438,43 +377,29 @@ def _build_totals_row(
         [
             _inline_str_cell(f"B{total_row}", S_TOTAL_LABEL, f"Total de horas {month_label}:"),
             _formula_cell(f"C{total_row}", S_TOTAL_VALUE, total_value.lstrip("=")),
-            _inline_str_cell(f"E{total_row}", S_LABEL, "Bruto"),
-            _inline_str_cell(f"F{total_row}", S_LABEL, "Performance"),
+            _empty_cell(f"E{total_row}", S_LABEL),
+            _empty_cell(f"F{total_row}", S_LABEL),
         ],
     )
 
     bruto_row = total_row + 1
-    bruto_formula = f"SUM({','.join(total_bruto_cells)})" if total_bruto_cells else "0"
     _add_cells(
         rows_by_number,
         bruto_row,
         [
-            _formula_cell(f"E{bruto_row}", S_SUM_E, bruto_formula),
-            _formula_cell(f"F{bruto_row}", S_RATIO_F, f"C{total_row}/E{bruto_row}") if total_bruto_cells else _empty_cell(f"F{bruto_row}", S_RATIO_F),
+            _empty_cell(f"E{bruto_row}", S_SUM_E),
+            _empty_cell(f"F{bruto_row}", S_RATIO_F),
         ],
     )
     return bruto_row
-
-
-def _build_hours_week_table(rows_by_number: dict[int, list[str]], month_label: str) -> None:
-    """Reconstrói a tabela "Week/AK/days/Hours/week" (colunas H:K) do template
-    original, com os dias úteis do mês do relatório, nas mesmas linhas 15-20
-    usadas pelos grupos — tabela independente do conteúdo dos grupos, só
-    compartilha a faixa de linhas."""
-    days_per_week = _business_days_per_week(month_label)
-    for hours_week_row in range(15, 21):
-        _add_cells(rows_by_number, hours_week_row, _hours_week_table_cells(hours_week_row, days_per_week))
 
 
 def _build_groups_xml(groups: list[GroupInput], month_label: str):
     """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
     rows_by_number: dict[int, list[str]] = {}
 
-    merges, total_hours_cells, total_bruto_cells, activity_rows, next_row = _build_group_rows(
-        rows_by_number, groups
-    )
-    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells)
-    _build_hours_week_table(rows_by_number, month_label)
+    merges, total_hours_cells, activity_rows, next_row = _build_group_rows(rows_by_number, groups)
+    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells)
 
     rows = [
         _row(number, cells, height=ACTIVITY_ROW_HEIGHT if number in activity_rows else DEFAULT_ROW_HEIGHT)
@@ -606,12 +531,28 @@ def generate_report(
     sheet_xml = _replace_header_cell(sheet_xml, "C8", 8, header.location_date)
     sheet_xml = _replace_header_cell(sheet_xml, "C9", 16, header.project_name)
     sheet_xml = _replace_header_cell(sheet_xml, "B11", 12, f"Relatório de horas referentes ao mês de {header.month_label}")
+    # cabeçalho estático da tabela "Week/AK/days/Hours/week" (linha 14, fora da
+    # faixa regenerada por _build_groups_xml) — os dados dela não aparecem mais
+    # no relatório final, então o cabeçalho também não deve ficar sozinho.
+    for ref in ("H14", "I14", "J14", "K14"):
+        sheet_xml = _replace_header_cell(sheet_xml, ref, 23, "")
 
     data_rows, group_merges, last_data_row = _build_groups_xml(groups, header.month_label)
 
     start = sheet_xml.index(f'<row r="{GROUP_START_ROW}"')
     end = sheet_xml.index("</sheetData>")
     sheet_xml = sheet_xml[:start] + "".join(data_rows) + sheet_xml[end:]
+
+    # relatório final é somente leitura pro destinatário — protege a planilha
+    # sem senha (não é sobre segurança, é pra ninguém alterar hora sem querer
+    # antes de reenviar). Precisa ficar logo após </sheetData> e antes de
+    # <mergeCells>, é a ordem exigida pelo schema do OOXML.
+    sheet_xml = sheet_xml.replace(
+        "</sheetData>",
+        '</sheetData><sheetProtection sheet="1" objects="1" scenarios="1" '
+        'selectLockedCells="0" selectUnlockedCells="0"/>',
+        1,
+    )
 
     all_merges = ["A14:E14"] + group_merges
     merge_xml = f'<mergeCells count="{len(all_merges)}">' + "".join(f'<mergeCell ref="{m}"/>' for m in all_merges) + "</mergeCells>"

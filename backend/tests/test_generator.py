@@ -76,10 +76,13 @@ def test_total_formula_is_sum_of_refs(report_path):
     assert SUM_RE.match(formula), f"Fórmula do total não bate com ^SUM(.+)$: {formula!r}"
 
 
-def test_group_subtotal_cells_are_simple_references_to_product_cells(report_path):
+def test_group_subtotal_cells_are_simple_references_to_literal_products(report_path):
     """Cada célula referenciada dentro do SUM(...) do total deve ser, ela
     mesma, uma fórmula de referência simples (ex: "=E17"), que por sua vez
-    aponta para uma célula "=E{linha}*F{linha}" (bruto * performance)."""
+    aponta pra um NÚMERO LITERAL já calculado (bruto * performance) — não uma
+    fórmula "=E{linha}*F{linha}": a coluna F (Performance) fica em branco no
+    relatório final (não pode aparecer pro destinatário), então o produto é
+    calculado em Python e escrito como valor, sem depender de F."""
     wb = load_workbook(report_path, data_only=False)
     ws = wb.active
 
@@ -90,6 +93,7 @@ def test_group_subtotal_cells_are_simple_references_to_product_cells(report_path
 
     assert len(refs) == 2  # Grupo A e Grupo B contribuem, cada um com 1 ref
 
+    expected_products = {10.0 * 1.1, 8.0 * 0.9}  # bruto * performance de cada grupo do fixture
     for ref in refs:
         subtotal_cell = ws[ref]
         assert isinstance(subtotal_cell.value, str) and subtotal_cell.value.startswith("=")
@@ -99,15 +103,16 @@ def test_group_subtotal_cells_are_simple_references_to_product_cells(report_path
         )
 
         product_cell = ws[subtotal_formula]
-        assert isinstance(product_cell.value, str) and product_cell.value.startswith("=")
-        product_formula = product_cell.value[1:]
-        match = re.fullmatch(r"([A-Z]+)(\d+)\*([A-Z]+)(\d+)", product_formula)
-        assert match, f"Fórmula referenciada não é um produto E{{linha}}*F{{linha}}: {product_formula!r}"
-        col_e, row_e, col_f, row_f = match.groups()
-        # deve apontar exatamente para E{linha}*F{linha} — mesma linha, colunas E e F
-        assert col_e == "E"
-        assert col_f == "F"
-        assert row_e == row_f
+        assert isinstance(product_cell.value, (int, float)), (
+            f"Célula referenciada deveria ser um número literal, veio {product_cell.value!r}"
+        )
+        assert any(abs(product_cell.value - expected) < 1e-6 for expected in expected_products)
+
+        # coluna F (Performance) da linha de atividade (mesma linha do
+        # subtotal em C) deve estar vazia — é o que "não pode aparecer a
+        # performance" exige.
+        perf_col_cell = ws[f"F{subtotal_cell.row}"]
+        assert perf_col_cell.value is None
 
 
 def test_header_cells_contain_exact_project_code_and_name(report_path):
