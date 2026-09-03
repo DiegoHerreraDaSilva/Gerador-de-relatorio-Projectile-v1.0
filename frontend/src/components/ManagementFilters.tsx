@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, RotateCcw } from "lucide-react";
 import { ALL_COST_CENTERS, ROLLING_PERIOD, useManagementStore } from "../store/useManagementStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 
@@ -57,11 +57,13 @@ function MultiSelectDropdown({
   options,
   selected,
   onChange,
+  labelFor = (opt) => opt,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (values: string[]) => void;
+  labelFor?: (opt: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -76,7 +78,7 @@ function MultiSelectDropdown({
     selected.length === 0
       ? "Todos"
       : selected.length === 1
-      ? selected[0]
+      ? labelFor(selected[0])
       : `${selected.length} selecionados`;
 
   return (
@@ -94,7 +96,7 @@ function MultiSelectDropdown({
               <li key={opt}>
                 <label className="mgmt-filter-option">
                   <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
-                  <span title={opt}>{opt}</span>
+                  <span title={labelFor(opt)}>{labelFor(opt)}</span>
                 </label>
               </li>
             ))}
@@ -114,7 +116,7 @@ const YEAR_OPTIONS = [
   ...Array.from({ length: CURRENT_YEAR - EARLIEST_DATA_YEAR + 1 }, (_, i) => String(CURRENT_YEAR - i)),
 ];
 
-export function ManagementFilters() {
+export function ManagementFilters({ showCostCenter = true }: { showCostCenter?: boolean } = {}) {
   const rows = useManagementStore((s) => s.rows);
   const period = useManagementStore((s) => s.period);
   const selectedMonths = useManagementStore((s) => s.selectedMonths);
@@ -123,13 +125,32 @@ export function ManagementFilters() {
   const projects = useManagementStore((s) => s.projects);
   const availableClients = useManagementStore((s) => s.availableClients);
   const availableProjects = useManagementStore((s) => s.availableProjects);
+  const projectCodes = useManagementStore((s) => s.projectCodes);
+  const projectClients = useManagementStore((s) => s.projectClients);
   const setPeriod = useManagementStore((s) => s.setPeriod);
   const setSelectedMonths = useManagementStore((s) => s.setSelectedMonths);
   const setCostCenters = useManagementStore((s) => s.setCostCenters);
   const setClients = useManagementStore((s) => s.setClients);
   const setProjects = useManagementStore((s) => s.setProjects);
+  const resetFilters = useManagementStore((s) => s.resetFilters);
 
   const monthOptions = (rows ?? []).map((r) => r.month);
+  const projectLabel = (name: string) => (projectCodes[name] ? `${projectCodes[name]} - ${name}` : name);
+  const projectsForSelectedClients =
+    clients.length === 0 ? availableProjects : availableProjects.filter((name) => clients.includes(projectClients[name]));
+  const projectOptions = [...projectsForSelectedClients].sort((a, b) => {
+    const codeA = Number(projectCodes[a]);
+    const codeB = Number(projectCodes[b]);
+    if (!Number.isNaN(codeA) && !Number.isNaN(codeB) && codeA !== codeB) return codeA - codeB;
+    if (!Number.isNaN(codeA) !== !Number.isNaN(codeB)) return Number.isNaN(codeA) ? 1 : -1;
+    return a.localeCompare(b, "pt-BR");
+  });
+  const hasActiveFilters =
+    period !== ROLLING_PERIOD ||
+    selectedMonths.length > 0 ||
+    costCenters.length !== ALL_COST_CENTERS.length ||
+    clients.length > 0 ||
+    projects.length > 0;
 
   return (
     <aside className="management-filters">
@@ -141,14 +162,26 @@ export function ManagementFilters() {
         onChange={setPeriod}
       />
       <MultiSelectDropdown label="Competência" options={monthOptions} selected={selectedMonths} onChange={setSelectedMonths} />
-      <MultiSelectDropdown
-        label="Centro de Custo"
-        options={ALL_COST_CENTERS}
-        selected={costCenters}
-        onChange={(values) => setCostCenters(values.length === 0 ? ALL_COST_CENTERS : values)}
-      />
+      {showCostCenter && (
+        <MultiSelectDropdown
+          label="Centro de Custo"
+          options={ALL_COST_CENTERS}
+          selected={costCenters}
+          onChange={(values) => setCostCenters(values.length === 0 ? ALL_COST_CENTERS : values)}
+        />
+      )}
       <MultiSelectDropdown label="Cliente" options={availableClients} selected={clients} onChange={setClients} />
-      <MultiSelectDropdown label="Projeto" options={availableProjects} selected={projects} onChange={setProjects} />
+      <MultiSelectDropdown label="Projeto" options={projectOptions} selected={projects} onChange={setProjects} labelFor={projectLabel} />
+      <button
+        type="button"
+        className="mgmt-filter-reset"
+        onClick={resetFilters}
+        disabled={!hasActiveFilters}
+        title="Voltar todos os filtros ao padrão"
+      >
+        <RotateCcw size={14} strokeWidth={2} />
+        Resetar filtros
+      </button>
     </aside>
   );
 }

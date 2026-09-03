@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, FileText, DollarSign, RefreshCw, MailSearch } from "lucide-react";
+import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check } from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
 import { ExtraHoursInput } from "./ExtraHoursInput";
@@ -39,6 +39,7 @@ async function checkEmails(): Promise<CheckEmailsResult> {
 export function ManagementPanel() {
   const rows = useManagementStore((s) => s.rows);
   const nonbillableBreakdown = useManagementStore((s) => s.nonbillableBreakdown);
+  const projectSendStatus = useManagementStore((s) => s.projectSendStatus);
   const selectedMonths = useManagementStore((s) => s.selectedMonths);
   const error = useManagementStore((s) => s.error);
   const refreshing = useManagementStore((s) => s.refreshing);
@@ -48,6 +49,8 @@ export function ManagementPanel() {
 
   const [checkingEmails, setCheckingEmails] = useState(false);
   const [checkEmailsMessage, setCheckEmailsMessage] = useState("");
+  const [sendStatusSearch, setSendStatusSearch] = useState("");
+  const [sendStatusTab, setSendStatusTab] = useState<"all" | "sent" | "unsent">("all");
 
   useEffect(() => {
     load();
@@ -71,7 +74,7 @@ export function ManagementPanel() {
           ? `${result.samples_added} relatório(s) novo(s) processado(s).`
           : result.messages_found > 0
             ? `${result.messages_found} e-mail(s) verificado(s), nenhum gerou dado novo.`
-            : "Nenhum e-mail novo do Alberto."
+            : "Nenhum relatório enviado."
       );
       await load(true, true);
     } catch {
@@ -125,6 +128,22 @@ export function ManagementPanel() {
     .map(([pkg, hours]) => ({ pkg, hours: round2(hours) }))
     .sort((a, b) => b.hours - a.hours);
 
+  const sendStatusSearchNormalized = sendStatusSearch.trim().toLowerCase();
+  const sendStatusRowsInPeriod = projectSendStatus
+    .filter((r) => displayMonths.has(r.month))
+    .filter((r) =>
+      !sendStatusSearchNormalized ||
+      r.client.toLowerCase().includes(sendStatusSearchNormalized) ||
+      r.project_name.toLowerCase().includes(sendStatusSearchNormalized) ||
+      r.month.includes(sendStatusSearchNormalized)
+    )
+    .sort((a, b) => a.client.localeCompare(b.client) || a.project_name.localeCompare(b.project_name) || b.month.localeCompare(a.month));
+  const sendStatusSentCount = sendStatusRowsInPeriod.filter((r) => r.sent).length;
+  const sendStatusUnsentCount = sendStatusRowsInPeriod.length - sendStatusSentCount;
+  const sendStatusRows = sendStatusRowsInPeriod.filter((r) =>
+    sendStatusTab === "all" ? true : sendStatusTab === "sent" ? r.sent : !r.sent
+  );
+
   return (
     <div className="management-layout">
       <ManagementFilters />
@@ -138,7 +157,7 @@ export function ManagementPanel() {
         </button>
         <button type="button" className="btn-secondary" onClick={handleCheckEmails} disabled={checkingEmails}>
           <MailSearch size={14} strokeWidth={2} className={checkingEmails ? "spin" : ""} />
-          {checkingEmails ? "Verificando..." : "Verificar horas faturadas"}
+          {checkingEmails ? "Verificando..." : "Verificar relatórios enviados"}
         </button>
         {checkEmailsMessage && <span className="muted management-toolbar-message">{checkEmailsMessage}</span>}
       </div>
@@ -261,38 +280,114 @@ export function ManagementPanel() {
         </KpiCard>
       </div>
 
-      <div className="card nonbillable-packages-card">
-        <div className="kpi-card-head">
-          <DollarSign size={18} strokeWidth={1.8} />
-          <div>
-            <h3>Pacotes de trabalho não faturáveis</h3>
+      <div className="side-by-side-cards">
+        <div className="card nonbillable-packages-card">
+          <div className="kpi-card-head">
+            <DollarSign size={18} strokeWidth={1.8} />
+            <div>
+              <h3>Pacotes de trabalho não faturáveis</h3>
+            </div>
+          </div>
+          <div className="kpi-table-wrap nonbillable-packages-table-wrap">
+            <table className="kpi-table">
+              <thead>
+                <tr><th>Pacote de trabalho</th><th>Horas</th><th>% do não faturável</th></tr>
+              </thead>
+              <tbody>
+                {packageRows.length === 0 && (
+                  <tr><td colSpan={3} className="muted">Nenhum pacote não faturável no período selecionado.</td></tr>
+                )}
+                {packageRows.map((p) => (
+                  <tr key={p.pkg}>
+                    <td>{p.pkg}</td>
+                    <td>{fmtNum(p.hours)}</td>
+                    <td>{totalNonbillable > 0 ? `${fmtNum((p.hours / totalNonbillable) * 100)}%` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td>{fmtNum(totalNonbillable)}</td>
+                  <td>{totalNonbillable > 0 ? "100%" : "—"}</td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
-        <div className="kpi-table-wrap nonbillable-packages-table-wrap">
-          <table className="kpi-table">
-            <thead>
-              <tr><th>Pacote de trabalho</th><th>Horas</th><th>% do não faturável</th></tr>
-            </thead>
-            <tbody>
-              {packageRows.length === 0 && (
-                <tr><td colSpan={3} className="muted">Nenhum pacote não faturável no período selecionado.</td></tr>
-              )}
-              {packageRows.map((p) => (
-                <tr key={p.pkg}>
-                  <td>{p.pkg}</td>
-                  <td>{fmtNum(p.hours)}</td>
-                  <td>{totalNonbillable > 0 ? `${fmtNum((p.hours / totalNonbillable) * 100)}%` : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>Total</td>
-                <td>{fmtNum(totalNonbillable)}</td>
-                <td>{totalNonbillable > 0 ? "100%" : "—"}</td>
-              </tr>
-            </tfoot>
-          </table>
+
+        <div className="card send-status-card">
+          <div className="kpi-card-head">
+            <MailSearch size={18} strokeWidth={1.8} />
+            <div>
+              <h3>Relatórios enviados</h3>
+              <p className="muted">Marcado automaticamente quando o e-mail do relatório chega</p>
+            </div>
+          </div>
+          <div className="send-status-tabs">
+            <button type="button" className={sendStatusTab === "all" ? "active" : ""} onClick={() => setSendStatusTab("all")}>
+              Todos <span className="send-status-tab-count">{sendStatusRowsInPeriod.length}</span>
+            </button>
+            <button type="button" className={sendStatusTab === "sent" ? "active" : ""} onClick={() => setSendStatusTab("sent")}>
+              Enviados <span className="send-status-tab-count">{sendStatusSentCount}</span>
+            </button>
+            <button type="button" className={sendStatusTab === "unsent" ? "active" : ""} onClick={() => setSendStatusTab("unsent")}>
+              Não enviados <span className="send-status-tab-count">{sendStatusUnsentCount}</span>
+            </button>
+          </div>
+          <div className="send-status-search">
+            <MailSearch size={14} strokeWidth={2} />
+            <input
+              type="text"
+              placeholder="Buscar por cliente, projeto ou competência..."
+              value={sendStatusSearch}
+              onChange={(e) => setSendStatusSearch(e.target.value)}
+            />
+            {sendStatusSearch && (
+              <button type="button" className="send-status-search-clear" onClick={() => setSendStatusSearch("")} aria-label="Limpar busca">
+                ×
+              </button>
+            )}
+          </div>
+          <div className="kpi-table-wrap send-status-table-wrap">
+            <table className="kpi-table">
+              <thead>
+                <tr><th>Cliente</th><th>Projeto</th><th>Competência</th><th>Enviado</th></tr>
+              </thead>
+              <tbody>
+                {sendStatusRows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      {sendStatusSearchNormalized
+                        ? "Nenhum resultado pra essa busca."
+                        : sendStatusTab === "sent"
+                          ? "Nenhum relatório enviado ainda no período selecionado."
+                          : sendStatusTab === "unsent"
+                            ? "Todos os relatórios do período já foram enviados."
+                            : "Nenhum projeto com horas no período selecionado."}
+                    </td>
+                  </tr>
+                )}
+                {sendStatusRows.map((r) => (
+                  <tr key={`${r.project_id}-${r.month}`}>
+                    <td>{r.client}</td>
+                    <td>{r.project_name}</td>
+                    <td>{r.month}</td>
+                    <td>
+                      <span
+                        className={`send-status-badge ${r.sent ? "sent" : ""}`}
+                        role="img"
+                        aria-label={r.sent ? "Relatório enviado" : "Relatório não enviado"}
+                        title={r.sent ? "Relatório recebido por e-mail" : "Ainda sem e-mail com o relatório"}
+                      >
+                        {r.sent && <Check size={14} strokeWidth={3} />}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
       </div>
