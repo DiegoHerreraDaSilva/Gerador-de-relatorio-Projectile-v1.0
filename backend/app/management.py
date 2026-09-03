@@ -53,11 +53,14 @@ import html
 import json
 import os
 import time
-from datetime import date
+from datetime import date, datetime, timezone
+from uuid import uuid4
 
 from .projectile_db import (
+    extract_project_code,
     fetch_clients_for_projects,
     fetch_engineering_hours,
+    fetch_project_details,
     fetch_project_ids_for_clients,
     fetch_project_ids_for_names,
     fetch_project_names_for_ids,
@@ -125,6 +128,25 @@ def _load_data() -> dict:
     data.setdefault("project_kpi_samples", [])
     data.setdefault("processed_message_ids", [])
     data.setdefault("skipped_messages", [])
+
+    # migração retroativa: amostras gravadas antes da tela de Diagnóstico
+    # existir não têm `sample_id`/`source`/`edited` — sem um id estável não
+    # dá pra editar/apagar uma amostra específica (email_message_id não é
+    # único quando um e-mail tem vários anexos). Salva de volta só se algo
+    # mudou, pra não reescrever o arquivo à toa a cada leitura.
+    migrated = False
+    for sample in data["project_kpi_samples"]:
+        if "sample_id" not in sample:
+            sample["sample_id"] = uuid4().hex
+            migrated = True
+        if "source" not in sample:
+            sample["source"] = "email"
+            migrated = True
+        if "edited" not in sample:
+            sample["edited"] = False
+            migrated = True
+    if migrated:
+        _save_data(data)
     return data
 
 
@@ -177,14 +199,86 @@ def append_skipped_message(message_id: str, received_at: str, reason: str) -> No
     _save_data(data)
 
 
-def get_kpi_samples_for_month(month: str) -> dict:
-    """Usado pelo endpoint de diagnóstico `GET /management/kpis/samples` —
-    mostra de onde vieram os números automáticos daquele mês (e o que foi
-    pulado), já que o match de projeto é automático e sem revisão humana."""
+def list_samples(month: str | None = None) -> dict:
+    """Usado pela tela de Diagnóstico (`GET /management/kpis/samples`) —
+    mostra de onde vieram os números automáticos (e manuais) de cada
+    (projeto, mês), e o que foi pulado, já que o match de projeto é
+    automático e sem revisão humana. `month=None` lista tudo (aba "Todos" da
+    tela); com `month`, filtra só aquele mês, mesmo comportamento de antes."""
     data = _load_data()
-    samples = [s for s in data["project_kpi_samples"] if s.get("month") == month]
-    skipped = [s for s in data["skipped_messages"] if str(s.get("received_at") or "")[:7] == month]
+    samples = data["project_kpi_samples"]
+    skipped = data["skipped_messages"]
+    if month is not None:
+        samples = [s for s in samples if s.get("month") == month]
+        skipped = [s for s in skipped if str(s.get("received_at") or "")[:7] == month]
+    samples = sorted(samples, key=lambda s: s.get("received_at") or "", reverse=True)
+    skipped = sorted(skipped, key=lambda s: s.get("received_at") or "", reverse=True)
     return {"samples": samples, "skipped_messages": skipped}
+
+
+def update_project_kpi_sample(sample_id: str, patch: dict) -> bool:
+    """Corrige uma amostra existente (projeto/mês/horas/dias) — usado pela
+    tela de Diagnóstico quando o match automático ou a leitura de horas
+    erraram. Marca `edited=True` se a amostra era de e-mail (`source=
+    "email"`), preservando a distinção entre dado automático corrigido e
+    dado 100% manual. Devolve `False` se `sample_id` não existir (o endpoint
+    responde 404 nesse caso)."""
+    data = _load_data()
+    for sample in data["project_kpi_samples"]:
+        if sample.get("sample_id") != sample_id:
+            continue
+        allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days"}
+        for key, value in patch.items():
+            if key in allowed_fields:
+                sample[key] = value
+        if sample.get("source") == "email":
+            sample["edited"] = True
+        _save_data(data)
+        return True
+    return False
+
+
+def delete_project_kpi_sample(sample_id: str) -> bool:
+    """Remove uma amostra — usado pela tela de Diagnóstico pra tirar um
+    match errado do cálculo. Não mexe em `processed_message_ids`: o e-mail
+    original continua marcado como processado e não volta a ser reprocessado
+    no próximo polling (decisão confirmada com o usuário)."""
+    data = _load_data()
+    samples = data["project_kpi_samples"]
+    remaining = [s for s in samples if s.get("sample_id") != sample_id]
+    if len(remaining) == len(samples):
+        return False
+    data["project_kpi_samples"] = remaining
+    _save_data(data)
+    return True
+
+
+def create_manual_project_kpi_sample(
+    project_id: str, project_name: str, month: str, billed_hours: float, business_days: float
+) -> dict:
+    """Cadastro manual — usado pela tela de Diagnóstico quando um relatório
+    foi enviado fora do fluxo de e-mail, ou o match automático nunca achou o
+    projeto certo. `email_message_id` sintético (`manual-<uuid>`) só pra
+    caber no mesmo mecanismo de idempotência de `append_project_kpi_sample`
+    (nunca colide com um id real do Graph). `match_score=1.0` porque não
+    passou por fuzzy match — foi escolhido direto pelo gerente."""
+    sample = {
+        "email_message_id": f"manual-{uuid4().hex}",
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "sender": "manual",
+        "report_project_text": project_name,
+        "project_id": project_id,
+        "project_name": project_name,
+        "match_score": 1.0,
+        "month": month,
+        "billed_hours": billed_hours,
+        "business_days": business_days,
+        "sample_id": uuid4().hex,
+        "source": "manual",
+        "edited": False,
+    }
+    append_project_kpi_sample(sample)
+    return sample
 
 
 def _add_months(base: date, delta: int) -> date:
@@ -308,6 +402,14 @@ def compute_monthly_kpis(
     # filtros (Centro de Custo/Cliente/Projeto) já aplicado aqui; Competência
     # é filtrada depois, no frontend, junto com o resto da tela.
     package_buckets: dict[tuple[str, str], float] = {}
+    # (mês, project_id) -> horas trabalhadas — pra alimentar a tabela
+    # "Relatórios enviados" (um projeto só aparece num mês se de fato teve
+    # apontamento nele, mesmo critério dos outros recortes desta função).
+    project_month_hours: dict[tuple[str, str], float] = {}
+    # project_id -> "código do projeto" (prefixo do pacote de trabalho, ver
+    # `extract_project_code`) — só pra exibição (prefixo nos dropdowns de
+    # filtro do frontend), nunca usado como identificador de verdade.
+    project_codes_by_id: dict[str, str] = {}
     for row in all_rows:
         row_cost_center = (row.get("cost_center") or "").casefold()
         if not any(kw in row_cost_center for kw in cost_center_keywords):
@@ -320,6 +422,12 @@ def compute_monthly_kpis(
         hours = round(float(row.get("horas") or 0), 3)
         if project_id:
             available_project_ids.add(project_id)
+            pm_key = (month_key, project_id)
+            project_month_hours[pm_key] = project_month_hours.get(pm_key, 0.0) + hours
+            if project_id not in project_codes_by_id:
+                code = extract_project_code(row.get("pacote"))
+                if code:
+                    project_codes_by_id[project_id] = code
         bucket = buckets.setdefault(month_key, {"worked_hours": 0.0, "nonbillable_hours": 0.0})
         bucket["worked_hours"] += hours
         if row.get("external") == "0":
@@ -330,6 +438,18 @@ def compute_monthly_kpis(
 
     available_projects = fetch_project_names_for_ids(sorted(available_project_ids), conn=conn)
     available_clients = fetch_clients_for_projects(sorted(available_project_ids), conn=conn)
+    project_details = fetch_project_details(sorted(available_project_ids), conn=conn)
+    # nome -> código, pro frontend prefixar a opção no dropdown de Projeto
+    # sem mudar o valor usado no filtro (que continua sendo o nome).
+    project_codes = {
+        info["name"]: project_codes_by_id[pid]
+        for pid, info in project_details.items()
+        if pid in project_codes_by_id
+    }
+    # nome do projeto -> cliente, pro frontend só listar no dropdown de
+    # Projeto quem pertence ao(s) cliente(s) já marcado(s) no filtro de
+    # Cliente (os dois dropdowns hoje eram independentes).
+    project_clients = {info["name"]: info["client"] or "Sem cliente" for info in project_details.values()}
 
     # billed_hours/elaboration_days automáticos: uma amostra por e-mail
     # processado por email_ingest.py, agregada por mês e recortada pelo mesmo
@@ -364,10 +484,40 @@ def compute_monthly_kpis(
         for (month_key, package), hours in package_buckets.items()
     ]
 
+    # "enviado" = existe uma amostra de e-mail (project_kpi_samples) pra esse
+    # (projeto, mês) — o checkbox reflete só isso, não é editável manualmente:
+    # é marcado quando a caixa agente.reunioes@ recebe o relatório daquele
+    # projeto (ver email_ingest.py), não quando alguém confirma na tela.
+    sent_project_ids_by_month: dict[str, set[str]] = {}
+    for sample in data.get("project_kpi_samples", []):
+        sample_month = sample.get("month")
+        sample_project_id = sample.get("project_id")
+        if not sample_month or not sample_project_id:
+            continue
+        sent_project_ids_by_month.setdefault(sample_month, set()).add(sample_project_id)
+
+    project_send_status = []
+    for (month_key, project_id), hours in project_month_hours.items():
+        if hours <= 0:
+            continue
+        details = project_details.get(project_id)
+        if not details:
+            continue
+        project_send_status.append({
+            "month": month_key,
+            "project_id": project_id,
+            "project_name": details["name"] or "Sem nome",
+            "client": details["client"] or "Sem cliente",
+            "sent": project_id in sent_project_ids_by_month.get(month_key, set()),
+        })
+
     return {
         "months": result_months,
         "cost_centers": ENGINEERING_COST_CENTERS,
         "available_projects": available_projects,
         "available_clients": available_clients,
+        "project_codes": project_codes,
+        "project_clients": project_clients,
         "nonbillable_breakdown": nonbillable_breakdown,
+        "project_send_status": project_send_status,
     }

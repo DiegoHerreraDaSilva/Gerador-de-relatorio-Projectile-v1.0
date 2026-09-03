@@ -54,11 +54,26 @@ from . import email_ingest
 from .management import (
     MANAGEMENT_PANEL_LOGINS,
     compute_monthly_kpis,
-    get_kpi_samples_for_month,
+    create_manual_project_kpi_sample,
+    delete_project_kpi_sample,
+    list_samples,
     set_manual_entry,
+    update_project_kpi_sample,
 )
 from .parser import parse_projectile_export
-from .projectile_db import ProjectileDbError, fetch_employee_hours, group_hours
+from .projectile_db import (
+    ProjectileDbError,
+    fetch_all_projects_with_details,
+    fetch_clients_for_projects,
+    fetch_employee_hours,
+    fetch_project_codes,
+    fetch_project_details,
+    fetch_project_hours,
+    fetch_project_ids_for_clients,
+    fetch_project_ids_with_hours,
+    group_hours,
+    group_hours_by_project,
+)
 
 load_dotenv()
 
@@ -150,16 +165,23 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 SESSION_COOKIE = "session_token"
 
-# mensagem genérica pra qualquer falha de infra (banco fora do ar, credencial errada
-# no .env, timeout de rede) devolvida pro cliente — o detalhe real (que pode incluir
-# host/porta/erro do driver MySQL) só vai pro log do servidor, nunca na resposta HTTP,
-# pra não vazar detalhe de infra pra quem está chamando a API (inclusive antes de logar).
+# mensagens genéricas pra falha de infra (banco fora do ar, credencial errada no
+# .env, timeout de rede, Graph indisponível) devolvidas pro cliente — o detalhe real
+# (que pode incluir host/porta/erro do driver MySQL, ou resposta de erro do Graph)
+# só vai pro log do servidor, nunca na resposta HTTP, pra não vazar detalhe de infra
+# pra quem está chamando a API (inclusive antes de logar).
 _GENERIC_DB_ERROR = "Erro ao conectar no banco do Projectile. Tente de novo em instantes."
+_GENERIC_EMAIL_ERROR = "Erro ao enviar/consultar e-mail pelo Microsoft Graph. Tente de novo em instantes."
 
 
-def _log_and_generic_error(e: Exception, status_code: int = 502) -> HTTPException:
-    logging.exception("Falha ao acessar o banco do Projectile")
-    return HTTPException(status_code, _GENERIC_DB_ERROR)
+def _log_and_generic_error(e: Exception, status_code: int = 502, generic_message: str | None = None) -> HTTPException:
+    """`generic_message` default é o de banco (`_GENERIC_DB_ERROR`) — a maioria
+    dos call sites é `ProjectileDbError`. Chamadas envolvendo `EmailIngestError`
+    (Graph) passam `_GENERIC_EMAIL_ERROR` explicitamente, senão a mensagem
+    devolvida falava em "banco do Projectile" pra uma falha que não tinha nada
+    a ver com banco — confuso pra quem está tentando entender o erro real."""
+    logging.exception("Falha ao processar requisição")
+    return HTTPException(status_code, generic_message or _GENERIC_DB_ERROR)
 
 
 def require_session(request: Request) -> dict:
@@ -348,6 +370,83 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     return _build_parse_response(packages, issues)
 
 
+def _resolve_month_range(month_label: str) -> tuple[str, str]:
+    parsed_month = parse_month_label(month_label)
+    if not parsed_month:
+        raise HTTPException(400, f'Mês de referência inválido: "{month_label}" (use o formato "Julho/2026").')
+    year, month = parsed_month
+    start_date = f"{year:04d}-{month:02d}-01"
+    end_date = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+    return start_date, end_date
+
+
+@app.get("/management/clients-with-hours")
+async def management_clients_with_hours_endpoint(month_label: str, _user: dict = Depends(require_manager)):
+    """Clientes com ao menos um lançamento de hora no mês — popula a busca de
+    Cliente na tela de importação "por cliente" (`FileUpload.tsx`), só com
+    quem teve movimento naquele período (não o cadastro inteiro do
+    Projectile)."""
+    start_date, end_date = _resolve_month_range(month_label)
+    try:
+        project_ids = fetch_project_ids_with_hours(start_date, end_date)
+        clients = fetch_clients_for_projects(project_ids)
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+    return {"clients": clients}
+
+
+@app.get("/management/client-projects")
+async def management_client_projects_endpoint(
+    client: str, month_label: str, _user: dict = Depends(require_manager)
+):
+    """Projetos de um cliente com ao menos um lançamento de hora no mês —
+    popula o seletor multi-seleção de projeto da tela de importação "por
+    cliente"."""
+    start_date, end_date = _resolve_month_range(month_label)
+    try:
+        active_ids = set(fetch_project_ids_with_hours(start_date, end_date))
+        client_ids = set(fetch_project_ids_for_clients([client]))
+        codes = fetch_project_codes(start_date, end_date)
+        details = fetch_project_details(sorted(active_ids & client_ids))
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+    projects = sorted(
+        ({"id": pid, "name": info["name"], "code": codes.get(pid, "")} for pid, info in details.items()),
+        key=lambda p: (int(p["code"]) if p["code"].isdigit() else float("inf"), p["name"]),
+    )
+    return {"projects": projects}
+
+
+class ParseDbClientRequest(BaseModel):
+    project_ids: list[str] = Field(min_length=1)
+    month_label: str
+    mode: Literal["pacote", "projeto"] = "pacote"
+
+
+@app.post("/parse-db-client")
+async def parse_db_client_endpoint(payload: ParseDbClientRequest, _user: dict = Depends(require_manager)):
+    start_date, end_date = _resolve_month_range(payload.month_label)
+
+    try:
+        rows = fetch_project_hours(payload.project_ids, start_date, end_date)
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+
+    if not rows:
+        raise HTTPException(404, f"Nenhum lançamento encontrado pros projetos escolhidos em {payload.month_label}.")
+
+    if payload.mode == "projeto":
+        try:
+            details = fetch_project_details(payload.project_ids)
+        except ProjectileDbError as e:
+            raise _log_and_generic_error(e)
+        project_names = {pid: info["name"] for pid, info in details.items()}
+        packages, issues = group_hours_by_project(rows, project_names)
+    else:
+        packages, issues = group_hours(rows, split_by_package=True)
+    return _build_parse_response(packages, issues)
+
+
 @app.get("/management/kpis")
 async def management_kpis_endpoint(
     months: int = 12,
@@ -382,18 +481,93 @@ async def management_check_emails_endpoint(_user: dict = Depends(require_manager
     try:
         return await asyncio.to_thread(email_ingest.process_new_emails)
     except (email_ingest.EmailIngestError, ProjectileDbError) as e:
+        generic = _GENERIC_EMAIL_ERROR if isinstance(e, email_ingest.EmailIngestError) else _GENERIC_DB_ERROR
+        raise _log_and_generic_error(e, generic_message=generic)
+
+
+@app.get("/management/projects")
+async def management_projects_endpoint(_user: dict = Depends(require_manager)):
+    """Lista de todos os projetos do Projectile (id/nome/cliente), sem
+    recorte por período — alimenta o seletor de projeto da tela de
+    Diagnóstico (cadastro/edição manual de amostra), onde o gerente precisa
+    poder escolher qualquer projeto, não só os que já apareceram num
+    período específico."""
+    try:
+        return fetch_all_projects_with_details()
+    except ProjectileDbError as e:
         raise _log_and_generic_error(e)
 
 
 @app.get("/management/kpis/samples")
-async def management_kpi_samples_endpoint(month: str, _user: dict = Depends(require_manager)):
-    """Diagnóstico só-leitura: mostra de quais e-mails vieram as horas
-    faturadas/dias automáticos de um mês (e o que foi pulado e por quê) —
-    necessário porque o match de projeto é automático, sem fila de revisão
-    humana (ver `email_ingest.match_project`)."""
-    if not re.fullmatch(r"\d{4}-\d{2}", month):
+async def management_kpi_samples_endpoint(month: str | None = None, _user: dict = Depends(require_manager)):
+    """Tela de Diagnóstico: mostra de quais e-mails (ou cadastro manual)
+    vieram as horas faturadas/dias de cada (projeto, mês), e o que foi
+    pulado e por quê — necessário porque o match de projeto é automático,
+    sem fila de revisão humana (ver `email_ingest.match_project`). Sem
+    `month`, lista tudo (aba "Todos" da tela)."""
+    if month is not None and not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
-    return get_kpi_samples_for_month(month)
+    return list_samples(month)
+
+
+class ManualSampleCreatePayload(BaseModel):
+    project_id: str
+    month: str
+    billed_hours: float = Field(ge=0, allow_inf_nan=False)
+    business_days: float = Field(ge=0, allow_inf_nan=False)
+
+
+@app.post("/management/kpis/samples")
+async def management_kpi_sample_create_endpoint(
+    payload: ManualSampleCreatePayload, _user: dict = Depends(require_manager)
+):
+    """Cadastro manual de amostra — pra quando um relatório foi enviado fora
+    do fluxo de e-mail, ou o match automático nunca achou o projeto certo."""
+    if not re.fullmatch(r"\d{4}-\d{2}", payload.month):
+        raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
+    try:
+        projects = fetch_all_projects_with_details()
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+    project = next((p for p in projects if p["id"] == payload.project_id), None)
+    if not project:
+        raise HTTPException(400, "Projeto não encontrado no Projectile.")
+    return create_manual_project_kpi_sample(
+        project_id=payload.project_id,
+        project_name=project["name"],
+        month=payload.month,
+        billed_hours=payload.billed_hours,
+        business_days=payload.business_days,
+    )
+
+
+class SampleUpdatePayload(BaseModel):
+    project_id: str | None = None
+    project_name: str | None = None
+    month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
+    billed_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    business_days: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
+@app.patch("/management/kpis/samples/{sample_id}")
+async def management_kpi_sample_update_endpoint(
+    sample_id: str, payload: SampleUpdatePayload, _user: dict = Depends(require_manager)
+):
+    """Corrige uma amostra existente — projeto errado (match automático
+    fraco), horas/dias lidos errado, ou competência errada."""
+    patch = payload.model_dump(exclude_unset=True)
+    if not update_project_kpi_sample(sample_id, patch):
+        raise HTTPException(404, "Amostra não encontrada.")
+    return {"ok": True}
+
+
+@app.delete("/management/kpis/samples/{sample_id}")
+async def management_kpi_sample_delete_endpoint(sample_id: str, _user: dict = Depends(require_manager)):
+    """Remove uma amostra errada. O e-mail original continua marcado como
+    processado — não volta a ser reprocessado no próximo polling."""
+    if not delete_project_kpi_sample(sample_id):
+        raise HTTPException(404, "Amostra não encontrada.")
+    return {"ok": True}
 
 
 class ManualEntryPayload(BaseModel):
@@ -423,7 +597,7 @@ class GroupPayload(BaseModel):
 
 
 class HeaderPayload(BaseModel):
-    project_code: str
+    project_code: str = Field(min_length=1, description='Número do relatório (ex: "SE.XX.XXX") — obrigatório.')
     project_name: str
     location_date: str
     month_label: str
@@ -548,6 +722,75 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
         media_type="application/zip",
         background=BackgroundTask(os.remove, zip_path),
     )
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class SendReportPayload(BaseModel):
+    packages: list[ReportPackagePayload] = Field(min_length=1)
+    to: str
+    subject: str = Field(min_length=1, max_length=200)
+    message: str = Field(default="", max_length=5000)
+
+
+@app.post("/send-report")
+async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends(require_session)):
+    """Gera 1 ou mais relatórios (mesmo caminho de `/generate` em modo
+    "relatório único", um `.xlsx` por pacote) e manda TUDO num único e-mail
+    via Microsoft Graph, "como" o usuário logado, sempre com a caixa do
+    agente em cópia — cada pacote vira seu próprio anexo `.xlsx` dentro do
+    mesmo e-mail (nunca zipado). Pra mandar pacotes diferentes em e-mails
+    separados, o frontend chama esse endpoint uma vez por pacote (uma lista
+    de 1 item cada vez)."""
+    sender_email = (_user.get("email") or "").strip()
+    if not sender_email:
+        raise HTTPException(
+            400,
+            "Seu usuário não tem e-mail cadastrado no Projectile — não é possível enviar o relatório.",
+        )
+    if not _EMAIL_RE.match(payload.to.strip()):
+        raise HTTPException(400, "E-mail do destinatário inválido.")
+
+    output_paths: list[str] = []
+    try:
+        attachments: list[tuple[str, bytes]] = []
+        used_names: set[str] = set()
+        for pkg_payload in payload.packages:
+            output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.xlsx")
+            output_paths.append(output_path)
+            header = _build_report(pkg_payload, output_path)
+            download_name = _sanitized_file_name(pkg_payload.file_name, header)
+            # mesma dedupe de nome que /generate usa no modo zip — dois
+            # pacotes com o mesmo nome final não podem virar dois anexos
+            # com o nome idêntico no mesmo e-mail.
+            final_name = download_name
+            suffix = 0
+            while final_name in used_names:
+                suffix += 1
+                stem = download_name[: -len(".xlsx")]
+                final_name = f"{stem} ({suffix}).xlsx"
+            used_names.add(final_name)
+            with open(output_path, "rb") as f:
+                attachments.append((final_name, f.read()))
+
+        email_ingest.send_report_email(
+            sender_email=sender_email,
+            to_email=payload.to.strip(),
+            subject=payload.subject,
+            body_text=payload.message,
+            attachments=attachments,
+        )
+    except NonFiniteValueError as e:
+        raise HTTPException(400, str(e))
+    except email_ingest.EmailIngestError as e:
+        raise _log_and_generic_error(e, generic_message=_GENERIC_EMAIL_ERROR)
+    finally:
+        for output_path in output_paths:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+
+    return {"ok": True}
 
 
 class ChatActivity(BaseModel):

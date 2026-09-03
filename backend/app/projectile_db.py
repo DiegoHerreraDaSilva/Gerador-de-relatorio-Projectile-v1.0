@@ -213,6 +213,140 @@ def fetch_engineering_hours(
         raise ProjectileDbError(f"Falha ao consultar horas de engenharia do Projectile: {e}") from e
 
 
+_PROJECT_CODE_RE = re.compile(r"^(\d+)")
+
+
+def extract_project_code(pacote_raw: str) -> str | None:
+    """Prefixo numérico do pacote de trabalho, usado como "código do
+    projeto" pra exibição — ver `fetch_project_codes`. O que vem depois do
+    número varia (`1564.1.1-001 MBB_CAD_ACCELO - ...` com ponto,
+    `1565-001 MBB_CE...` só com hífen), então captura só os dígitos do
+    início, sem exigir separador específico."""
+    match = _PROJECT_CODE_RE.match(html.unescape(str(pacote_raw or "")).strip())
+    return match.group(1) if match else None
+
+
+def fetch_project_ids_with_hours(
+    start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
+) -> list[str]:
+    """Projetos (CAD+CAE) que têm ao menos um lançamento de hora no período —
+    usado pra popular o seletor de Cliente/Projeto da tela de importação
+    "por cliente" (`/management/clients-with-hours`,
+    `/management/client-projects`) só com quem tem apontamento no mês em
+    vista, sem precisar de uma query nova: reaproveita
+    `fetch_engineering_hours` (já otimizada, ver seu docstring) e extrai os
+    `project_id` distintos em Python."""
+    rows = fetch_engineering_hours(start_date, end_date, conn=conn)
+    return sorted({r["project_id"] for r in rows if r.get("project_id")})
+
+
+def fetch_project_codes(
+    start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
+) -> dict[str, str]:
+    """project_id -> "código do projeto" no período — o Projectile não tem
+    uma coluna de código separada pra `tproject`, mas o pacote de trabalho
+    (`ttimebit.capJob`) sempre começa com ele, ex: em
+    "1564.1.1-001 MBB_CAD_ACCELO - PP2030 08.2026" o código é "1564" (todo
+    pacote desse projeto compartilha esse mesmo prefixo). Reaproveita
+    `fetch_engineering_hours` (mesma fonte de `fetch_project_ids_with_hours`)
+    em vez de uma query nova — só usado pra exibição (prefixo em
+    dropdowns/filtros), nunca pra identificar o projeto de verdade (isso
+    continua sendo `project_id`)."""
+    rows = fetch_engineering_hours(start_date, end_date, conn=conn)
+    codes: dict[str, str] = {}
+    for row in rows:
+        project_id = row.get("project_id")
+        if not project_id or project_id in codes:
+            continue
+        code = extract_project_code(row.get("pacote"))
+        if code:
+            codes[project_id] = code
+    return codes
+
+
+def fetch_project_hours(
+    project_ids: list[str], start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
+) -> list[dict]:
+    """Horas de TODOS os funcionários (CAD+CAE) nos projetos informados, no
+    período — usado pelo gerente pra gerar relatório "por cliente"/"por
+    projeto" na tela de importação (`/parse-db-client`), diferente de
+    `fetch_employee_hours` (só o usuário logado) e `fetch_engineering_hours`
+    (todo mundo, sem filtro de projeto). Filtra direto por
+    `tj.pProject IN (...)` — mesma técnica usada pra evitar o join direto
+    com `tproject` citado em `fetch_engineering_hours`.
+
+    Devolve `observacao`/`horas`/`pacote`/`project_id`: os três primeiros no
+    mesmo formato que `group_hours` já consome (pacote de trabalho bruto, o
+    nome do projeto já vem embutido nesse valor — por isso
+    `group_hours(rows, split_by_package=True)` separa por projeto e por
+    pacote sem precisar de agrupamento novo); `project_id` é usado por
+    `group_hours_by_project` no modo "um relatório por projeto"."""
+    if not project_ids:
+        return []
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(project_ids))
+            cur.execute(
+                f"""
+                SELECT tb.pDate AS data, tb.pNote AS observacao, tb.pTime AS horas,
+                       tb.capJob AS pacote, tj.pProject AS project_id
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
+                WHERE tj.pProject IN ({placeholders})
+                  AND (te.pCostCenter LIKE %s OR te.pCostCenter LIKE %s)
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                ORDER BY tb.pDate
+                """,
+                (*project_ids, "%CAD%", "%CAE%", _SYS_CLIENT_ID, start_date, end_date),
+            )
+            return cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar horas dos projetos no Projectile: {e}") from e
+
+
+def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> tuple[list["WorkPackage"], list[RowIssue]]:
+    """Agrupa as linhas de `fetch_project_hours` em um `WorkPackage` por
+    PROJETO (não por pacote de trabalho) — usado no modo "1 relatório por
+    projeto" da importação "por cliente": aqui quem vira `Group` (a divisão
+    visível dentro do relatório) é o pacote de trabalho (`capJob`), e cada
+    atividade é a Observação inteira (sem dividir prefixo/descrição — não
+    sobra um 3º nível pra isso na estrutura WorkPackage->Group->Activity).
+    Reaproveita `_PackageAccumulator` (mesma classe de `group_hours`), só
+    troca o que vira chave de pacote/grupo."""
+    accumulator = _PackageAccumulator()
+    issues: list[RowIssue] = []
+
+    for i, row in enumerate(rows, start=1):
+        obs_value = html.unescape(str(row.get("observacao") or "")).strip()
+        if not obs_value:
+            continue
+        hs_float = round(float(row.get("horas") or 0), 3)
+        if hs_float <= 0:
+            continue
+
+        project_id = str(row.get("project_id") or "").strip()
+        if not project_id:
+            issues.append(RowIssue(row=i, reason="projeto_desconhecido", message=f'Lançamento {i}: sem projeto associado ("{obs_value}").'))
+            continue
+
+        package_name = project_names.get(project_id) or project_id
+        pacote = html.unescape(str(row.get("pacote") or "")).strip() or "Geral"
+
+        accumulator.add_activity(
+            package_key=project_id,
+            package_name=package_name,
+            group_name=pacote,
+            description=obs_value,
+            hours=hs_float,
+        )
+
+    return accumulator.build(), issues
+
+
 def fetch_clients_for_projects(
     project_ids: list[str], conn: pymysql.connections.Connection | None = None
 ) -> list[str]:
@@ -287,6 +421,38 @@ def fetch_project_names_for_ids(
         raise ProjectileDbError(f"Falha ao consultar nomes de projeto do Projectile: {e}") from e
 
 
+def fetch_project_details(
+    project_ids: list[str], conn: pymysql.connections.Connection | None = None
+) -> dict[str, dict]:
+    """Nome e cliente por projeto (`pProject` -> `{"name", "client"}`) — usado
+    pela tabela "Relatórios enviados" do painel, que precisa mostrar cliente
+    e projeto juntos por linha (diferente de `fetch_project_names_for_ids`/
+    `fetch_clients_for_projects`, que só devolvem listas soltas pra popular
+    filtro). Mesma técnica de lookup por `pProject IN (...)` (PK), sem join
+    com as tabelas de horas. Aceita `conn` já aberta, ver
+    `fetch_engineering_hours`."""
+    if not project_ids:
+        return {}
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(project_ids))
+            cur.execute(
+                f"SELECT pProject, pDescription, capCustomer FROM tproject "
+                f"WHERE pProject IN ({placeholders})",
+                project_ids,
+            )
+            return {
+                row["pProject"]: {
+                    "name": html.unescape(row["pDescription"] or "").strip(),
+                    "client": html.unescape(row["capCustomer"] or "").strip(),
+                }
+                for row in cur.fetchall()
+            }
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar detalhes de projeto do Projectile: {e}") from e
+
+
 def fetch_project_ids_for_names(
     names: list[str], conn: pymysql.connections.Connection | None = None
 ) -> list[str]:
@@ -324,6 +490,34 @@ def fetch_all_projects(conn: pymysql.connections.Connection | None = None) -> di
                 row["pProject"]: html.unescape(row["pDescription"]).strip()
                 for row in cur.fetchall()
             }
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
+
+
+def fetch_all_projects_with_details(conn: pymysql.connections.Connection | None = None) -> list[dict]:
+    """Todos os projetos com nome e cliente juntos (`[{"id","name","client"}]`),
+    sem recorte por período — usado pelo seletor de projeto da tela de
+    Diagnóstico (cadastro/edição manual de amostra), que precisa poder
+    escolher QUALQUER projeto, não só os que já têm horas num período dado
+    (diferente de `fetch_project_details`, que exige uma lista de ids).
+    Mesmo universo de `fetch_all_projects`, só que devolve cliente junto.
+    Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
+    conn = conn or _get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pProject, pDescription, capCustomer FROM tproject "
+                "WHERE pDescription IS NOT NULL AND pDescription <> '' "
+                "ORDER BY pDescription"
+            )
+            return [
+                {
+                    "id": row["pProject"],
+                    "name": html.unescape(row["pDescription"]).strip(),
+                    "client": html.unescape(row["capCustomer"] or "").strip(),
+                }
+                for row in cur.fetchall()
+            ]
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
 
