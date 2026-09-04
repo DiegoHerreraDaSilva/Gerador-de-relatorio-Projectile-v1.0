@@ -84,6 +84,11 @@ MANAGEMENT_PANEL_LOGINS = _load_management_panel_logins()
 # "Engenharia" no Projectile, ver investigação de schema desta sessão).
 ENGINEERING_COST_CENTERS = ["CAD", "CAE"]
 
+# sentinela pra "esse envio cobre o projeto inteiro" (amostra com
+# pacote_scope=None) — usado como membro de um set junto com nomes de
+# pacote de verdade, ver compute_monthly_kpis.
+_PACOTE_SCOPE_ALL = "__ALL__"
+
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 _DATA_FILE = os.path.join(_DATA_DIR, "management_kpi.json")
 
@@ -144,6 +149,12 @@ def _load_data() -> dict:
             migrated = True
         if "edited" not in sample:
             sample["edited"] = False
+            migrated = True
+        if "pacote_scope" not in sample:
+            # amostras antigas (antes do modo "por pacote de trabalho")
+            # sempre cobriam o projeto inteiro — None preserva esse
+            # comportamento em vez de marcar dado antigo como "parcial".
+            sample["pacote_scope"] = None
             migrated = True
     if migrated:
         _save_data(data)
@@ -276,6 +287,9 @@ def create_manual_project_kpi_sample(
         "sample_id": uuid4().hex,
         "source": "manual",
         "edited": False,
+        # cadastro manual sempre representa o projeto inteiro — não tem
+        # seletor de pacote de trabalho no formulário de Diagnóstico.
+        "pacote_scope": None,
     }
     append_project_kpi_sample(sample)
     return sample
@@ -359,6 +373,7 @@ def compute_monthly_kpis(
     cost_centers: list[str] | None = None,
     clients: list[str] | None = None,
     projects: list[str] | None = None,
+    packages: list[str] | None = None,
     force_refresh: bool = False,
 ) -> dict:
     data = _load_data()
@@ -388,6 +403,7 @@ def compute_monthly_kpis(
     else:
         project_ids = client_project_ids if client_project_ids is not None else project_name_ids
     allowed_project_ids = set(project_ids) if project_ids is not None else None
+    allowed_packages = set(packages) if packages else None
     cost_center_keywords = [cc.casefold() for cc in active_cost_centers]
 
     # a busca cara já vem com TODO o CAD+CAE do período, cacheada por
@@ -406,16 +422,30 @@ def compute_monthly_kpis(
     # "Relatórios enviados" (um projeto só aparece num mês se de fato teve
     # apontamento nele, mesmo critério dos outros recortes desta função).
     project_month_hours: dict[tuple[str, str], float] = {}
+    # (mês, project_id) -> pacotes de trabalho (texto bruto) com hora naquele
+    # mês — usado pra decidir "enviado"/"parcial"/"não enviado" por projeto
+    # (ver sent_scopes_by_project_month mais abaixo): um projeto só é
+    # "enviado" de verdade se TODOS os pacotes com hora foram cobertos por
+    # algum relatório mandado, não só qualquer um.
+    project_month_pacotes: dict[tuple[str, str], set[str]] = {}
     # project_id -> "código do projeto" (prefixo do pacote de trabalho, ver
     # `extract_project_code`) — só pra exibição (prefixo nos dropdowns de
     # filtro do frontend), nunca usado como identificador de verdade.
     project_codes_by_id: dict[str, str] = {}
+    # pacotes de trabalho disponíveis pro filtro — recorte de Centro de
+    # Custo/Cliente/Projeto já aplicado, mas ANTES do filtro de Pacote em si
+    # (senão escolher um pacote faria os outros sumirem do dropdown).
+    available_packages: set[str] = set()
     for row in all_rows:
         row_cost_center = (row.get("cost_center") or "").casefold()
         if not any(kw in row_cost_center for kw in cost_center_keywords):
             continue
         project_id = row.get("project_id")
         if allowed_project_ids is not None and project_id not in allowed_project_ids:
+            continue
+        row_package = html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
+        available_packages.add(row_package)
+        if allowed_packages is not None and row_package not in allowed_packages:
             continue
         row_date = row.get("data")
         month_key = row_date.strftime("%Y-%m") if hasattr(row_date, "strftime") else str(row_date)[:7]
@@ -424,6 +454,7 @@ def compute_monthly_kpis(
             available_project_ids.add(project_id)
             pm_key = (month_key, project_id)
             project_month_hours[pm_key] = project_month_hours.get(pm_key, 0.0) + hours
+            project_month_pacotes.setdefault(pm_key, set()).add(row_package)
             if project_id not in project_codes_by_id:
                 code = extract_project_code(row.get("pacote"))
                 if code:
@@ -432,8 +463,7 @@ def compute_monthly_kpis(
         bucket["worked_hours"] += hours
         if row.get("external") == "0":
             bucket["nonbillable_hours"] += hours
-            package = html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
-            package_key = (month_key, package)
+            package_key = (month_key, row_package)
             package_buckets[package_key] = package_buckets.get(package_key, 0.0) + hours
 
     available_projects = fetch_project_names_for_ids(sorted(available_project_ids), conn=conn)
@@ -484,17 +514,23 @@ def compute_monthly_kpis(
         for (month_key, package), hours in package_buckets.items()
     ]
 
-    # "enviado" = existe uma amostra de e-mail (project_kpi_samples) pra esse
-    # (projeto, mês) — o checkbox reflete só isso, não é editável manualmente:
-    # é marcado quando a caixa agente.reunioes@ recebe o relatório daquele
-    # projeto (ver email_ingest.py), não quando alguém confirma na tela.
-    sent_project_ids_by_month: dict[str, set[str]] = {}
+    # status por (projeto, mês) a partir das amostras de e-mail
+    # (project_kpi_samples) — não é editável manualmente na tela, é marcado
+    # quando a caixa agente.reunioes@ recebe o relatório daquele projeto (ver
+    # email_ingest.py). Cada amostra carrega `pacote_scope`: None significa
+    # "esse envio cobria o projeto inteiro" (_PACOTE_SCOPE_ALL), um texto
+    # significa "só esse pacote de trabalho" — um projeto só é "enviado" de
+    # verdade se TODOS os pacotes com hora naquele mês foram cobertos por
+    # algum envio, não só qualquer um (era o bug: mandar 1 pacote marcava o
+    # projeto inteiro como enviado).
+    sent_scopes_by_project_month: dict[tuple[str, str], set[str]] = {}
     for sample in data.get("project_kpi_samples", []):
         sample_month = sample.get("month")
         sample_project_id = sample.get("project_id")
         if not sample_month or not sample_project_id:
             continue
-        sent_project_ids_by_month.setdefault(sample_month, set()).add(sample_project_id)
+        scope = sample.get("pacote_scope") or _PACOTE_SCOPE_ALL
+        sent_scopes_by_project_month.setdefault((sample_month, sample_project_id), set()).add(scope)
 
     project_send_status = []
     for (month_key, project_id), hours in project_month_hours.items():
@@ -503,12 +539,24 @@ def compute_monthly_kpis(
         details = project_details.get(project_id)
         if not details:
             continue
+        sent_scopes = sent_scopes_by_project_month.get((month_key, project_id), set())
+        all_pacotes = project_month_pacotes.get((month_key, project_id), set())
+        if _PACOTE_SCOPE_ALL in sent_scopes or (all_pacotes and all_pacotes.issubset(sent_scopes)):
+            status = "sent"
+            missing_pacotes: list[str] = []
+        elif sent_scopes:
+            status = "partial"
+            missing_pacotes = sorted(all_pacotes - sent_scopes)
+        else:
+            status = "none"
+            missing_pacotes = []
         project_send_status.append({
             "month": month_key,
             "project_id": project_id,
             "project_name": details["name"] or "Sem nome",
             "client": details["client"] or "Sem cliente",
-            "sent": project_id in sent_project_ids_by_month.get(month_key, set()),
+            "status": status,
+            "missing_pacotes": missing_pacotes,
         })
 
     return {
@@ -516,6 +564,7 @@ def compute_monthly_kpis(
         "cost_centers": ENGINEERING_COST_CENTERS,
         "available_projects": available_projects,
         "available_clients": available_clients,
+        "available_packages": sorted(available_packages, key=lambda p: p.casefold()),
         "project_codes": project_codes,
         "project_clients": project_clients,
         "nonbillable_breakdown": nonbillable_breakdown,

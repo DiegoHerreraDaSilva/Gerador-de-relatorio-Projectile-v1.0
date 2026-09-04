@@ -4,25 +4,35 @@ clientes, com a caixa `agente.reunioes@schwaben.com.br` em cópia.
 
 Fluxo (`process_new_emails`, chamado periodicamente pelo loop de polling em
 `main.py`): busca mensagens novas na caixa via Microsoft Graph (client
-credentials, sem interação de usuário) → baixa o anexo `.xlsx` → lê o projeto
-(células `B8`/`C9`, ver `generator.py`) e resolve o valor de "Total de horas
-Mês/Ano:" (fórmula, não valor em cache — ver `resolve_total_hours`) → faz
-fuzzy match do nome do projeto contra o Projectile → calcula dias úteis entre
-o fechamento do mês do relatório e o envio do e-mail → grava uma amostra em
+credentials, sem interação de usuário) → baixa o(s) anexo(s) `.xlsx`/`.pdf`
+→ lê o projeto e resolve o valor de "Total de horas Mês/Ano:" (ver
+`resolve_total_hours`/`read_pdf_report_data` abaixo) → faz fuzzy match do
+nome do projeto contra o Projectile → calcula dias úteis entre o fechamento
+do mês do relatório e o envio do e-mail → grava uma amostra em
 `backend/data/management_kpi.json` via `management.append_project_kpi_sample`.
 
-Não usa `data_only=True`/valor em cache do Excel: os relatórios deste app são
-gerados via ZIP/XML manual (`generator.py`, nunca `openpyxl.save()`), então a
-fórmula nunca tem um `<v>` calculado embutido — even que o anexo já tenha
-sido aberto no Excel por alguém no meio do caminho, não há garantia disso.
-`resolve_total_hours` por isso segue a cadeia de fórmulas manualmente,
-reconhecendo só as 3 formas exatas que `generator._build_groups_xml` escreve.
+Não usa `data_only=True`/valor em cache do Excel: os relatórios `.xlsx` deste
+app são gerados via ZIP/XML manual (`generator.py`, nunca
+`openpyxl.save()`), então a fórmula nunca tem um `<v>` calculado embutido —
+mesmo que o anexo já tenha sido aberto no Excel por alguém no meio do
+caminho, não há garantia disso. `resolve_total_hours` por isso segue a
+cadeia de fórmulas manualmente, reconhecendo só as 3 formas exatas que
+`generator._build_groups_xml` escreve.
+
+O `.pdf` não tem fórmula nem célula pra ler — `pdf_generator.py` grava os
+mesmos dados (código/nome do projeto, mês, total já calculado, pacote de
+trabalho coberto) como metadado do próprio arquivo (Info dictionary,
+`PDF_METADATA_KEY`), lido de volta aqui por `read_pdf_report_data`. Quando um
+mesmo relatório chega nos dois formatos na mesma mensagem (transição pro
+novo formato, ou envio duplicado por hábito), só UM é processado — ver
+`fetch_report_attachments` — pra não somar a mesma hora faturada duas vezes.
 """
 from __future__ import annotations
 
 import base64
 import binascii
 import difflib
+import json
 import os
 import re
 import tempfile
@@ -32,9 +42,11 @@ from datetime import date, datetime, timedelta, timezone
 import msal
 import requests
 from openpyxl import load_workbook
+from pypdf import PdfReader
 
 from . import management
-from .generator import parse_month_label, count_business_days
+from .generator import parse_month_label, count_business_days, HIDDEN_HELPER_COL
+from .pdf_generator import PDF_METADATA_KEY
 from .projectile_db import ProjectileDbError, fetch_all_projects
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -170,17 +182,26 @@ _MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25 MB
 _MAX_UNCOMPRESSED_ATTACHMENT_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
-def fetch_xlsx_attachments(message_id: str) -> tuple[list[str], list[str]]:
-    """Baixa os anexos `.xlsx` da mensagem pra arquivos temporários (mesmo
-    padrão de `parser.py`/`generator.py`, que também usam `tempfile`) e
-    devolve `(paths, skip_reasons)` — caminhos utilizáveis e, separadamente,
-    o motivo de cada anexo que foi pulado.
+_REPORT_EXTENSIONS = (".xlsx", ".pdf")
+# ordem de preferência quando o mesmo relatório chega nos dois formatos na
+# mesma mensagem (ver dedup por nome-base logo abaixo) — .xlsx é o caminho
+# mais testado, fica como formato "principal" nesse empate.
+_EXT_PRIORITY = {".xlsx": 0, ".pdf": 1}
 
-    Duas camadas de defesa contra "zip bomb", mesma spec de
+
+def fetch_report_attachments(message_id: str) -> tuple[list[str], list[str]]:
+    """Baixa os anexos `.xlsx`/`.pdf` da mensagem pra arquivos temporários
+    (mesmo padrão de `parser.py`/`generator.py`, que também usam `tempfile`)
+    e devolve `(paths, skip_reasons)` — caminhos utilizáveis e,
+    separadamente, o motivo de cada anexo que foi pulado.
+
+    Duas camadas de defesa contra "zip bomb" pro `.xlsx`, mesma spec de
     `main._reject_if_oversized_xlsx` (duplicado aqui de propósito: ponto de
     entrada diferente, bytes já vêm decodificados de base64 — ver
-    CLAUDE.md): (1) tamanho do payload decodificado e (2) tamanho
-    DESCOMPRIMIDO do conteúdo do zip. Zip inválido não é rejeitado aqui,
+    CLAUDE.md): (1) tamanho do payload decodificado (também aplicado ao
+    `.pdf` — não tem estrutura de zip pra "bomba", mas ainda precisa de um
+    teto de tamanho) e (2) tamanho DESCOMPRIMIDO do conteúdo do zip, só pro
+    `.xlsx`. Arquivo `.xlsx` que não abre como zip não é rejeitado aqui,
     mesma escolha de `main.py` — deixa a validação existente mais adiante
     (`resolve_total_hours`/`read_project_identity`, via openpyxl) reportar
     como anexo inválido/corrompido.
@@ -191,15 +212,25 @@ def fetch_xlsx_attachments(message_id: str) -> tuple[list[str], list[str]]:
     em `skip_reasons`, ver `process_new_emails`) — e nunca deixa órfão em
     disco o temp file de um anexo anterior já baixado com sucesso, já que a
     limpeza de um anexo que falhou acontece aqui mesmo, antes de seguir pro
-    próximo."""
+    próximo.
+
+    Se o mesmo relatório chegar em `.xlsx` E `.pdf` na mesma mensagem (nome
+    de arquivo igual, só a extensão muda — garantido por
+    `main._sanitized_file_name`, o mesmo `file_name` gera os dois formatos),
+    só UM dos dois é devolvido: `billed_hours` é SOMADO entre amostras
+    (`management.compute_monthly_kpis`), então processar os dois criaria 2
+    amostras pro mesmo relatório e dobraria a hora faturada. Não é tratado
+    como erro (não entra em `skip_reasons`) — é o comportamento esperado
+    durante uma transição de formato."""
     mailbox = _require_env("GRAPH_MAILBOX")
     data = _graph_get(f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/attachments")
-    paths: list[str] = []
+    downloaded: list[tuple[str, str]] = []  # (tmp_path, nome original) — só pro dedup por nome-base abaixo
     skip_reasons: list[str] = []
     for att in data.get("value", []):
         name = att.get("name") or ""
         content_bytes = att.get("contentBytes")
-        if not content_bytes or not name.lower().endswith(".xlsx"):
+        ext = os.path.splitext(name)[1].lower()
+        if not content_bytes or ext not in _REPORT_EXTENSIONS:
             continue
 
         try:
@@ -214,23 +245,24 @@ def fetch_xlsx_attachments(message_id: str) -> tuple[list[str], list[str]]:
 
         tmp_path: str | None = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                 tmp.write(decoded)
                 tmp_path = tmp.name
 
-            try:
-                with zipfile.ZipFile(tmp_path) as zf:
-                    total_uncompressed = sum(info.file_size for info in zf.infolist())
-                if total_uncompressed > _MAX_UNCOMPRESSED_ATTACHMENT_BYTES:
-                    skip_reasons.append(
-                        f"anexo '{name}' excede o limite de tamanho descomprimido (200 MB)"
-                    )
-                    os.remove(tmp_path)
-                    continue
-            except zipfile.BadZipFile:
-                pass  # não é um zip válido — deixa a validação existente adiante rejeitar
+            if ext == ".xlsx":
+                try:
+                    with zipfile.ZipFile(tmp_path) as zf:
+                        total_uncompressed = sum(info.file_size for info in zf.infolist())
+                    if total_uncompressed > _MAX_UNCOMPRESSED_ATTACHMENT_BYTES:
+                        skip_reasons.append(
+                            f"anexo '{name}' excede o limite de tamanho descomprimido (200 MB)"
+                        )
+                        os.remove(tmp_path)
+                        continue
+                except zipfile.BadZipFile:
+                    pass  # não é um zip válido — deixa a validação existente adiante rejeitar
 
-            paths.append(tmp_path)
+            downloaded.append((tmp_path, name))
         except Exception as e:
             if tmp_path is not None:
                 try:
@@ -239,7 +271,38 @@ def fetch_xlsx_attachments(message_id: str) -> tuple[list[str], list[str]]:
                     pass
             skip_reasons.append(f"falha ao baixar anexo '{name}': {e}")
 
-    return paths, skip_reasons
+    return _dedupe_by_stem(downloaded), skip_reasons
+
+
+def _dedupe_by_stem(downloaded: list[tuple[str, str]]) -> list[str]:
+    """Isolada de `fetch_report_attachments` pra ser testável sem precisar
+    mockar o Graph: recebe `(tmp_path, nome_original)` de cada anexo já
+    baixado e devolve só os `tmp_path` que sobrevivem ao dedup por nome-base
+    (ver docstring de `fetch_report_attachments`) — o(s) `tmp_path` perdedor
+    já é removido do disco aqui, quem chama não precisa limpar de novo."""
+    by_stem: dict[str, tuple[str, str]] = {}
+    for path, name in downloaded:
+        stem = os.path.splitext(name)[0].strip().casefold()
+        ext = os.path.splitext(name)[1].lower()
+        existing = by_stem.get(stem)
+        if existing is None:
+            by_stem[stem] = (path, name)
+            continue
+        existing_path, existing_name = existing
+        existing_ext = os.path.splitext(existing_name)[1].lower()
+        if _EXT_PRIORITY.get(ext, 99) < _EXT_PRIORITY.get(existing_ext, 99):
+            try:
+                os.remove(existing_path)
+            except OSError:
+                pass
+            by_stem[stem] = (path, name)
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    return [path for path, _ in by_stem.values()]
 
 
 def _resolve_cell(ws, ref: str, seen: set[str], depth: int = 0) -> float:
@@ -280,6 +343,22 @@ def _resolve_cell(ws, ref: str, seen: set[str], depth: int = 0) -> float:
     raise EmailIngestError(f"Forma de fórmula não reconhecida em {ref}: ={formula}")
 
 
+def _find_total_row(ws) -> tuple[int, str]:
+    """Acha a linha "Total de horas <mês/ano>:" (coluna B) — devolve (número
+    da linha, month_label). Compartilhado por `resolve_total_hours` e
+    `read_pacote_scope` (mesma linha-âncora — a linha logo abaixo é
+    `bruto_row`, ver `generator._build_totals_row`)."""
+    label_re = re.compile(r"^Total de horas\s+(.+?):$")
+    for row in ws.iter_rows():
+        for cell in row:
+            if not isinstance(cell.value, str):
+                continue
+            match = label_re.match(cell.value.strip())
+            if match:
+                return cell.row, match.group(1).strip()
+    raise EmailIngestError("Não encontrei a célula 'Total de horas ...:' no anexo.")
+
+
 def resolve_total_hours(xlsx_path: str) -> tuple[float, str]:
     """Acha a linha "Total de horas <mês/ano>:" na coluna B e resolve a
     fórmula da coluna C na mesma linha. Devolve (horas, month_label) — o
@@ -287,18 +366,24 @@ def resolve_total_hours(xlsx_path: str) -> tuple[float, str]:
     competência do relatório, não a data de hoje nem a data de envio."""
     wb = load_workbook(xlsx_path, data_only=False)
     ws = wb.active
-    label_re = re.compile(r"^Total de horas\s+(.+?):$")
-    for row in ws.iter_rows():
-        for cell in row:
-            if not isinstance(cell.value, str):
-                continue
-            match = label_re.match(cell.value.strip())
-            if not match:
-                continue
-            total_ref = f"C{cell.row}"
-            hours = _resolve_cell(ws, total_ref, set())
-            return round(hours, 3), match.group(1).strip()
-    raise EmailIngestError("Não encontrei a célula 'Total de horas ...:' no anexo.")
+    total_row, month_label = _find_total_row(ws)
+    hours = _resolve_cell(ws, f"C{total_row}", set())
+    return round(hours, 3), month_label
+
+
+def read_pacote_scope(xlsx_path: str) -> str | None:
+    """Lê a marca oculta gravada por `generator._build_totals_row`
+    (HIDDEN_HELPER_COL na linha logo abaixo de "Total de horas ...:", ==
+    `bruto_row`) — célula vazia/ausente significa que o relatório cobre o
+    projeto inteiro; um texto significa que cobre só aquele pacote de
+    trabalho. Usada por `management.compute_monthly_kpis` pra decidir status
+    "enviado"/"parcial" por projeto em vez de marcar o projeto inteiro como
+    enviado a partir de um relatório de 1 pacote só."""
+    wb = load_workbook(xlsx_path, data_only=False)
+    ws = wb.active
+    total_row, _ = _find_total_row(ws)
+    value = str(ws[f"{HIDDEN_HELPER_COL}{total_row + 1}"].value or "").strip()
+    return value or None
 
 
 def read_project_identity(xlsx_path: str) -> tuple[str, str]:
@@ -311,6 +396,31 @@ def read_project_identity(xlsx_path: str) -> tuple[str, str]:
     if not project_name:
         raise EmailIngestError("Não encontrei o nome do projeto (célula C9) no anexo.")
     return project_code, project_name
+
+
+def read_pdf_report_data(pdf_path: str) -> dict:
+    """Equivalente, pro `.pdf`, de `resolve_total_hours` +
+    `read_project_identity` + `read_pacote_scope` juntos: o `.pdf` não tem
+    fórmula nem célula pra ler, então `pdf_generator._embed_report_metadata`
+    já grava tudo isso de uma vez como metadado do arquivo (Info dictionary,
+    `PDF_METADATA_KEY`) no momento da geração — aqui só lê de volta e valida
+    que veio completo. Um PDF que não foi gerado por este app (ou teve o
+    metadado apagado/editado) não tem essa chave ou vem incompleta — mesmo
+    tratamento de erro que um `.xlsx` sem a célula/label esperada."""
+    reader = PdfReader(pdf_path)
+    raw = (reader.metadata or {}).get(PDF_METADATA_KEY)
+    if not raw:
+        raise EmailIngestError(
+            "Não encontrei os metadados do relatório no PDF anexado — ele não foi "
+            "gerado por este app, ou o metadado foi removido."
+        )
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError) as e:
+        raise EmailIngestError(f"Metadados do PDF corrompidos: {e}") from e
+    if not data.get("project_name") or not data.get("month_label") or data.get("total_hours") is None:
+        raise EmailIngestError("Metadados do PDF incompletos (relatório gerado por uma versão antiga do app?).")
+    return data
 
 
 def match_project(report_project_name: str, candidates: dict[str, str]) -> tuple[str, str, float]:
@@ -375,6 +485,12 @@ def _sender_failed_dmarc(msg: dict) -> bool:
     return False
 
 
+_ATTACHMENT_CONTENT_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf": "application/pdf",
+}
+
+
 def send_report_email(
     sender_email: str,
     to_email: str,
@@ -386,7 +502,8 @@ def send_report_email(
     logado (`sender_email` — vem da sessão, `auser.rEmail`, nunca digitado
     pelo cliente, pra não dar pra forjar remetente) — `POST
     /users/{sender_email}/sendMail`. `attachments` é uma lista de
-    `(nome_do_arquivo, bytes)` — cada um vira um anexo `.xlsx` SEPARADO no
+    `(nome_do_arquivo, bytes)` — cada um vira um anexo (`.xlsx` ou `.pdf`,
+    ver `_ATTACHMENT_CONTENT_TYPES`) SEPARADO no
     mesmo e-mail (nunca zipado junto — decisão do usuário: mais de um
     relatório pro mesmo destinatário pode ir num único e-mail, cada `.xlsx`
     continua individual). Sempre copia `GRAPH_MAILBOX` (a caixa do agente),
@@ -413,7 +530,9 @@ def send_report_email(
                 {
                     "@odata.type": "#microsoft.graph.fileAttachment",
                     "name": name,
-                    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "contentType": _ATTACHMENT_CONTENT_TYPES.get(
+                        name.rsplit(".", 1)[-1].lower(), "application/octet-stream"
+                    ),
                     "contentBytes": base64.b64encode(content).decode("ascii"),
                 }
                 for name, content in attachments
@@ -455,24 +574,31 @@ def process_new_emails() -> dict:
             continue
 
         try:
-            attachments, download_skip_reasons = fetch_xlsx_attachments(message_id)
+            attachments, download_skip_reasons = fetch_report_attachments(message_id)
             if not attachments and not download_skip_reasons:
-                management.append_skipped_message(message_id, received_at, "anexo .xlsx não encontrado")
+                management.append_skipped_message(message_id, received_at, "anexo .xlsx/.pdf não encontrado")
                 summary["skipped"] += 1
                 continue
 
             # Alberto pode mandar mais de um relatório (projetos diferentes)
-            # no mesmo e-mail — processa TODOS os anexos .xlsx, não só o
-            # primeiro, cada um virando sua própria amostra (mesmo
-            # `email_message_id`, projetos/horas/dias possivelmente
-            # diferentes entre si).
+            # no mesmo e-mail — processa TODOS os anexos, não só o primeiro,
+            # cada um virando sua própria amostra (mesmo `email_message_id`,
+            # projetos/horas/dias possivelmente diferentes entre si).
             sender = (msg.get("from") or {}).get("emailAddress", {}).get("address", "")
             attachment_errors: list[str] = list(download_skip_reasons)
             try:
-                for xlsx_path in attachments:
+                for report_path in attachments:
                     try:
-                        billed_hours, month_label = resolve_total_hours(xlsx_path)
-                        _, report_project_name = read_project_identity(xlsx_path)
+                        if report_path.lower().endswith(".pdf"):
+                            pdf_data = read_pdf_report_data(report_path)
+                            billed_hours = round(float(pdf_data["total_hours"]), 3)
+                            month_label = pdf_data["month_label"]
+                            report_project_name = pdf_data["project_name"]
+                            pacote_scope = pdf_data.get("pacote_scope")
+                        else:
+                            billed_hours, month_label = resolve_total_hours(report_path)
+                            _, report_project_name = read_project_identity(report_path)
+                            pacote_scope = read_pacote_scope(report_path)
                         project_id, project_name, score = match_project(report_project_name, candidates)
                         business_days = compute_business_days_elapsed(month_label, sent_at)
                         parsed_month = parse_month_label(month_label)
@@ -489,14 +615,16 @@ def process_new_emails() -> dict:
                             "month": month_key,
                             "billed_hours": billed_hours,
                             "business_days": business_days,
+                            "pacote_scope": pacote_scope,
                         })
                         summary["samples_added"] += 1
                     except (EmailIngestError, ProjectileDbError) as e:
                         attachment_errors.append(str(e))
                     except Exception as e:
-                        # Anexo corrompido/não é realmente um .xlsx válido
-                        # (zipfile.BadZipFile, openpyxl InvalidFileException etc.)
-                        # não é EmailIngestError/ProjectileDbError — sem este except,
+                        # Anexo corrompido/não é realmente um .xlsx ou .pdf válido
+                        # (zipfile.BadZipFile, openpyxl InvalidFileException,
+                        # pypdf.errors.PdfReadError etc.) não é
+                        # EmailIngestError/ProjectileDbError — sem este except,
                         # um único anexo malformado derrubava o processamento de TODA
                         # a mensagem (ver except mais abaixo) em vez de só marcar esse
                         # anexo como pulado e seguir com os demais.
@@ -516,7 +644,7 @@ def process_new_emails() -> dict:
             summary["skipped"] += 1
         except Exception as e:
             # Falha inesperada só nesta mensagem (ex: Base64 corrompido em
-            # fetch_xlsx_attachments, erro de I/O ao gravar management_kpi.json) não
+            # fetch_report_attachments, erro de I/O ao gravar management_kpi.json) não
             # pode derrubar o ciclo inteiro: sem isto, as mensagens seguintes do
             # mesmo polling nunca seriam processadas, e como esta mensagem nunca é
             # marcada como processada, ela travaria a automação tentando de novo a

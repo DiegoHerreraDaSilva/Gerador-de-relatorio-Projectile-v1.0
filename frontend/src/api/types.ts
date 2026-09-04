@@ -29,6 +29,11 @@ export type WorkPackage = {
   fileNameEdited: boolean;
   chartBar: boolean;
   chartPie: boolean;
+  // null = este pacote representa o projeto inteiro; string = representa só
+  // esse pacote de trabalho — vira uma marca oculta no .xlsx gerado (ver
+  // generator.py), pro Painel de Gerência não marcar o projeto inteiro como
+  // "Enviado" quando só 1 pacote foi mandado por e-mail.
+  pacoteScope: string | null;
 };
 
 export type RowIssue = {

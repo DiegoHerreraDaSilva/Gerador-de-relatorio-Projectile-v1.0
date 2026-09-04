@@ -204,6 +204,29 @@ npm --prefix frontend run preview
 
 ---
 
+## CI/CD (GitHub Actions)
+
+`.github/workflows/ci.yml` — 3 jobs:
+
+| Job | Quando roda | O que faz |
+|---|---|---|
+| `backend-tests` | todo push/PR | `pip install -r backend/requirements-dev.txt` + `pytest backend/tests/` |
+| `frontend-build` | todo push/PR | `npm ci` + `npm run test` (vitest) + `npm run build` (tsc -b && vite build); publica `frontend/dist` como artifact |
+| `deploy` | só push direto em `main`, e só se os 2 jobs acima passarem (`needs:`) | copia o `frontend/dist` já buildado + `git pull`/`pip install`/reinicia o serviço no servidor Windows via SSH |
+
+**Secrets necessários** (Settings → Secrets and variables → Actions, no repositório GitHub) pro job `deploy`:
+
+| Secret | Valor |
+|---|---|
+| `DEPLOY_HOST` | endereço do servidor Windows (IP ou hostname) |
+| `DEPLOY_USERNAME` | usuário SSH no servidor |
+| `DEPLOY_SSH_KEY` | chave privada SSH (par cadastrado no `authorized_keys` do servidor) |
+| `DEPLOY_PORT` | opcional, default `22` |
+
+Servidor precisa ter **OpenSSH Server**, `git`, Python 3.11+ e [`nssm`](https://nssm.cc/) instalados e no `PATH` — é assim que o job reinicia o serviço do backend depois do `git pull`. `DEPLOY_PATH` (pasta do checkout) e `SERVICE_NAME` (nome do serviço nssm) ficam como `env:` no topo do job `deploy` em `ci.yml` — ajuste os valores lá antes do primeiro deploy real.
+
+---
+
 ## Estrutura do projeto
 
 ```
@@ -292,10 +315,11 @@ Erros: `400` BadZipFile / ValueError / KeyError.
 
 ### `POST /generate`
 
-`application/json`: `{ packages: [{ header: {project_code, project_name, location_date, month_label, signer1_name/company, signer2_name/company}, groups: [{name, performance, activities: [{description, hours}] }], file_name? }] }`
+`application/json`: `{ packages: [{ header: {project_code, project_name, location_date, month_label, signer1_name/company, signer2_name/company}, groups: [{name, performance, activities: [{description, hours}] }], file_name? }], formats?: ["xlsx"|"pdf"] }` (default `["xlsx"]`)
 
-- `len==1` → `200 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (`.xlsx` direto)
-- `len>1` → `200 application/zip` (`Relatórios_Horas.zip` com dedup `arcname (n)`)
+- `.xlsx` via `generator.py` (ZIP/XML do template, nunca `openpyxl.save()`); `.pdf` via `pdf_generator.py` (`reportlab`, A4 retrato, mesmos dados/totais que o `.xlsx`)
+- `len(packages)==1` e `len(formats)==1` → `200`, arquivo direto (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` ou `application/pdf`)
+- qualquer outra combinação → `200 application/zip` (`Relatórios_Horas.zip`, um arquivo por `(pacote, formato)`, dedup `arcname (n)`)
 - `NonFiniteValueError → 400`, template corrompido `→ 500`
 
 Validação `allow_inf_nan=False` evita `NaN/Infinity` virar `500`.

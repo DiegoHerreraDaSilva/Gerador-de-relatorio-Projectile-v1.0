@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
-import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
+import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus } from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
-import { ExtraHoursInput } from "./ExtraHoursInput";
 import { fmtNum } from "../utils/fmt";
-import { useManagementStore, round2, type MonthRow } from "../store/useManagementStore";
+import { useManagementStore, round2 } from "../store/useManagementStore";
 
 function pctClass(value: number | null, metaValue: number, metaType: "min" | "max"): string {
   if (value === null) return "";
@@ -17,15 +16,6 @@ function pctClass(value: number | null, metaValue: number, metaType: "min" | "ma
 
 function fmtPct(value: number | null): string {
   return value === null ? "—" : `${fmtNum(value * 100)}%`;
-}
-
-async function putJson(url: string, body: unknown) {
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
 }
 
 type CheckEmailsResult = { messages_found: number; samples_added: number; skipped: number };
@@ -44,25 +34,17 @@ export function ManagementPanel() {
   const error = useManagementStore((s) => s.error);
   const refreshing = useManagementStore((s) => s.refreshing);
   const load = useManagementStore((s) => s.load);
-  const updateRow = useManagementStore((s) => s.updateRow);
   const setError = useManagementStore((s) => s.setError);
 
   const [checkingEmails, setCheckingEmails] = useState(false);
   const [checkEmailsMessage, setCheckEmailsMessage] = useState("");
   const [sendStatusSearch, setSendStatusSearch] = useState("");
-  const [sendStatusTab, setSendStatusTab] = useState<"all" | "sent" | "unsent">("all");
+  const [sendStatusTab, setSendStatusTab] = useState<"all" | "sent" | "partial" | "none">("all");
+  const [expandedSendStatusRow, setExpandedSendStatusRow] = useState<string | null>(null);
 
   useEffect(() => {
     load();
   }, [load]);
-
-  const saveEntry = async (month: string, row: MonthRow) => {
-    try {
-      await putJson(`/management/kpis/${month}`, { billed_hours: row.billed_hours, elaboration_days: row.elaboration_days });
-    } catch {
-      setError("Não consegui salvar essa alteração. Tenta de novo.");
-    }
-  };
 
   const handleCheckEmails = async () => {
     setCheckingEmails(true);
@@ -138,11 +120,10 @@ export function ManagementPanel() {
       r.month.includes(sendStatusSearchNormalized)
     )
     .sort((a, b) => a.client.localeCompare(b.client) || a.project_name.localeCompare(b.project_name) || b.month.localeCompare(a.month));
-  const sendStatusSentCount = sendStatusRowsInPeriod.filter((r) => r.sent).length;
-  const sendStatusUnsentCount = sendStatusRowsInPeriod.length - sendStatusSentCount;
-  const sendStatusRows = sendStatusRowsInPeriod.filter((r) =>
-    sendStatusTab === "all" ? true : sendStatusTab === "sent" ? r.sent : !r.sent
-  );
+  const sendStatusSentCount = sendStatusRowsInPeriod.filter((r) => r.status === "sent").length;
+  const sendStatusPartialCount = sendStatusRowsInPeriod.filter((r) => r.status === "partial").length;
+  const sendStatusNoneCount = sendStatusRowsInPeriod.filter((r) => r.status === "none").length;
+  const sendStatusRows = sendStatusRowsInPeriod.filter((r) => (sendStatusTab === "all" ? true : r.status === sendStatusTab));
 
   return (
     <div className="management-layout">
@@ -183,15 +164,7 @@ export function ManagementPanel() {
               <tr key={r.month}>
                 <td>{r.month}</td>
                 <td>{fmtNum(r.worked_hours)}</td>
-                <td>
-                  <ExtraHoursInput
-                    className="kpi-input"
-                    value={r.billed_hours}
-                    placeholder="—"
-                    onCommit={(v) => updateRow(r.month, { billed_hours: v })}
-                    onBlur={() => saveEntry(r.month, r)}
-                  />
-                </td>
+                <td>{r.billed_hours === null ? "—" : fmtNum(r.billed_hours)}</td>
                 <td>{r.perf_hours === null ? "—" : fmtNum(r.perf_hours)}</td>
                 <td className={`kpi-pct ${pctClass(r.perf_kpi_pct, 10, "min")}`}>{fmtPct(r.perf_kpi_pct)}</td>
               </tr>
@@ -227,15 +200,7 @@ export function ManagementPanel() {
             {displayRows.map((r) => (
               <tr key={r.month}>
                 <td>{r.month}</td>
-                <td>
-                  <ExtraHoursInput
-                    className="kpi-input kpi-input-days"
-                    value={r.elaboration_days}
-                    placeholder="—"
-                    onCommit={(v) => updateRow(r.month, { elaboration_days: v })}
-                    onBlur={() => saveEntry(r.month, r)}
-                  />
-                </td>
+                <td>{r.elaboration_days === null ? "—" : fmtNum(r.elaboration_days)}</td>
               </tr>
             ))}
           </tbody>
@@ -331,8 +296,11 @@ export function ManagementPanel() {
             <button type="button" className={sendStatusTab === "sent" ? "active" : ""} onClick={() => setSendStatusTab("sent")}>
               Enviados <span className="send-status-tab-count">{sendStatusSentCount}</span>
             </button>
-            <button type="button" className={sendStatusTab === "unsent" ? "active" : ""} onClick={() => setSendStatusTab("unsent")}>
-              Não enviados <span className="send-status-tab-count">{sendStatusUnsentCount}</span>
+            <button type="button" className={sendStatusTab === "partial" ? "active" : ""} onClick={() => setSendStatusTab("partial")}>
+              Enviados parcialmente <span className="send-status-tab-count">{sendStatusPartialCount}</span>
+            </button>
+            <button type="button" className={sendStatusTab === "none" ? "active" : ""} onClick={() => setSendStatusTab("none")}>
+              Não enviados <span className="send-status-tab-count">{sendStatusNoneCount}</span>
             </button>
           </div>
           <div className="send-status-search">
@@ -362,29 +330,71 @@ export function ManagementPanel() {
                         ? "Nenhum resultado pra essa busca."
                         : sendStatusTab === "sent"
                           ? "Nenhum relatório enviado ainda no período selecionado."
-                          : sendStatusTab === "unsent"
-                            ? "Todos os relatórios do período já foram enviados."
-                            : "Nenhum projeto com horas no período selecionado."}
+                          : sendStatusTab === "partial"
+                            ? "Nenhum relatório parcialmente enviado no período selecionado."
+                            : sendStatusTab === "none"
+                              ? "Todos os relatórios do período já foram enviados."
+                              : "Nenhum projeto com horas no período selecionado."}
                     </td>
                   </tr>
                 )}
-                {sendStatusRows.map((r) => (
-                  <tr key={`${r.project_id}-${r.month}`}>
-                    <td>{r.client}</td>
-                    <td>{r.project_name}</td>
-                    <td>{r.month}</td>
-                    <td>
-                      <span
-                        className={`send-status-badge ${r.sent ? "sent" : ""}`}
-                        role="img"
-                        aria-label={r.sent ? "Relatório enviado" : "Relatório não enviado"}
-                        title={r.sent ? "Relatório recebido por e-mail" : "Ainda sem e-mail com o relatório"}
-                      >
-                        {r.sent && <Check size={14} strokeWidth={3} />}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {sendStatusRows.map((r) => {
+                  const rowKey = `${r.project_id}-${r.month}`;
+                  const isExpanded = expandedSendStatusRow === rowKey;
+                  return (
+                    <Fragment key={rowKey}>
+                      <tr>
+                        <td>{r.client}</td>
+                        <td>{r.project_name}</td>
+                        <td>{r.month}</td>
+                        <td>
+                          {r.status === "partial" ? (
+                            <button
+                              type="button"
+                              className="send-status-badge-btn"
+                              aria-expanded={isExpanded}
+                              onClick={() => setExpandedSendStatusRow(isExpanded ? null : rowKey)}
+                            >
+                              <span
+                                className={`send-status-badge ${r.status}`}
+                                title={`Faltam: ${r.missing_pacotes.join(", ")}`}
+                              >
+                                <Minus size={14} strokeWidth={3} />
+                              </span>
+                            </button>
+                          ) : (
+                            <span
+                              className={`send-status-badge ${r.status}`}
+                              role="img"
+                              aria-label={r.status === "sent" ? "Relatório enviado" : "Relatório não enviado"}
+                              title={
+                                r.status === "sent"
+                                  ? "Todos os pacotes de trabalho com hora no mês foram recebidos por e-mail"
+                                  : "Ainda sem e-mail com o relatório"
+                              }
+                            >
+                              {r.status === "sent" && <Check size={14} strokeWidth={3} />}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="send-status-missing-row">
+                          <td colSpan={4}>
+                            <div className="send-status-missing-panel">
+                              <span className="send-status-missing-label">Pacotes faltando neste mês:</span>
+                              <ul>
+                                {r.missing_pacotes.map((pacote) => (
+                                  <li key={pacote}>{pacote}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

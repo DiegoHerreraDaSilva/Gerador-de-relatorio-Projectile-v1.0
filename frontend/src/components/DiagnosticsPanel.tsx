@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Trash2, Pencil, Check, X, ChevronDown, RefreshCw } from "lucide-react";
 import { ExtraHoursInput } from "./ExtraHoursInput";
 import { ManagementFilters } from "./ManagementFilters";
@@ -35,6 +36,8 @@ function SimpleDropdown({
   placeholder = "Selecione...",
   emptyLabel = "Nenhuma opção",
   className,
+  searchable = false,
+  listMinWidth,
 }: {
   options: { value: string; label: string }[];
   value: string;
@@ -42,39 +45,86 @@ function SimpleDropdown({
   placeholder?: string;
   emptyLabel?: string;
   className?: string;
+  searchable?: boolean;
+  listMinWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  useClickOutside(wrapRef, () => setOpen(false), open);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  // lista abre num portal (document.body) em vez de dentro do card — senão,
+  // dentro de um container com scroll (.diagnostics-table-wrap), ela empurra
+  // a altura do bloco de Amostras em vez de flutuar por cima dele.
+  useClickOutside([wrapRef, listRef], () => setOpen(false), open);
+
+  const toggleOpen = () => {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setRect({ top: r.bottom + 6, left: r.left, width: Math.max(r.width, listMinWidth ?? 0) });
+    }
+    setOpen((v) => !v);
+  };
+
+  useEffect(() => {
+    if (open && searchable) {
+      setSearch("");
+      requestAnimationFrame(() => searchRef.current?.focus());
+    }
+  }, [open, searchable]);
 
   const selected = options.find((o) => o.value === value);
   const summary = selected ? selected.label : placeholder;
+  const filtered = searchable && search ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase())) : options;
 
   return (
     <div className={`month-dropdown ${className ?? ""}`} ref={wrapRef}>
-      <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
+      <button ref={triggerRef} type="button" className="month-dropdown-trigger" onClick={toggleOpen}>
         <span className="mgmt-filter-summary" title={summary}>{summary}</span>
         <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
-      {open && (
-        <ul className="month-dropdown-list" role="listbox">
-          {options.length === 0 && <li className="mgmt-filter-empty">{emptyLabel}</li>}
-          {options.map((o) => (
-            <li key={o.value}>
-              <button
-                type="button"
-                className={`month-dropdown-option ${o.value === value ? "active" : ""}`}
-                onClick={() => {
-                  onChange(o.value);
-                  setOpen(false);
-                }}
-              >
-                {o.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            ref={listRef}
+            className={`month-dropdown-list month-dropdown-list-portal ${searchable ? "month-dropdown-list-searchable" : ""}`}
+            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
+          >
+            {searchable && (
+              <input
+                ref={searchRef}
+                type="text"
+                className="month-dropdown-search"
+                placeholder="Buscar..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            )}
+            <ul role="listbox">
+              {filtered.length === 0 && (
+                <li className="mgmt-filter-empty">{options.length === 0 ? emptyLabel : "Nenhum resultado"}</li>
+              )}
+              {filtered.map((o) => (
+                <li key={o.value}>
+                  <button
+                    type="button"
+                    className={`month-dropdown-option ${o.value === value ? "active" : ""}`}
+                    onClick={() => {
+                      onChange(o.value);
+                      setOpen(false);
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -96,6 +146,8 @@ function ProjectSelect({
       onChange={onChange}
       placeholder="Selecione o projeto..."
       emptyLabel="Nenhum projeto pros filtros atuais"
+      searchable
+      listMinWidth={340}
     />
   );
 }
@@ -275,11 +327,11 @@ export function DiagnosticsPanel() {
 
   return (
     <div className="diagnostics-panel">
-      <ManagementFilters showCostCenter={false} />
+      <ManagementFilters showCostCenter={false} showPackage={false} />
 
       {error && <div className="card"><p className="muted">{error}</p></div>}
 
-      <div className="card diagnostics-table-card">
+      <div className="card diagnostics-table-card diagnostics-samples-card">
         <div className="diagnostics-card-head">
           <h3>Amostras</h3>
           <div className="diagnostics-card-head-actions">
@@ -310,12 +362,12 @@ export function DiagnosticsPanel() {
             <table className="kpi-table">
               <thead>
                 <tr>
-                  <th>Cliente</th><th>Projeto</th><th>Competência</th><th>Horas</th><th>Dias</th><th>Origem</th><th>Ações</th>
+                  <th>Cliente</th><th>Projeto</th><th>Pacote</th><th>Competência</th><th>Horas</th><th>Dias</th><th>Origem</th><th>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {displaySamples.length === 0 && (
-                  <tr><td colSpan={7} className="muted">Nenhuma amostra nesse período.</td></tr>
+                  <tr><td colSpan={8} className="muted">Nenhuma amostra nesse período.</td></tr>
                 )}
                 {displaySamples.map((s) => (
                   <tr key={s.sample_id}>
@@ -332,6 +384,7 @@ export function DiagnosticsPanel() {
                             onChange={setEditProjectId}
                           />
                         </td>
+                        <td className="muted diagnostics-pacote-cell" title={s.pacote_scope || undefined}>{s.pacote_scope || "Projeto inteiro"}</td>
                         <td>{s.month}</td>
                         <td><ExtraHoursInput className="kpi-input" value={editBilled} onCommit={setEditBilled} /></td>
                         <td><ExtraHoursInput className="kpi-input kpi-input-days" value={editDays} onCommit={setEditDays} /></td>
@@ -347,6 +400,7 @@ export function DiagnosticsPanel() {
                       <>
                         <td>{clientFor(s.project_id)}</td>
                         <td>{s.project_name}</td>
+                        <td className="muted diagnostics-pacote-cell" title={s.pacote_scope || undefined}>{s.pacote_scope || "Projeto inteiro"}</td>
                         <td>{s.month}</td>
                         <td>{fmtNum(s.billed_hours)}</td>
                         <td>{fmtNum(s.business_days)}</td>

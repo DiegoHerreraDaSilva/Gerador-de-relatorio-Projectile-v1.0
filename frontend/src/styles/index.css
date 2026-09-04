@@ -145,6 +145,9 @@
     border-radius: 0;
   }
   .mgmt-filter { display: flex; flex-direction: column; gap: 5px; flex: 0 0 200px; }
+  .management-filters .mgmt-filter-narrow { flex-basis: 150px; }
+  .management-filters .mgmt-filter-wide { flex-basis: 230px; }
+  .management-filters .mgmt-filter-wider { flex-basis: 280px; }
   .mgmt-filter-reset {
     display: flex;
     align-items: center;
@@ -164,7 +167,7 @@
   .mgmt-filter-reset:disabled { opacity: 0.45; cursor: default; }
   .mgmt-filter-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
   .management-filters .month-dropdown { flex: none; width: 100%; }
-  .management-filters .month-dropdown-list { width: 200px; max-height: 260px; }
+  .management-filters .month-dropdown-list { width: 100%; max-height: 260px; }
   /* qualifica com o ancestral `.mgmt-filter` pra ganhar de propósito de
      `.month-dropdown-trigger` (mesma especificidade, definida depois no
      arquivo) — mesma lição do `.kpi-card input.kpi-input` acima. */
@@ -249,6 +252,7 @@
 
   .send-status-tabs {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     gap: 4px;
     margin-top: 12px;
@@ -358,6 +362,40 @@
     color: #fff;
     box-shadow: 0 0 8px 0 color-mix(in srgb, var(--ok) 55%, transparent);
   }
+  .send-status-badge.partial {
+    background: var(--warn);
+    border-color: var(--warn);
+    color: #fff;
+    box-shadow: 0 0 8px 0 color-mix(in srgb, var(--warn) 55%, transparent);
+  }
+  .send-status-badge-btn {
+    display: inline-flex;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+  }
+  .send-status-badge-btn:hover .send-status-badge.partial,
+  .send-status-badge-btn[aria-expanded="true"] .send-status-badge.partial {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 35%, transparent);
+  }
+  .send-status-missing-row td {
+    padding: 0;
+    border-top: none;
+  }
+  .send-status-missing-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  }
+  .send-status-missing-label { font-size: 12.5px; font-weight: 600; color: var(--warn); }
+  .send-status-missing-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .send-status-missing-panel li { font-size: 13px; color: var(--text); }
 
   /* tela de Diagnóstico — editar/apagar/cadastrar amostra de e-mail */
   .diagnostics-panel { display: flex; flex-direction: column; gap: 16px; }
@@ -371,6 +409,7 @@
      só 2 — sem isso cada um encolhe pro próprio conteúdo e ficam com
      tamanhos bem diferentes). */
   .diagnostics-table-card { align-self: center; width: 100%; max-width: 1150px; }
+  .diagnostics-samples-card { max-width: 1400px; }
   .diagnostics-table-card h3 { margin: 0; font-size: 1.05rem; }
   .diagnostics-create-fields {
     display: flex;
@@ -422,12 +461,36 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .diagnostics-project-dropdown .month-dropdown-list { width: 100%; min-width: 280px; }
-  .diagnostics-month-dropdown .month-dropdown-list { width: 140px; }
+  /* lista do ProjectSelect abre num portal (document.body) — não é mais
+     descendente de `.diagnostics-project-dropdown` no DOM, por isso a classe
+     própria em vez de escopar pelo ancestral (que só funciona sem portal). */
+  .month-dropdown-list-searchable {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: visible;
+    max-height: none;
+  }
+  .month-dropdown-list-searchable ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    max-height: 260px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
   td .diagnostics-project-dropdown,
   td .diagnostics-month-dropdown { display: inline-block; text-align: left; }
   .diagnostics-table-wrap { justify-content: flex-start; max-height: 420px; overflow-y: auto; }
   .diagnostics-table-wrap .kpi-table { width: 100%; }
+  .diagnostics-pacote-cell {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
   .diagnostics-table-wrap .kpi-table select {
     height: 30px;
     border-radius: 6px;
@@ -752,6 +815,43 @@
     flex: 0 0 auto;
   }
   .send-report-package-option span:first-of-type { flex: 1; font-weight: 500; }
+
+  /* botões de formato Excel/PDF (ícone, sem checkbox visível) — mesmo cartão
+     de .send-report-package-option, mas cada opção fica com a cor própria
+     quando marcada (verde/vermelho) em vez do --accent padrão. */
+  .format-checkboxes { display: flex; align-items: center; gap: 8px; }
+  .format-checkboxes .format-checkbox {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 90px;
+    height: 46px;
+    margin: 0;
+    box-sizing: border-box;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .format-checkbox svg { flex: 0 0 auto; color: var(--text-muted); transition: color 0.15s ease; }
+  .format-checkbox span { line-height: 1; }
+  .format-checkbox.checked svg { color: inherit; }
+  .format-checkbox.excel.checked {
+    border-color: color-mix(in srgb, var(--ok) 55%, var(--border));
+    background: color-mix(in srgb, var(--ok) 12%, var(--surface));
+    color: var(--ok);
+  }
+  .format-checkbox.pdf.checked {
+    border-color: color-mix(in srgb, var(--bad) 55%, var(--border));
+    background: color-mix(in srgb, var(--bad) 12%, var(--surface));
+    color: var(--bad);
+  }
+
   .send-report-one-email {
     display: flex;
     align-items: center;
@@ -1016,7 +1116,8 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
-  .client-dropdown-search {
+  .client-dropdown-search,
+  .month-dropdown-search {
     width: 100%;
     padding: 8px 10px;
     border-radius: 8px;
@@ -1025,6 +1126,7 @@
     color: var(--text);
     font-size: 0.85rem;
     font-family: inherit;
+    box-sizing: border-box;
   }
 
   .client-projects-select {

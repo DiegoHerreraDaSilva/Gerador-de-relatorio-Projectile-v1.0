@@ -19,6 +19,8 @@ import zipfile
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
+from openpyxl.worksheet.protection import hash_password
+
 class NonFiniteValueError(ValueError):
     """Um número (horas/performance) resultou em NaN/±Infinity — normalmente por
     estouro de soma entre valores individualmente válidos. Subclasse de ValueError,
@@ -38,6 +40,14 @@ WORKBOOK_RELS_PART = "xl/_rels/workbook.xml.rels"
 CONTENT_TYPES_PART = "[Content_Types].xml"
 CALC_CHAIN_PART = "xl/calcChain.xml"
 
+# coluna sem nenhum uso visível no template (a última coluna com conteúdo
+# real é L=12) — usada só pra guardar o valor bruto*performance por trás dos
+# panos (ver HIDDEN_HELPER_COL nas células). Marcada `hidden="1"` no XML por
+# `_hide_helper_column`, então fica invisível de verdade (não é só "longe",
+# que ainda aparecia rolando a planilha — foi exatamente esse o bug relatado).
+HIDDEN_HELPER_COL = "N"
+HIDDEN_HELPER_COL_INDEX = 14
+
 GROUP_START_ROW = 15
 # linha (0-index, conforme usado nos anchors do drawing1.xml) a partir da qual
 # ficam as caixas de assinatura no arquivo original; tudo a partir daqui é
@@ -48,17 +58,12 @@ ORIGINAL_LAST_DATA_ROW = 51  # linha da fórmula de performance média no templa
 # estilos (atributo s=) reaproveitados do template original, por papel de célula
 S_GROUP_NAME = 32
 S_GROUP_C = 33
-S_LABEL = 17
 S_FILLER = 6
 S_ACTIVITY_DESC = 9
 S_ACTIVITY_C_FORMULA = 30
-S_ACTIVITY_HOURS = 17
-S_ACTIVITY_PERF = 20
 S_CALC_E = 6
 S_TOTAL_LABEL = 10
 S_TOTAL_VALUE = 14
-S_SUM_E = 21
-S_RATIO_F = 18
 
 
 @dataclass
@@ -127,6 +132,21 @@ def _empty_cell(ref: str, style: int) -> str:
 
 DEFAULT_ROW_HEIGHT = 15
 ACTIVITY_ROW_HEIGHT = 21  # um pouco mais alta para dar respiro acima/abaixo do texto da atividade
+# largura da coluna B (Descritivo de Atividades) no template, em "caracteres"
+# (unidade nativa do Excel para largura de coluna, ver <cols> em
+# xl/worksheets/sheet1.xml). Usada só pra ESTIMAR quantas linhas uma
+# descrição longa vai quebrar (wrap text já vem ligado no estilo da célula
+# do template) — sem isso a linha ficava sempre com altura fixa de uma linha
+# só, e o texto quebrado "vazava" pra fora da borda da célula.
+DESC_COLUMN_WIDTH_CHARS = 150
+
+
+def _estimate_wrapped_lines(text: str, chars_per_line: int = DESC_COLUMN_WIDTH_CHARS) -> int:
+    """Estimativa (não é pixel-perfeito — fonte proporcional, não monoespaçada)
+    de quantas linhas o Excel vai quebrar uma descrição dentro da coluna B."""
+    if not text:
+        return 1
+    return sum(max(1, math.ceil(len(line) / chars_per_line)) for line in text.split("\n"))
 
 
 def _row(number: int, cells: list[str], height: float = DEFAULT_ROW_HEIGHT) -> str:
@@ -229,25 +249,52 @@ def _replace_header_cell(sheet_xml: str, ref: str, style: int, text: str) -> str
     return new_xml
 
 
+def _hide_helper_column(sheet_xml: str) -> str:
+    """Marca HIDDEN_HELPER_COL como `hidden="1"` no `<cols>` do template —
+    ela cai dentro do intervalo genérico `min="13" max="16384"` (colunas sem
+    largura customizada), então precisa ser separada num `<col>` próprio."""
+    idx = HIDDEN_HELPER_COL_INDEX
+    pattern = re.compile(r'<col min="13" max="16384"([^/]*)/>')
+    match = pattern.search(sheet_xml)
+    if not match:
+        raise ValueError("Não encontrei o intervalo de colunas genérico no template.")
+    attrs = match.group(1)
+    replacement = (
+        f'<col min="13" max="{idx - 1}"{attrs}/>'
+        f'<col min="{idx}" max="{idx}"{attrs} hidden="1"/>'
+        f'<col min="{idx + 1}" max="16384"{attrs}/>'
+    )
+    new_xml, count = pattern.subn(replacement, sheet_xml, count=1)
+    if count != 1:
+        raise ValueError("Não encontrei o intervalo de colunas genérico no template.")
+    return new_xml
+
+
 def _add_cells(rows_by_number: dict[int, list[str]], row_number: int, cells: list[str]) -> None:
     rows_by_number.setdefault(row_number, []).extend(cells)
 
 
 def _build_group_rows(
     rows_by_number: dict[int, list[str]], groups: list[GroupInput]
-) -> tuple[list[str], list[str], set[int], int]:
+) -> tuple[list[str], list[str], dict[int, float], int]:
     """Escreve em `rows_by_number` o cabeçalho + atividades de cada grupo, a
     partir de GROUP_START_ROW. Retorna (merges, total_hours_cells,
-    activity_rows, next_row):
+    row_heights, next_row):
     - total_hours_cells: célula C da primeira atividade de cada grupo (a
       fórmula "Total de horas" soma exatamente essas, na mesma ordem);
-    - activity_rows: linhas com texto de atividade, para altura de linha extra;
+    - row_heights: linha -> altura (linhas de atividade ganham
+      ACTIVITY_ROW_HEIGHT, multiplicado pelo nº de linhas estimado que a
+      descrição vai quebrar — ver `_estimate_wrapped_lines` — senão uma
+      descrição longa "vaza" pra fora da borda da célula);
     - next_row: primeira linha livre após o último grupo, onde o chamador
       posiciona a linha de totais.
     """
     merges: list[str] = []
     total_hours_cells: list[str] = []
-    activity_rows: set[int] = set()  # linhas com texto de atividade -> ganham altura extra
+    row_heights: dict[int, float] = {}
+
+    def mark_activity_row(row_number: int, description: str) -> None:
+        row_heights[row_number] = ACTIVITY_ROW_HEIGHT * _estimate_wrapped_lines(description)
 
     def add_cells(row_number: int, cells: list[str]) -> None:
         _add_cells(rows_by_number, row_number, cells)
@@ -272,9 +319,11 @@ def _build_group_rows(
                 _empty_cell(f"C{header_row}", S_GROUP_C),
                 _empty_cell(f"D{header_row}", S_FILLER),
                 # Bruto/Performance não aparecem no relatório final pro cliente —
-                # colunas E/F ficam em branco (ver E{calc_row}/H{calc_row} abaixo).
-                _empty_cell(f"E{header_row}", S_LABEL),
-                _empty_cell(f"F{header_row}", S_LABEL),
+                # colunas E/F ficam em branco (ver HIDDEN_HELPER_COL abaixo).
+                # S_FILLER (sem borda/preenchimento) em vez do estilo original
+                # do template — que tinha borda e deixava uma caixinha vazia visível.
+                _empty_cell(f"E{header_row}", S_FILLER),
+                _empty_cell(f"F{header_row}", S_FILLER),
                 _empty_cell(f"G{header_row}", S_FILLER),
             ],
         )
@@ -290,16 +339,19 @@ def _build_group_rows(
                 first_row,
                 [
                     _inline_str_cell(f"B{first_row}", S_ACTIVITY_DESC, real_activities[0].description),
-                    _formula_cell(f"C{first_row}", S_ACTIVITY_C_FORMULA, f"H{calc_row}"),
+                    _formula_cell(f"C{first_row}", S_ACTIVITY_C_FORMULA, f"{HIDDEN_HELPER_COL}{calc_row}"),
                     _empty_cell(f"D{first_row}", S_FILLER),
                     # Bruto/Performance não aparecem no relatório final pro cliente —
-                    # o valor calculado (bruto * performance) vai pra H{calc_row},
-                    # fora da área visível do relatório (ver mais abaixo).
-                    _empty_cell(f"E{first_row}", S_ACTIVITY_HOURS),
-                    _empty_cell(f"F{first_row}", S_ACTIVITY_PERF),
+                    # o valor calculado (bruto * performance) vai pra
+                    # HIDDEN_HELPER_COL{calc_row} (coluna oculta de verdade, ver
+                    # `_hide_helper_column`). S_FILLER em vez dos estilos originais
+                    # (tinham borda/preenchimento verde).
+                    _empty_cell(f"E{first_row}", S_FILLER),
+                    _empty_cell(f"F{first_row}", S_FILLER),
                     _empty_cell(f"G{first_row}", S_FILLER),
                 ],
             )
+            mark_activity_row(first_row, real_activities[0].description)
 
             calc_desc = other_descriptions[0] if other_descriptions else None
             add_cells(
@@ -311,11 +363,12 @@ def _build_group_rows(
                     _empty_cell(f"E{calc_row}", S_CALC_E),
                     _empty_cell(f"G{calc_row}", S_FILLER),
                     # valor literal (bruto * performance) que C{first_row} referencia —
-                    # fica na coluna H (fora da área do relatório/Bruto removida)
-                    # em vez de aparecer visível numa das colunas B:G.
-                    _number_cell(f"H{calc_row}", S_CALC_E, round(bruto_total * group.performance, 3)),
+                    # fica numa coluna marcada `hidden="1"` no XML (nunca aparece,
+                    # independente de zoom/scroll — ver `_hide_helper_column`).
+                    _number_cell(f"{HIDDEN_HELPER_COL}{calc_row}", S_CALC_E, round(bruto_total * group.performance, 3)),
                 ],
             )
+            mark_activity_row(calc_row, calc_desc or "")
 
             last_row = calc_row
             for description in other_descriptions[1:]:
@@ -330,6 +383,7 @@ def _build_group_rows(
                         _empty_cell(f"G{last_row}", S_FILLER),
                     ],
                 )
+                mark_activity_row(last_row, description)
 
             total_hours_cells.append(f"C{first_row}")
         else:
@@ -346,16 +400,15 @@ def _build_group_rows(
                         _empty_cell(f"G{target_row}", S_FILLER),
                     ],
                 )
+                mark_activity_row(target_row, activity.description)
                 last_row = target_row
 
         if last_row > first_row:
             merges.append(f"C{first_row}:C{last_row}")
 
-        activity_rows.update(range(first_row, last_row + 1))
-
         row = last_row + 2  # uma linha em branco entre grupos
 
-    return merges, total_hours_cells, activity_rows, row
+    return merges, total_hours_cells, row_heights, row
 
 
 def _build_totals_row(
@@ -363,11 +416,16 @@ def _build_totals_row(
     next_row: int,
     month_label: str,
     total_hours_cells: list[str],
+    pacote_scope: str | None = None,
 ) -> int:
     """Escreve a linha "Total de horas {mês}:" (soma das células C de cada
     grupo) e, logo abaixo, uma linha em branco no lugar do antigo resumo
-    Bruto/Performance (não aparece mais no relatório final). Retorna
-    bruto_row — a última linha de dados usada pelo relatório (==
+    Bruto/Performance (não aparece mais no relatório final) — mas com uma
+    marca oculta em HIDDEN_HELPER_COL: vazia significa "este relatório cobre
+    o projeto inteiro", um texto significa "cobre só o pacote de trabalho
+    identificado por esse texto" (usado por email_ingest.read_project_identity
+    pra decidir status "enviado"/"parcial" por projeto, ver management.py).
+    Retorna bruto_row — a última linha de dados usada pelo relatório (==
     last_data_row retornado por _build_groups_xml)."""
     total_row = next_row + 1
     total_value = f"=SUM({','.join(total_hours_cells)})" if total_hours_cells else "0"
@@ -377,8 +435,8 @@ def _build_totals_row(
         [
             _inline_str_cell(f"B{total_row}", S_TOTAL_LABEL, f"Total de horas {month_label}:"),
             _formula_cell(f"C{total_row}", S_TOTAL_VALUE, total_value.lstrip("=")),
-            _empty_cell(f"E{total_row}", S_LABEL),
-            _empty_cell(f"F{total_row}", S_LABEL),
+            _empty_cell(f"E{total_row}", S_FILLER),
+            _empty_cell(f"F{total_row}", S_FILLER),
         ],
     )
 
@@ -387,22 +445,23 @@ def _build_totals_row(
         rows_by_number,
         bruto_row,
         [
-            _empty_cell(f"E{bruto_row}", S_SUM_E),
-            _empty_cell(f"F{bruto_row}", S_RATIO_F),
+            _empty_cell(f"E{bruto_row}", S_FILLER),
+            _empty_cell(f"F{bruto_row}", S_FILLER),
+            _inline_str_cell(f"{HIDDEN_HELPER_COL}{bruto_row}", S_FILLER, pacote_scope or ""),
         ],
     )
     return bruto_row
 
 
-def _build_groups_xml(groups: list[GroupInput], month_label: str):
+def _build_groups_xml(groups: list[GroupInput], month_label: str, pacote_scope: str | None = None):
     """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
     rows_by_number: dict[int, list[str]] = {}
 
-    merges, total_hours_cells, activity_rows, next_row = _build_group_rows(rows_by_number, groups)
-    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells)
+    merges, total_hours_cells, row_heights, next_row = _build_group_rows(rows_by_number, groups)
+    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells, pacote_scope)
 
     rows = [
-        _row(number, cells, height=ACTIVITY_ROW_HEIGHT if number in activity_rows else DEFAULT_ROW_HEIGHT)
+        _row(number, cells, height=row_heights.get(number, DEFAULT_ROW_HEIGHT))
         for number, cells in sorted(rows_by_number.items())
     ]
     return rows, merges, bruto_row
@@ -519,6 +578,7 @@ def generate_report(
     output_path: str,
     chart_image_bar_b64: str | None = None,
     chart_image_pie_b64: str | None = None,
+    pacote_scope: str | None = None,
 ) -> str:
     with zipfile.ZipFile(TEMPLATE_PATH) as zin:
         names = zin.namelist()
@@ -534,23 +594,32 @@ def generate_report(
     # cabeçalho estático da tabela "Week/AK/days/Hours/week" (linha 14, fora da
     # faixa regenerada por _build_groups_xml) — os dados dela não aparecem mais
     # no relatório final, então o cabeçalho também não deve ficar sozinho.
+    # S_FILLER em vez do estilo original (tinha borda — deixava uma caixinha
+    # vazia com grade visível, mesmo sem nenhum texto dentro).
     for ref in ("H14", "I14", "J14", "K14"):
-        sheet_xml = _replace_header_cell(sheet_xml, ref, 23, "")
+        sheet_xml = _replace_header_cell(sheet_xml, ref, S_FILLER, "")
+    # "8" (horas/dia) só existia pra alimentar a fórmula da tabela removida —
+    # sem consumidor nenhum agora, também é sujeira deixada pra trás.
+    sheet_xml = _replace_header_cell(sheet_xml, "K13", S_FILLER, "")
+    sheet_xml = _hide_helper_column(sheet_xml)
 
-    data_rows, group_merges, last_data_row = _build_groups_xml(groups, header.month_label)
+    data_rows, group_merges, last_data_row = _build_groups_xml(groups, header.month_label, pacote_scope)
 
     start = sheet_xml.index(f'<row r="{GROUP_START_ROW}"')
     end = sheet_xml.index("</sheetData>")
     sheet_xml = sheet_xml[:start] + "".join(data_rows) + sheet_xml[end:]
 
-    # relatório final é somente leitura pro destinatário — protege a planilha
-    # sem senha (não é sobre segurança, é pra ninguém alterar hora sem querer
-    # antes de reenviar). Precisa ficar logo após </sheetData> e antes de
-    # <mergeCells>, é a ordem exigida pelo schema do OOXML.
+    # relatório final é somente leitura pro destinatário — protege a planilha,
+    # com senha se REPORT_PROTECTION_PASSWORD estiver configurada no .env
+    # (senão fica protegida mas sem senha, qualquer um desprotege por
+    # Revisão > Desproteger Planilha). Precisa ficar logo após </sheetData> e
+    # antes de <mergeCells>, é a ordem exigida pelo schema do OOXML.
+    protection_password = os.environ.get("REPORT_PROTECTION_PASSWORD", "").strip()
+    password_attr = f' password="{hash_password(protection_password)}"' if protection_password else ""
     sheet_xml = sheet_xml.replace(
         "</sheetData>",
-        '</sheetData><sheetProtection sheet="1" objects="1" scenarios="1" '
-        'selectLockedCells="0" selectUnlockedCells="0"/>',
+        f'</sheetData><sheetProtection sheet="1" objects="1" scenarios="1" '
+        f'selectLockedCells="0" selectUnlockedCells="0"{password_attr}/>',
         1,
     )
 

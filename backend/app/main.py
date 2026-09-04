@@ -50,6 +50,7 @@ from .auth import (
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
 from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, parse_month_label, generate_report
+from .pdf_generator import generate_report_pdf
 from . import email_ingest
 from .management import (
     MANAGEMENT_PANEL_LOGINS,
@@ -454,6 +455,7 @@ async def management_kpis_endpoint(
     cost_centers: list[str] = Query(default=[]),
     clients: list[str] = Query(default=[]),
     projects: list[str] = Query(default=[]),
+    packages: list[str] = Query(default=[]),
     force_refresh: bool = False,
     _user: dict = Depends(require_manager),
 ):
@@ -464,6 +466,7 @@ async def management_kpis_endpoint(
             cost_centers=cost_centers or None,
             clients=clients or None,
             projects=projects or None,
+            packages=packages or None,
             force_refresh=force_refresh,
         )
     except ProjectileDbError as e:
@@ -601,9 +604,9 @@ class HeaderPayload(BaseModel):
     project_name: str
     location_date: str
     month_label: str
-    signer1_name: str = ""
+    signer1_name: str = Field(min_length=1, description="Nome de quem assina pela Schwaben — obrigatório.")
     signer1_company: str = "Schwaben Engineering"
-    signer2_name: str = ""
+    signer2_name: str = Field(min_length=1, description="Nome de quem assina pelo cliente — obrigatório.")
     signer2_company: str = "Mercedes-Benz do Brasil"
 
 
@@ -613,13 +616,18 @@ class ReportPackagePayload(BaseModel):
     file_name: str | None = None
     chart_image_bar: str | None = None
     chart_image_pie: str | None = None
+    # None = relatório cobre o projeto inteiro; texto = cobre só esse pacote
+    # de trabalho — vira uma marca oculta no .xlsx (ver generator.py), lida
+    # de volta por email_ingest.py pra status "enviado"/"parcial" por projeto.
+    pacote_scope: str | None = None
 
 
 class GeneratePayload(BaseModel):
     packages: list[ReportPackagePayload] = Field(min_length=1)
+    formats: list[Literal["xlsx", "pdf"]] = Field(default=["xlsx"], min_length=1)
 
 
-def _build_report(pkg_payload: ReportPackagePayload, output_path: str) -> ReportHeader:
+def _report_groups(pkg_payload: ReportPackagePayload) -> tuple[ReportHeader, list[GroupInput]]:
     header = ReportHeader(**pkg_payload.header.model_dump())
     groups = [
         GroupInput(
@@ -629,35 +637,79 @@ def _build_report(pkg_payload: ReportPackagePayload, output_path: str) -> Report
         )
         for g in pkg_payload.groups
     ]
-    generate_report(
-        header,
-        groups,
-        output_path,
-        chart_image_bar_b64=pkg_payload.chart_image_bar,
-        chart_image_pie_b64=pkg_payload.chart_image_pie,
-    )
+    return header, groups
+
+
+def _build_report(pkg_payload: ReportPackagePayload, output_path: str, fmt: Literal["xlsx", "pdf"] = "xlsx") -> ReportHeader:
+    header, groups = _report_groups(pkg_payload)
+    if fmt == "pdf":
+        generate_report_pdf(
+            header,
+            groups,
+            output_path,
+            chart_image_bar_b64=pkg_payload.chart_image_bar,
+            chart_image_pie_b64=pkg_payload.chart_image_pie,
+            pacote_scope=pkg_payload.pacote_scope,
+        )
+    else:
+        generate_report(
+            header,
+            groups,
+            output_path,
+            chart_image_bar_b64=pkg_payload.chart_image_bar,
+            chart_image_pie_b64=pkg_payload.chart_image_pie,
+            pacote_scope=pkg_payload.pacote_scope,
+        )
     return header
 
 
-def _sanitized_file_name(raw_name: str | None, fallback_header: ReportHeader) -> str:
+_FORMAT_MEDIA_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf": "application/pdf",
+}
+
+
+def _sanitized_file_name(raw_name: str | None, fallback_header: ReportHeader, fmt: Literal["xlsx", "pdf"] = "xlsx") -> str:
+    ext = f".{fmt}"
     if raw_name and raw_name.strip():
         stem = re.sub(r'[\\/:*?"<>|]', "-", raw_name.strip())
-        if stem.lower().endswith(".xlsx"):
-            stem = stem[: -len(".xlsx")]
+        if stem.lower().endswith((".xlsx", ".pdf")):
+            stem = stem.rsplit(".", 1)[0]
         stem = stem.strip(". ")
         if stem:
-            return f"{stem}.xlsx"
-    return _build_download_name(fallback_header.month_label, fallback_header.project_name)
+            return f"{stem}{ext}"
+    stem = _build_download_name(fallback_header.month_label, fallback_header.project_name)
+    if stem.lower().endswith(".xlsx"):
+        stem = stem[: -len(".xlsx")]
+    return f"{stem}{ext}"
+
+
+def _dedupe_name(name: str, used: set[str]) -> str:
+    """Sufixa " (n)" antes da extensão se `name` já estiver em `used` —
+    compara o nome final COM extensão, então "Relatório.xlsx" e
+    "Relatório.pdf" nunca colidem entre si, só duplicatas de verdade."""
+    if name not in used:
+        return name
+    stem, _, ext = name.rpartition(".")
+    suffix = 0
+    candidate = name
+    while candidate in used:
+        suffix += 1
+        candidate = f"{stem} ({suffix}).{ext}"
+    return candidate
 
 
 @app.post("/generate")
 async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(require_session)):
-    # Modo "relatório único": só 1 pacote no payload — devolve o .xlsx direto,
-    # sem zipar, mantendo o comportamento original do app.
-    if len(payload.packages) == 1:
-        output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.xlsx")
+    formats = payload.formats
+    # Só 1 pacote E 1 formato no payload — devolve o arquivo direto, sem
+    # zipar, mantendo o comportamento original do app. Qualquer outra
+    # combinação (mais pacotes e/ou mais formatos) zipa tudo junto.
+    if len(payload.packages) == 1 and len(formats) == 1:
+        fmt = formats[0]
+        output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
         try:
-            header = _build_report(payload.packages[0], output_path)
+            header = _build_report(payload.packages[0], output_path, fmt)
         except NonFiniteValueError as e:
             # Um valor individualmente válido (finito, >= 0) ainda pode virar
             # infinito ao ser somado com outro (ex: duas horas enormes que juntas
@@ -672,41 +724,31 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
             if os.path.exists(output_path):
                 os.remove(output_path)
             raise
-        download_name = _sanitized_file_name(payload.packages[0].file_name, header)
+        download_name = _sanitized_file_name(payload.packages[0].file_name, header, fmt)
         return FileResponse(
             output_path,
             filename=download_name,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            media_type=_FORMAT_MEDIA_TYPES[fmt],
             background=BackgroundTask(os.remove, output_path),
         )
 
-    # Modo "múltiplos relatórios": um .xlsx por pacote de trabalho, zipados juntos.
+    # Um arquivo por (pacote, formato) escolhido, zipados juntos.
     zip_path = os.path.join(OUTPUT_DIR, f"relatorios_{uuid.uuid4().hex}.zip")
     used_arcnames: set[str] = set()
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for pkg_payload in payload.packages:
-                tmp_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.xlsx")
-                try:
-                    header = _build_report(pkg_payload, tmp_path)
-
-                    download_name = _sanitized_file_name(pkg_payload.file_name, header)
-                    # Deduplica contra o nome FINAL já usado (não só o nome-base antes do
-                    # sufixo "(n)") — senão um nome legítimo que coincida com um nome já
-                    # sufixado de outro pacote sobrescreve silenciosamente esse relatório
-                    # dentro do zip.
-                    final_name = download_name
-                    suffix = 0
-                    while final_name in used_arcnames:
-                        suffix += 1
-                        stem = download_name[: -len(".xlsx")]
-                        final_name = f"{stem} ({suffix}).xlsx"
-                    used_arcnames.add(final_name)
-
-                    zf.write(tmp_path, arcname=final_name)
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
+                for fmt in formats:
+                    tmp_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
+                    try:
+                        header = _build_report(pkg_payload, tmp_path, fmt)
+                        download_name = _sanitized_file_name(pkg_payload.file_name, header, fmt)
+                        final_name = _dedupe_name(download_name, used_arcnames)
+                        used_arcnames.add(final_name)
+                        zf.write(tmp_path, arcname=final_name)
+                    finally:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
     except NonFiniteValueError as e:
         if os.path.exists(zip_path):
             os.remove(zip_path)
@@ -732,17 +774,21 @@ class SendReportPayload(BaseModel):
     to: str
     subject: str = Field(min_length=1, max_length=200)
     message: str = Field(default="", max_length=5000)
+    formats: list[Literal["xlsx", "pdf"]] = Field(default=["xlsx"], min_length=1)
 
 
 @app.post("/send-report")
 async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends(require_session)):
-    """Gera 1 ou mais relatórios (mesmo caminho de `/generate` em modo
-    "relatório único", um `.xlsx` por pacote) e manda TUDO num único e-mail
-    via Microsoft Graph, "como" o usuário logado, sempre com a caixa do
-    agente em cópia — cada pacote vira seu próprio anexo `.xlsx` dentro do
-    mesmo e-mail (nunca zipado). Pra mandar pacotes diferentes em e-mails
-    separados, o frontend chama esse endpoint uma vez por pacote (uma lista
-    de 1 item cada vez)."""
+    """Gera 1 ou mais relatórios (mesmo caminho de `/generate`, um arquivo
+    por `(pacote, formato)` escolhido) e manda TUDO num único e-mail via
+    Microsoft Graph, "como" o usuário logado, sempre com a caixa do agente
+    em cópia — cada arquivo vira seu próprio anexo dentro do mesmo e-mail
+    (nunca zipado). Pra mandar pacotes diferentes em e-mails separados, o
+    frontend chama esse endpoint uma vez por pacote (uma lista de 1 item
+    cada vez). Tanto `.xlsx` quanto `.pdf` são capturados pela automação de
+    Horas Faturadas/KPI (`email_ingest.resolve_total_hours` pro `.xlsx`,
+    `email_ingest.read_pdf_report_data` pro `.pdf`, que lê metadado gravado
+    em `pdf_generator.py` em vez de célula/fórmula)."""
     sender_email = (_user.get("email") or "").strip()
     if not sender_email:
         raise HTTPException(
@@ -757,22 +803,17 @@ async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends
         attachments: list[tuple[str, bytes]] = []
         used_names: set[str] = set()
         for pkg_payload in payload.packages:
-            output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.xlsx")
-            output_paths.append(output_path)
-            header = _build_report(pkg_payload, output_path)
-            download_name = _sanitized_file_name(pkg_payload.file_name, header)
-            # mesma dedupe de nome que /generate usa no modo zip — dois
-            # pacotes com o mesmo nome final não podem virar dois anexos
-            # com o nome idêntico no mesmo e-mail.
-            final_name = download_name
-            suffix = 0
-            while final_name in used_names:
-                suffix += 1
-                stem = download_name[: -len(".xlsx")]
-                final_name = f"{stem} ({suffix}).xlsx"
-            used_names.add(final_name)
-            with open(output_path, "rb") as f:
-                attachments.append((final_name, f.read()))
+            for fmt in payload.formats:
+                output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
+                output_paths.append(output_path)
+                header = _build_report(pkg_payload, output_path, fmt)
+                download_name = _sanitized_file_name(pkg_payload.file_name, header, fmt)
+                # mesma dedupe de nome que /generate usa no modo zip — dois
+                # anexos não podem ter o mesmo nome final no mesmo e-mail.
+                final_name = _dedupe_name(download_name, used_names)
+                used_names.add(final_name)
+                with open(output_path, "rb") as f:
+                    attachments.append((final_name, f.read()))
 
         email_ingest.send_report_email(
             sender_email=sender_email,

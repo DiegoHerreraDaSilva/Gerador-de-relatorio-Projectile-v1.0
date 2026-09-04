@@ -12,7 +12,7 @@ import re
 import pytest
 from openpyxl import load_workbook
 
-from backend.app.generator import ActivityInput, GroupInput
+from backend.app.generator import ActivityInput, GroupInput, HIDDEN_HELPER_COL
 
 from .helpers import make_report
 
@@ -121,3 +121,32 @@ def test_header_cells_contain_exact_project_code_and_name(report_path):
 
     assert ws["B8"].value == "1546.6.4"
     assert ws["C9"].value == "Sangam - Cabina Bruta"
+
+
+def test_pacote_scope_marker_is_empty_by_default(tmp_path):
+    """Sem `pacote_scope`, o relatório cobre o projeto inteiro — a marca
+    oculta (logo abaixo do "Total de horas ...:", ver `_build_totals_row`)
+    deve ficar vazia."""
+    groups = [GroupInput(name="Grupo A", performance=1.0, activities=[ActivityInput("Ativ 1", 10.0)])]
+    path = make_report(tmp_path, groups=groups)
+    wb = load_workbook(path, data_only=False)
+    ws = wb.active
+
+    label_cell = _find_total_label_cell(ws)
+    marker_cell = ws[f"{HIDDEN_HELPER_COL}{label_cell.row + 1}"]
+    assert marker_cell.value in (None, "")
+
+
+def test_pacote_scope_marker_carries_pacote_text(tmp_path):
+    """Com `pacote_scope`, a marca oculta guarda o texto do pacote coberto —
+    é isso que `email_ingest.read_pacote_scope` lê de volta pra impedir que
+    um relatório de 1 pacote marque o projeto inteiro como enviado."""
+    groups = [GroupInput(name="Grupo A", performance=1.0, activities=[ActivityInput("Ativ 1", 10.0)])]
+    pacote_text = "1546.6.4-002 Legislation Package - Sangam - Cabina Bruta - 07.2026"
+    path = make_report(tmp_path, groups=groups, pacote_scope=pacote_text)
+    wb = load_workbook(path, data_only=False)
+    ws = wb.active
+
+    label_cell = _find_total_label_cell(ws)
+    marker_cell = ws[f"{HIDDEN_HELPER_COL}{label_cell.row + 1}"]
+    assert marker_cell.value == pacote_text

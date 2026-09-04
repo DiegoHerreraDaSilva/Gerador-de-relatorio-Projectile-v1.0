@@ -9,12 +9,14 @@ function SingleSelectDropdown({
   value,
   labelFor,
   onChange,
+  className,
 }: {
   label: string;
   options: string[];
   value: string;
   labelFor: (opt: string) => string;
   onChange: (value: string) => void;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -22,7 +24,7 @@ function SingleSelectDropdown({
   useClickOutside(wrapRef, () => setOpen(false), open);
 
   return (
-    <div className="mgmt-filter">
+    <div className={`mgmt-filter ${className ?? ""}`}>
       <span className="mgmt-filter-label">{label}</span>
       <div className="month-dropdown" ref={wrapRef}>
         <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
@@ -58,12 +60,14 @@ function MultiSelectDropdown({
   selected,
   onChange,
   labelFor = (opt) => opt,
+  className,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (values: string[]) => void;
   labelFor?: (opt: string) => string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -82,7 +86,7 @@ function MultiSelectDropdown({
       : `${selected.length} selecionados`;
 
   return (
-    <div className="mgmt-filter">
+    <div className={`mgmt-filter ${className ?? ""}`}>
       <span className="mgmt-filter-label">{label}</span>
       <div className="month-dropdown" ref={wrapRef}>
         <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
@@ -116,15 +120,20 @@ const YEAR_OPTIONS = [
   ...Array.from({ length: CURRENT_YEAR - EARLIEST_DATA_YEAR + 1 }, (_, i) => String(CURRENT_YEAR - i)),
 ];
 
-export function ManagementFilters({ showCostCenter = true }: { showCostCenter?: boolean } = {}) {
+export function ManagementFilters({
+  showCostCenter = true,
+  showPackage = true,
+}: { showCostCenter?: boolean; showPackage?: boolean } = {}) {
   const rows = useManagementStore((s) => s.rows);
   const period = useManagementStore((s) => s.period);
   const selectedMonths = useManagementStore((s) => s.selectedMonths);
   const costCenters = useManagementStore((s) => s.costCenters);
   const clients = useManagementStore((s) => s.clients);
   const projects = useManagementStore((s) => s.projects);
+  const packages = useManagementStore((s) => s.packages);
   const availableClients = useManagementStore((s) => s.availableClients);
   const availableProjects = useManagementStore((s) => s.availableProjects);
+  const availablePackages = useManagementStore((s) => s.availablePackages);
   const projectCodes = useManagementStore((s) => s.projectCodes);
   const projectClients = useManagementStore((s) => s.projectClients);
   const setPeriod = useManagementStore((s) => s.setPeriod);
@@ -132,6 +141,7 @@ export function ManagementFilters({ showCostCenter = true }: { showCostCenter?: 
   const setCostCenters = useManagementStore((s) => s.setCostCenters);
   const setClients = useManagementStore((s) => s.setClients);
   const setProjects = useManagementStore((s) => s.setProjects);
+  const setPackages = useManagementStore((s) => s.setPackages);
   const resetFilters = useManagementStore((s) => s.resetFilters);
 
   const monthOptions = (rows ?? []).map((r) => r.month);
@@ -150,7 +160,8 @@ export function ManagementFilters({ showCostCenter = true }: { showCostCenter?: 
     selectedMonths.length > 0 ||
     costCenters.length !== ALL_COST_CENTERS.length ||
     clients.length > 0 ||
-    projects.length > 0;
+    projects.length > 0 ||
+    packages.length > 0;
 
   return (
     <aside className="management-filters">
@@ -160,18 +171,48 @@ export function ManagementFilters({ showCostCenter = true }: { showCostCenter?: 
         value={period}
         labelFor={(opt) => (opt === ROLLING_PERIOD ? "Últimos 12 meses" : opt)}
         onChange={setPeriod}
+        className="mgmt-filter-narrow"
       />
-      <MultiSelectDropdown label="Competência" options={monthOptions} selected={selectedMonths} onChange={setSelectedMonths} />
+      <MultiSelectDropdown
+        label="Competência"
+        options={monthOptions}
+        selected={selectedMonths}
+        onChange={setSelectedMonths}
+        className="mgmt-filter-narrow"
+      />
       {showCostCenter && (
         <MultiSelectDropdown
           label="Centro de Custo"
           options={ALL_COST_CENTERS}
           selected={costCenters}
           onChange={(values) => setCostCenters(values.length === 0 ? ALL_COST_CENTERS : values)}
+          className="mgmt-filter-narrow"
         />
       )}
-      <MultiSelectDropdown label="Cliente" options={availableClients} selected={clients} onChange={setClients} />
-      <MultiSelectDropdown label="Projeto" options={projectOptions} selected={projects} onChange={setProjects} labelFor={projectLabel} />
+      <MultiSelectDropdown
+        label="Cliente"
+        options={availableClients}
+        selected={clients}
+        onChange={setClients}
+        className="mgmt-filter-wide"
+      />
+      <MultiSelectDropdown
+        label="Projeto"
+        options={projectOptions}
+        selected={projects}
+        onChange={setProjects}
+        labelFor={projectLabel}
+        className="mgmt-filter-wider"
+      />
+      {showPackage && (
+        <MultiSelectDropdown
+          label="Pacote de Trabalho"
+          options={availablePackages}
+          selected={packages}
+          onChange={setPackages}
+          className="mgmt-filter-wider"
+        />
+      )}
       <button
         type="button"
         className="mgmt-filter-reset"

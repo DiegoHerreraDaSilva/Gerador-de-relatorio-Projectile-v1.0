@@ -205,6 +205,10 @@ export const useReportStore = create<StoreState>()(
         s.hasGeneratedOnce = false;
         s.isSplit = false;
         s.paneBPackageId = null;
+        // nome de quem assina não pode vir de um relatório anterior — cada
+        // carregamento novo (arquivo ou banco) exige preencher de novo.
+        s.header.signer1Name = "";
+        s.header.signer2Name = "";
       }),
     setActivePackageId: (id) =>
       set((s) => {

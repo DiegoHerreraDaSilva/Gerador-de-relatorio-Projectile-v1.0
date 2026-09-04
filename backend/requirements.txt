@@ -10,3 +10,5 @@ keyring==25.7.0
 pymysql==1.2.0
 msal==1.31.0
 requests==2.32.3
+reportlab==5.0.1
+pypdf==6.16.2

@@ -285,7 +285,12 @@ export function FileUpload() {
     useReportStore.getState().setReportMode(mode);
   };
 
-  const applyParseResponse = (data: ParseResponse) => {
+  // `isPacoteMode` diz se cada pacote resultante representa só 1 pacote de
+  // trabalho (true, "Múltiplos relatórios"/"Por pacote de trabalho") ou o
+  // projeto/coleção inteira (false, "Relatório único"/"Por projeto") — vira
+  // a marca oculta (`pacoteScope`) que impede o Painel de Gerência de marcar
+  // o projeto inteiro como "Enviado" a partir de um relatório de 1 pacote só.
+  const applyParseResponse = (data: ParseResponse, isPacoteMode: boolean) => {
     if (data.packages.length === 0) {
       setStatus("Não encontrei grupos de atividades. Confira o aviso acima (se houver).");
       setPackages([], null);
@@ -309,6 +314,7 @@ export function FileUpload() {
       fileNameEdited: false,
       chartBar: false,
       chartPie: false,
+      pacoteScope: isPacoteMode ? p.key : null,
     }));
     pkgs.forEach((pkg) => {
       pkg.collapsedGroupIds = new Set(pkg.groups.map((g) => g.id));
@@ -339,7 +345,7 @@ export function FileUpload() {
       const res = await fetch("/parse", { method: "POST", body: formData });
       if (!res.ok) throw new Error(await res.text());
       const data: ParseResponse = await res.json();
-      applyParseResponse(data);
+      applyParseResponse(data, reportMode === "multi");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus("Erro ao analisar: " + msg);
@@ -372,7 +378,7 @@ export function FileUpload() {
         throw new Error((data && (data as any).detail) || (await res.text().catch(() => "")) || `Erro ${res.status}`);
       }
       const data: ParseResponse = await res.json();
-      applyParseResponse(data);
+      applyParseResponse(data, clientReportMode === "pacote");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus("Erro ao buscar: " + msg);
@@ -395,7 +401,7 @@ export function FileUpload() {
         throw new Error((data && (data as any).detail) || (await res.text().catch(() => "")) || `Erro ${res.status}`);
       }
       const data: ParseResponse = await res.json();
-      applyParseResponse(data);
+      applyParseResponse(data, reportMode === "multi");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus("Erro ao buscar: " + msg);

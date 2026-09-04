@@ -1,0 +1,117 @@
+name: CI/CD
+
+# Roda testes (backend + frontend) em todo push/PR; faz deploy pro servidor
+# só quando os testes passam E o push foi direto em main (nunca em PR, nunca
+# se algum teste falhar — `needs:` abaixo garante essa ordem).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Rodar pytest
+        run: python -m pytest backend/tests/ -v
+
+  frontend-build:
+    name: Frontend (vitest + typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: frontend
+        run: npm ci
+
+      - name: Rodar testes (vitest)
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build (tsc -b && vite build)
+        working-directory: frontend
+        run: npm run build
+
+      # `dist/` alimenta o job de deploy abaixo (o backend serve esses
+      # arquivos estáticos em produção — ver NoCacheStaticFiles em
+      # backend/app/main.py). Empacota aqui pra não precisar rebuildar
+      # de novo no servidor Windows (que pode não ter Node instalado).
+      - name: Publicar frontend/dist como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  deploy:
+    name: Deploy (servidor Windows)
+    needs: [backend-tests, frontend-build]
+    # `secrets.DEPLOY_HOST != ''` faz esse job ser PULADO (não falhar em
+    # vermelho) enquanto os secrets do servidor ainda não foram cadastrados —
+    # ver README "CI/CD (GitHub Actions)". Remova essa condição extra se
+    # quiser que falhe alto quando um secret estiver faltando.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DEPLOY_HOST != ''
+    runs-on: ubuntu-latest
+    env:
+      # TODO: preencher com os valores reais do servidor antes de habilitar
+      # o deploy de verdade (ver comentário mais abaixo sobre como testar
+      # sem risco enquanto isso não é preenchido).
+      DEPLOY_PATH: 'C:\apps\relatorio-horas'   # pasta no servidor com o checkout do repo
+      SERVICE_NAME: 'RelatorioHoras'            # nome do serviço Windows (nssm) que roda o uvicorn
+    steps:
+      - name: Baixar frontend/dist já buildado
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      # Copia o frontend/dist pro servidor via SCP (evita depender de Node
+      # instalado no Windows só pra rebuildar o que a CI já buildou).
+      - name: Copiar frontend/dist pro servidor
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          source: "frontend-dist/*"
+          target: "${{ env.DEPLOY_PATH }}\\frontend\\dist"
+          strip_components: 1
+
+      # Atualiza o código do backend (git pull), reinstala dependências
+      # Python e reinicia o serviço via nssm. Ajuste os comandos abaixo se o
+      # servidor não tiver `git`/`nssm` no PATH, ou se o deploy real não usar
+      # git pull (ex: um passo de rsync/robocopy separado).
+      - name: Atualizar backend e reiniciar o serviço
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            cd "${{ env.DEPLOY_PATH }}"
+            git fetch origin main
+            git reset --hard origin/main
+            pip install -r backend\requirements.txt
+            nssm restart "${{ env.SERVICE_NAME }}"

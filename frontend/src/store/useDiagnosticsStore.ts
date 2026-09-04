@@ -11,6 +11,9 @@ export type Sample = {
   business_days: number;
   source: "email" | "manual";
   edited: boolean;
+  // null = amostra cobre o projeto inteiro; string = cobre só esse pacote de
+  // trabalho (lido da marca oculta do .xlsx, ver generator.py/email_ingest.py).
+  pacote_scope: string | null;
 };
 
 export type SkippedMessage = { message_id: string; received_at: string; reason: string };

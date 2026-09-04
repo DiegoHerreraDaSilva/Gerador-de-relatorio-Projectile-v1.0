@@ -5,6 +5,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useReportStore } from "../store/useReportStore";
 import { computeDefaultFileNameFor } from "../utils/fileName";
 import { drawGroupsChart } from "../utils/chart";
+import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
 import type { WorkPackage, ReportHeader } from "../api/types";
 
 function chartPng(groups: WorkPackage["groups"], type: "bar" | "pie"): string {
@@ -22,6 +23,7 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set(packages.length === 1 ? [packages[0].id] : []));
   const [oneEmail, setOneEmail] = useState(true);
+  const [formats, setFormats] = useState<Set<ReportFormat>>(() => new Set(["xlsx"]));
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -76,6 +78,7 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
     file_name: packages.length > 1 ? (pkg.fileNameEdited ? pkg.fileName : computeDefaultFileNameFor(pkg, h.monthLabel)) : undefined,
     chart_image_bar: pkg.chartBar ? chartPng(pkg.groups, "bar") : undefined,
     chart_image_pie: pkg.chartPie ? chartPng(pkg.groups, "pie") : undefined,
+    pacote_scope: pkg.pacoteScope,
   });
 
   const sendOne = async (pkgs: WorkPackage[]) => {
@@ -87,6 +90,7 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
         to: to.trim(),
         subject,
         message,
+        formats: Array.from(formats),
       }),
     });
     if (!res.ok) {
@@ -102,6 +106,10 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
     const missingCode = selectedPkgs.find((pkg) => !pkg.projectCode.trim());
     if (missingCode) {
       setBatchError(`Preencha o número do relatório (SE.XX.XXX) de "${missingCode.projectName}" antes de enviar.`);
+      return;
+    }
+    if (!header.signer1Name.trim() || !header.signer2Name.trim()) {
+      setBatchError("Preencha o nome de quem assina (Schwaben e cliente) antes de enviar.");
       return;
     }
 
@@ -204,6 +212,11 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
             <span>Enviar tudo num só e-mail (cada relatório vira um anexo separado, sem zip)</span>
           </label>
         )}
+
+        <label className="send-report-field">
+          <span>Formato</span>
+          <FormatCheckboxes value={formats} onChange={setFormats} disabled={sending} />
+        </label>
 
         <label className="send-report-field">
           <span>Destinatário</span>

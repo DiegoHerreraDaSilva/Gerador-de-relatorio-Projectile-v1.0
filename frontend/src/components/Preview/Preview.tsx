@@ -188,7 +188,7 @@ export function Preview() {
                 >
                   {packages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id} disabled={pkg.id === secondaryPaneId}>
-                      {pkg.key}
+                      {pkg.projectName || pkg.key}
                     </option>
                   ))}
                 </select>
@@ -214,7 +214,7 @@ export function Preview() {
                 >
                   {packages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id} disabled={pkg.id === primaryPaneId}>
-                      {pkg.key}
+                      {pkg.projectName || pkg.key}
                     </option>
                   ))}
                 </select>

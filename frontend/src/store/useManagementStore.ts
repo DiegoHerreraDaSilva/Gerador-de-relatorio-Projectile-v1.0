@@ -21,12 +21,17 @@ export type NonbillablePackageRow = {
   hours: number;
 };
 
+export type ProjectSendStatus = "sent" | "partial" | "none";
+
 export type ProjectSendStatusRow = {
   month: string;
   project_id: string;
   project_name: string;
   client: string;
-  sent: boolean;
+  status: ProjectSendStatus;
+  // pacotes de trabalho com hora naquele mês que ainda não foram enviados —
+  // só preenchido quando status === "partial", pro tooltip do badge.
+  missing_pacotes: string[];
 };
 
 type KpisResponse = {
@@ -34,6 +39,7 @@ type KpisResponse = {
   cost_centers: string[];
   available_projects: string[];
   available_clients: string[];
+  available_packages: string[];
   project_codes: Record<string, string>;
   project_clients: Record<string, string>;
   nonbillable_breakdown: NonbillablePackageRow[];
@@ -51,6 +57,7 @@ interface ManagementState {
   projectSendStatus: ProjectSendStatusRow[];
   availableProjects: string[];
   availableClients: string[];
+  availablePackages: string[];
   // nome do projeto -> código (prefixo do pacote de trabalho, ex: "1564" em
   // "1564.1.1-001 MBB_CAD_ACCELO..."), só pra prefixar a opção no dropdown
   // de Projeto — o Projectile não tem coluna de código separada.
@@ -77,6 +84,7 @@ interface ManagementState {
   costCenters: string[];
   clients: string[];
   projects: string[];
+  packages: string[];
 
   // busca os dados só na primeira vez que o painel é aberto — trocar de volta
   // pra "Geração de Relatório" e voltar não deve refazer a requisição, já que
@@ -92,6 +100,7 @@ interface ManagementState {
   setCostCenters: (costCenters: string[]) => void;
   setClients: (clients: string[]) => void;
   setProjects: (projects: string[]) => void;
+  setPackages: (packages: string[]) => void;
   setPeriod: (period: string) => void;
   resetFilters: () => void;
 }
@@ -101,7 +110,7 @@ export function round2(n: number): number {
 }
 
 function buildQuery(
-  state: Pick<ManagementState, "period" | "costCenters" | "clients" | "projects">,
+  state: Pick<ManagementState, "period" | "costCenters" | "clients" | "projects" | "packages">,
   bypassBackendCache: boolean
 ): string {
   const params = new URLSearchParams({ months: "12" });
@@ -109,6 +118,7 @@ function buildQuery(
   state.costCenters.forEach((c) => params.append("cost_centers", c));
   state.clients.forEach((c) => params.append("clients", c));
   state.projects.forEach((p) => params.append("projects", p));
+  state.packages.forEach((p) => params.append("packages", p));
   if (bypassBackendCache) params.set("force_refresh", "true");
   return params.toString();
 }
@@ -119,6 +129,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   projectSendStatus: [],
   availableProjects: [],
   availableClients: [],
+  availablePackages: [],
   projectCodes: {},
   projectClients: {},
   error: "",
@@ -132,6 +143,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   costCenters: ALL_COST_CENTERS,
   clients: [],
   projects: [],
+  packages: [],
 
   load: async (force = false, bypassBackendCache = false) => {
     if (get().loaded && !force) return;
@@ -153,6 +165,14 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
         rows: data.months,
         nonbillableBreakdown: data.nonbillable_breakdown,
         projectSendStatus: data.project_send_status,
+        // Pacote de Trabalho é filtrado pelos outros filtros (Cliente/Projeto/
+        // Centro de Custo) — atualiza a cada busca, ao contrário de
+        // Cliente/Projeto abaixo (que travam na 1ª busca pra não sumir opção
+        // do próprio dropdown que os filtra). Pacote(s) já selecionado(s) que
+        // saíram do novo recorte também saem da seleção, senão o filtro
+        // continuaria aplicado escondido, sem bater com nada.
+        availablePackages: data.available_packages,
+        packages: get().packages.filter((p) => data.available_packages.includes(p)),
         // só grava as opções na 1ª vez (ver `_optionsCaptured`) — buscas
         // seguintes (com filtro aplicado) trazem um recorte menor, que não
         // deve substituir a lista cheia já mostrada nos dropdowns.
@@ -209,6 +229,10 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
     set({ projects });
     get().load(true);
   },
+  setPackages: (packages) => {
+    set({ packages });
+    get().load(true);
+  },
   setPeriod: (period) => {
     // muda o conjunto de meses inteiro — uma seleção de Competência antiga
     // (do período anterior) não bate com os meses novos e deixaria a tela
@@ -223,6 +247,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
       costCenters: ALL_COST_CENTERS,
       clients: [],
       projects: [],
+      packages: [],
     });
     get().load(true);
   },

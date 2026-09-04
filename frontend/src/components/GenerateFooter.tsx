@@ -6,6 +6,7 @@ import { fmtNum } from "../utils/fmt";
 import { computeDefaultFileName, computeDefaultFileNameFor } from "../utils/fileName";
 import { drawGroupsChart } from "../utils/chart";
 import { SendReportModal } from "./SendReportModal";
+import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
 import type { WorkPackage } from "../api/types";
 
 function chartPng(groups: WorkPackage["groups"], type: "bar" | "pie"): string {
@@ -23,6 +24,7 @@ export function GenerateFooter() {
   const setHasGeneratedOnce = useReportStore((s) => s.setHasGeneratedOnce);
   const [status, setStatus] = useState("");
   const [showSendModal, setShowSendModal] = useState(false);
+  const [formats, setFormats] = useState<Set<ReportFormat>>(() => new Set(["xlsx"]));
 
   if (packages.length === 0) return null;
 
@@ -36,6 +38,10 @@ export function GenerateFooter() {
     const missingCode = packages.find((pkg) => !pkg.projectCode.trim());
     if (missingCode) {
       setStatus(`Preencha o número do relatório (SE.XX.XXX) de "${missingCode.projectName}" antes de gerar.`);
+      return;
+    }
+    if (!header.signer1Name.trim() || !header.signer2Name.trim()) {
+      setStatus("Preencha o nome de quem assina (Schwaben e cliente) antes de gerar.");
       return;
     }
 
@@ -59,7 +65,9 @@ export function GenerateFooter() {
         file_name: packages.length > 1 ? (pkg.fileNameEdited ? pkg.fileName : computeDefaultFileNameFor(pkg, header.monthLabel)) : undefined,
         chart_image_bar: pkg.chartBar ? chartPng(pkg.groups, "bar") : undefined,
         chart_image_pie: pkg.chartPie ? chartPng(pkg.groups, "pie") : undefined,
+        pacote_scope: pkg.pacoteScope,
       })),
+      formats: Array.from(formats),
     };
 
     setStatus("Gerando...");
@@ -72,10 +80,11 @@ export function GenerateFooter() {
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const isZip = packages.length !== 1;
+      const isZip = packages.length !== 1 || formats.size !== 1;
       let outName = (displayFileName || defaultName).trim();
-      const wantedExt = isZip ? ".zip" : ".xlsx";
-      if (!outName.toLowerCase().endsWith(wantedExt)) outName += wantedExt;
+      outName = outName.replace(/\.(xlsx|pdf|zip)$/i, "");
+      const wantedExt = isZip ? ".zip" : `.${Array.from(formats)[0]}`;
+      outName += wantedExt;
       const a = document.createElement("a");
       a.href = url;
       a.download = outName;
@@ -97,6 +106,7 @@ export function GenerateFooter() {
   // If not edited, we show default but store still holds old edited=false value
   // Ensure input reflects correct value: when not edited, we show default
   const inputValue = fileNameEdited ? fileName : defaultName;
+  const isZipOutput = packages.length > 1 || formats.size > 1;
 
   return (
     <div className="generate-footer visible" id="generateSection">
@@ -113,11 +123,12 @@ export function GenerateFooter() {
               </>
             )}
           </div>
+          <FormatCheckboxes value={formats} onChange={setFormats} />
           <button className="primary" onClick={handleGenerate}>
             Gerar relatório final
           </button>
           <div className="filename-field">
-            <label>{packages.length > 1 ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
+            <label>{isZipOutput ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
             <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
           </div>
         </div>

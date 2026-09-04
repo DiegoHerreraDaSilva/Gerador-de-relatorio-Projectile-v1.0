@@ -19,14 +19,17 @@ from openpyxl import Workbook
 
 from backend.app.email_ingest import (
     EmailIngestError,
+    _dedupe_by_stem,
     compute_business_days_elapsed,
     match_project,
+    read_pacote_scope,
+    read_pdf_report_data,
     read_project_identity,
     resolve_total_hours,
 )
 from backend.app.generator import ActivityInput, GroupInput
 
-from .helpers import make_report
+from .helpers import make_report, make_report_pdf
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +160,120 @@ def test_read_project_identity_matches_header_written_by_generator(tmp_path):
 
     assert project_code == "1546.6.4"
     assert project_name == "Sangam - Cabina Bruta"
+
+
+# ---------------------------------------------------------------------------
+# read_pacote_scope
+# ---------------------------------------------------------------------------
+
+def test_read_pacote_scope_none_by_default(tmp_path):
+    """Sem `pacote_scope` na geração, o relatório cobre o projeto inteiro —
+    `read_pacote_scope` devolve None."""
+    groups = [GroupInput(name="Grupo", performance=1.0, activities=[ActivityInput("Ativ", 1.0)])]
+    path = make_report(tmp_path, groups=groups)
+
+    assert read_pacote_scope(path) is None
+
+
+def test_read_pacote_scope_matches_marker_written_by_generator(tmp_path):
+    groups = [GroupInput(name="Grupo", performance=1.0, activities=[ActivityInput("Ativ", 1.0)])]
+    pacote_text = "1546.6.4-002 Legislation Package - Sangam - Cabina Bruta - 07.2026"
+    path = make_report(tmp_path, groups=groups, pacote_scope=pacote_text)
+
+    assert read_pacote_scope(path) == pacote_text
+
+
+# ---------------------------------------------------------------------------
+# read_pdf_report_data — equivalente pro .pdf de resolve_total_hours +
+# read_project_identity + read_pacote_scope juntos (sem fórmula/célula, o
+# .pdf carrega tudo isso como metadado, ver pdf_generator._embed_report_metadata)
+# ---------------------------------------------------------------------------
+
+def test_read_pdf_report_data_matches_metadata_written_by_generator(tmp_path):
+    groups = [
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)]),
+        GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
+    ]
+    pdf_path = make_report_pdf(
+        tmp_path,
+        project_code="1546.6.4",
+        project_name="Sangam - Cabina Bruta",
+        month_label="Julho/2026",
+        groups=groups,
+    )
+
+    data = read_pdf_report_data(pdf_path)
+
+    assert data["project_code"] == "1546.6.4"
+    assert data["project_name"] == "Sangam - Cabina Bruta"
+    assert data["month_label"] == "Julho/2026"
+    assert data["total_hours"] == pytest.approx(10.0 * 1.1 + 8.0 * 0.9, abs=1e-3)
+    assert data["pacote_scope"] is None
+
+
+def test_read_pdf_report_data_matches_pacote_scope_when_set(tmp_path):
+    groups = [GroupInput(name="Grupo", performance=1.0, activities=[ActivityInput("Ativ", 1.0)])]
+    pacote_text = "1546.6.4-002 Legislation Package - Sangam - Cabina Bruta - 07.2026"
+    pdf_path = make_report_pdf(tmp_path, groups=groups, pacote_scope=pacote_text)
+
+    assert read_pdf_report_data(pdf_path)["pacote_scope"] == pacote_text
+
+
+def test_read_pdf_report_data_raises_when_pdf_was_not_generated_by_this_app(tmp_path):
+    """PDF real, mas sem o metadado que só `pdf_generator.py` grava — ex: um
+    PDF qualquer que o cliente/gerente anexou por engano."""
+    from reportlab.pdfgen import canvas
+
+    path = str(tmp_path / "outro.pdf")
+    c = canvas.Canvas(path)
+    c.drawString(100, 750, "não é um relatório desta automação")
+    c.save()
+
+    with pytest.raises(EmailIngestError):
+        read_pdf_report_data(path)
+
+
+# ---------------------------------------------------------------------------
+# _dedupe_by_stem — mesmo relatório em .xlsx e .pdf na mesma mensagem só deve
+# virar 1 amostra (billed_hours é SOMADO entre amostras em
+# management.compute_monthly_kpis — processar os dois dobraria a hora)
+# ---------------------------------------------------------------------------
+
+def test_dedupe_by_stem_prefers_xlsx_when_pdf_listed_first(tmp_path):
+    xlsx_file = tmp_path / "a.xlsx"
+    pdf_file = tmp_path / "a.pdf"
+    xlsx_file.write_bytes(b"xlsx")
+    pdf_file.write_bytes(b"pdf")
+
+    survivors = _dedupe_by_stem([(str(pdf_file), "Relatorio.pdf"), (str(xlsx_file), "Relatorio.xlsx")])
+
+    assert survivors == [str(xlsx_file)]
+    assert xlsx_file.exists()
+    assert not pdf_file.exists()  # o perdedor do dedup é removido do disco
+
+
+def test_dedupe_by_stem_prefers_xlsx_when_xlsx_listed_first(tmp_path):
+    xlsx_file = tmp_path / "a.xlsx"
+    pdf_file = tmp_path / "a.pdf"
+    xlsx_file.write_bytes(b"xlsx")
+    pdf_file.write_bytes(b"pdf")
+
+    survivors = _dedupe_by_stem([(str(xlsx_file), "Relatorio.xlsx"), (str(pdf_file), "Relatorio.pdf")])
+
+    assert survivors == [str(xlsx_file)]
+    assert not pdf_file.exists()
+
+
+def test_dedupe_by_stem_keeps_unrelated_stems_separate(tmp_path):
+    file_a = tmp_path / "a.xlsx"
+    file_b = tmp_path / "b.pdf"
+    file_a.write_bytes(b"a")
+    file_b.write_bytes(b"b")
+
+    survivors = _dedupe_by_stem([(str(file_a), "Projeto A.xlsx"), (str(file_b), "Projeto B.pdf")])
+
+    assert sorted(survivors) == sorted([str(file_a), str(file_b)])
+    assert file_a.exists() and file_b.exists()
 
 
 # ---------------------------------------------------------------------------

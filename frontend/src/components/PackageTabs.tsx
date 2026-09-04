@@ -23,7 +23,7 @@ export function PackageTabs() {
           <PackageTabWrap
             key={pkg.id}
             pkgId={pkg.id}
-            label={pkg.key}
+            label={pkg.projectName || pkg.key}
             total={fmtNum(total)}
             isActive={isActive}
             draggedId={draggedId}
