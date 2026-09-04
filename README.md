@@ -191,6 +191,8 @@ npm --prefix frontend run preview
 
 **Prod sem Vite dev**: só `npm --prefix frontend run build` + `uvicorn backend.app.main:app --port 8011` e abra `http://localhost:8011`.
 
+**Atualizar o servidor de produção**: sem deploy automático (ver seção de CI abaixo), a atualização é manual — depois de mergear um PR na `main`, rode `scripts\atualizar-servidor.bat` no servidor (duplo-clique, ou `.\scripts\atualizar-servidor.bat` num terminal). Ele faz `git pull` + reinstala dependências do backend + rebuilda o frontend + reinicia o serviço, na ordem certa. Ajuste a variável `SERVICE_NAME` no topo do arquivo se o backend rodar como Serviço do Windows (nssm); deixe em branco se você reinicia o `uvicorn` na mão.
+
 ### Variáveis e credenciais
 
 | Var / credencial | Onde | Default |
