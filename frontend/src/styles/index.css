@@ -216,7 +216,11 @@
      hierarquia diferentes, e compartilhar as classes fazia uma arrastar a
      outra a cada ajuste.
      ============================================================ */
-  .myh-page { display: flex; flex-direction: column; gap: 20px; max-width: 1400px; }
+  /* `margin-inline: auto` é obrigatório junto com o teto: o `body` já é
+     centralizado em 1920px, então um `max-width` sem margem automática
+     encostava a página à esquerda e jogava TODA a sobra num vão único à
+     direita (~480px num monitor de 1900) — lia como bug, e era. */
+  .myh-page { display: flex; flex-direction: column; gap: 20px; max-width: 1600px; margin-inline: auto; width: 100%; }
 
   /* --- cabeçalho / proveniência / controles --- */
   .myh-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
@@ -368,13 +372,18 @@
   /* grade e legenda LADO A LADO: com a legenda embaixo, o card de 7 colunas
      ficava com uma área morta larga à direita da grade de um mês só */
   .calheat { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
-  /* hug do conteúdo (0 1 auto): com `flex: 1 1` a área dos meses crescia além
-     da grade e abria um vão entre ela e a legenda */
-  .calheat-months { flex: 0 1 auto; display: flex; flex-wrap: wrap; gap: 22px; min-width: 0; }
+  /* base = largura máxima da grade de um mês, encolhível: com `flex: 1 1` a
+     área dos meses crescia além da grade e abria um vão até a legenda */
+  .calheat-months { flex: 0 1 430px; display: flex; flex-wrap: wrap; gap: 22px; min-width: 0; }
+  /* multi-mês precisa acomodar N grades de 182px e quebrar linha */
+  .calheat--compact .calheat-months { flex: 1 1 auto; }
   .calheat-month { min-width: 0; flex: 0 0 auto; }
   .calheat-month-name { font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 8px; }
-  .calheat-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; width: 336px; max-width: 100%; }
-  .calheat--compact .calheat-grid { width: 182px; gap: 3px; }
+  /* mês único cresce com o card (até 430px): fixo em 336px, num card largo
+     sobrava um vazio à direita da grade — o mesmo defeito, só migrado pra
+     dentro do card. Célula maior num calendário é ganho de leitura. */
+  .calheat-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; width: 100%; min-width: 280px; max-width: 430px; }
+  .calheat--compact .calheat-grid { width: 182px; min-width: 0; max-width: 182px; gap: 3px; }
   .calheat-weekday { font-size: 0.62rem; font-weight: 600; color: var(--text-muted); text-align: center; padding-bottom: 2px; }
   .calheat-cell {
     aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
