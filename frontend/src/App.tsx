@@ -20,6 +20,8 @@ export type AppView = "report" | "management" | "diagnostics";
 export default function App() {
   const [view, setView] = useState<AppView>("report");
   const packages = useReportStore((s) => s.packages);
+  const showImportCard = useReportStore((s) => s.showImportCard);
+  const setShowImportCard = useReportStore((s) => s.setShowImportCard);
   const activeId = useReportStore((s) => s.activePackageId);
   const isSplit = useReportStore((s) => s.isSplit);
   const authStatus = useAuthStore((s) => s.status);
@@ -102,8 +104,7 @@ export default function App() {
               type="button"
               className="btn-secondary"
               onClick={() => {
-                const el = document.getElementById("step1");
-                if (el) el.style.display = "block";
+                setShowImportCard(true);
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}
             >

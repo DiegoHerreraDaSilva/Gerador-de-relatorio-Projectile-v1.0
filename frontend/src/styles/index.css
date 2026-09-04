@@ -89,15 +89,19 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 20px;
     margin-bottom: 20px;
   }
-  .app-header h1 { margin: 0; color: var(--text); }
+  /* título nunca quebra no meio da frase — se não sobrar espaço do lado dos
+     controles (nav + usuário + logo), é o grupo inteiro de controles que
+     desce pra uma 2ª linha (flex-wrap no .app-header acima), não o título. */
+  .app-header h1 { margin: 0; color: var(--text); white-space: nowrap; }
   .app-header-accent { color: var(--accent-hi); }
   .app-logo { height: 60px; width: auto; }
-  .app-header-actions { display: flex; align-items: center; gap: 14px; }
+  .app-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
   .user-info { display: flex; align-items: center; gap: 10px; }
-  .user-name { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+  .user-name { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
 
   .nav-tab {
     display: flex;
@@ -675,6 +679,10 @@
   h3 { font-size: 0.92rem; font-weight: 600; margin: 0 0 8px; }
 
   .muted { color: var(--text-muted); font-size: 0.85rem; }
+  /* mesma forma de .muted, mas pra mensagem de erro — "carregando" e "erro"
+     não podem ficar visualmente idênticos (os dois eram `.muted` cinza em
+     alguns painéis). */
+  .error-text { color: var(--bad); font-size: 0.85rem; }
 
   /* ---------- Barra de resumo ---------- */
   .summary-row {
@@ -1250,6 +1258,10 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
     overflow: hidden;
   }
+  /* o anel acima (`box-shadow`) fica sempre ligado, então não serve pra
+     indicar foco por si só — sem isto, navegar só de teclado não mostra
+     onde o foco está no campo de ano. */
+  .year-stepper:focus-within { box-shadow: 0 0 0 3px var(--ring); }
   .year-stepper-input {
     flex: 1;
     min-width: 0;
@@ -1483,6 +1495,8 @@
     filter: brightness(0.95);
   }
 
+  #step1 { display: none; }
+  #step1.visible { display: block; }
   #step2 { display: none; }
   #step2.visible { display: block; }
 
@@ -1987,6 +2001,18 @@
   .pv-input.pv-header { width: 100%; }
   .pv-input.pv-group-name { width: 100%; font-weight: 700; }
   .pv-input.pv-header::placeholder { color: #999; font-style: normal; }
+  /* código do projeto e nome de quem assina são obrigatórios pra gerar/
+     enviar (backend/app/main.py exige signer1/2Name; SendReportModal
+     bloqueia sem projectCode) — sem isto, só se descobre ao clicar em
+     "Enviar"/"Gerar" e levar um erro. `:placeholder-shown` mostra um
+     sublinhado tracejado só enquanto o campo está vazio (some sozinho ao
+     digitar, sem precisar de JS). Cor fixa (não var(--...)) — esta área do
+     Preview sempre imita o Excel/PDF final e não segue o tema claro/escuro
+     do resto do app. */
+  input[data-pv="projectCode"]:placeholder-shown,
+  .pv-signer-name:placeholder-shown {
+    border-bottom: 1px dashed #c47f17;
+  }
   .pv-input.pv-desc { flex: 1 1 auto; min-width: 0; font-style: italic; }
   .pv-input.pv-perf { width: 100%; text-align: center; }
   .pv-input.pv-hours-extra { flex: 0 0 56px; width: 56px; text-align: right; }

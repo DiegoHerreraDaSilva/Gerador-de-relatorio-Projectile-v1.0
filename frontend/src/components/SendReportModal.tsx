@@ -33,6 +33,17 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
   const [batchError, setBatchError] = useState("");
   const [sending, setSending] = useState(false);
 
+  // Esc fecha o modal — convenção padrão de teclado, igual clicar fora ou no
+  // X. Trava enquanto `sending` (mesma condição que já desabilita o botão
+  // "Cancelar"), pra não abandonar um envio no meio.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !sending) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [sending, onClose]);
+
   // assunto/mensagem padrão recalculados enquanto o usuário não editar à mão —
   // muda conforme a seleção (nome do projeto some do texto se tiver mais de
   // um pacote marcado, já que um só assunto vai valer pros dois e-mails).

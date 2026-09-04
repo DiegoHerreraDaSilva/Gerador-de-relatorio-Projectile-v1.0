@@ -329,7 +329,7 @@ export function DiagnosticsPanel() {
     <div className="diagnostics-panel">
       <ManagementFilters showCostCenter={false} showPackage={false} />
 
-      {error && <div className="card"><p className="muted">{error}</p></div>}
+      {error && <div className="card"><p className="error-text">{error}</p></div>}
 
       <div className="card diagnostics-table-card diagnostics-samples-card">
         <div className="diagnostics-card-head">
@@ -391,8 +391,8 @@ export function DiagnosticsPanel() {
                         <td>—</td>
                         <td className="diagnostics-actions-cell">
                           <div className="diagnostics-actions">
-                            <button type="button" onClick={() => saveEdit(s)} title="Salvar"><Check size={15} /></button>
-                            <button type="button" onClick={cancelEdit} title="Cancelar"><X size={15} /></button>
+                            <button type="button" onClick={() => saveEdit(s)} title="Salvar" aria-label="Salvar"><Check size={15} /></button>
+                            <button type="button" onClick={cancelEdit} title="Cancelar" aria-label="Cancelar"><X size={15} /></button>
                           </div>
                         </td>
                       </>
@@ -420,8 +420,8 @@ export function DiagnosticsPanel() {
                         </td>
                         <td className="diagnostics-actions-cell">
                           <div className="diagnostics-actions">
-                            <button type="button" onClick={() => startEdit(s)} title="Editar"><Pencil size={15} /></button>
-                            <button type="button" onClick={() => deleteSample(s)} title="Apagar"><Trash2 size={15} /></button>
+                            <button type="button" onClick={() => startEdit(s)} title="Editar" aria-label="Editar"><Pencil size={15} /></button>
+                            <button type="button" onClick={() => deleteSample(s)} title="Apagar" aria-label="Apagar"><Trash2 size={15} /></button>
                           </div>
                         </td>
                       </>

@@ -97,10 +97,10 @@ export function Preview() {
             <h2>Preview do relatório final</h2>
             <div className="preview-tools">
               <button type="button" className="btn-toggle" disabled title="Desfazer a última alteração">↶ Desfazer</button>
-              <button type="button" className="btn-toggle" disabled title="Gráfico de barras">
+              <button type="button" className="btn-toggle" disabled title="Gráfico de barras" aria-label="Gráfico de barras">
                 <BarChartIcon />
               </button>
-              <button type="button" className="btn-toggle" disabled title="Gráfico de pizza">
+              <button type="button" className="btn-toggle" disabled title="Gráfico de pizza" aria-label="Gráfico de pizza">
                 <PieChartIcon />
               </button>
               <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">⇆ Dividir tela</button>
@@ -134,6 +134,7 @@ export function Preview() {
               className={`btn-toggle ${activePkg?.chartBar ? "active" : ""}`}
               onClick={() => activePkg && setChartBar(activePkg.id, !activePkg.chartBar)}
               title="Gráfico de barras no relatório"
+              aria-label="Gráfico de barras no relatório"
             >
               <BarChartIcon />
             </button>
@@ -142,6 +143,7 @@ export function Preview() {
               className={`btn-toggle ${activePkg?.chartPie ? "active" : ""}`}
               onClick={() => activePkg && setChartPie(activePkg.id, !activePkg.chartPie)}
               title="Gráfico de pizza no relatório"
+              aria-label="Gráfico de pizza no relatório"
             >
               <PieChartIcon />
             </button>
@@ -154,9 +156,9 @@ export function Preview() {
             >
               ⇆ Dividir tela
             </button>
-            <button type="button" onClick={() => setZoom(previewZoom - 10)}>−</button>
+            <button type="button" onClick={() => setZoom(previewZoom - 10)} aria-label="Diminuir zoom">−</button>
             <span id="zoomLabel">{previewZoom}%</span>
-            <button type="button" onClick={() => setZoom(previewZoom + 10)}>+</button>
+            <button type="button" onClick={() => setZoom(previewZoom + 10)} aria-label="Aumentar zoom">+</button>
             <button
               type="button"
               id="btnFullscreen"
@@ -183,6 +185,7 @@ export function Preview() {
               <div className="preview-pane-header">
                 <select
                   className="pane-package-select"
+                  aria-label="Pacote exibido no painel esquerdo"
                   value={primaryPaneId ?? ""}
                   onChange={(e) => useReportStore.getState().setActivePackageId(e.target.value)}
                 >
@@ -209,6 +212,7 @@ export function Preview() {
               <div className="preview-pane-header">
                 <select
                   className="pane-package-select"
+                  aria-label="Pacote exibido no painel direito"
                   value={secondaryPaneId ?? ""}
                   onChange={(e) => setPaneB(e.target.value)}
                 >

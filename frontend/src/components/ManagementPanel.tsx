@@ -74,7 +74,7 @@ export function ManagementPanel() {
     return (
       <div className="card management-panel">
         <h2>Painel de Gerência</h2>
-        <p className="muted">{error || "Carregando..."}</p>
+        <p className={error ? "error-text" : "muted"}>{error || "Carregando..."}</p>
       </div>
     );
   }
@@ -133,7 +133,7 @@ export function ManagementPanel() {
     <div className="management-layout">
       <ManagementFilters />
       <div className="management-panel">
-      {error && <div className="card"><p className="muted">{error}</p></div>}
+      {error && <div className="card"><p className="error-text">{error}</p></div>}
 
       <div className="management-toolbar">
         <button type="button" className="btn-secondary" onClick={() => load(true, true)} disabled={refreshing}>

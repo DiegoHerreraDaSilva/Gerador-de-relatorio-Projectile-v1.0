@@ -81,6 +81,15 @@ function restoreSnapshot(snapshotStr: string, state: StoreState) {
 
 export interface StoreState {
   packages: WorkPackage[];
+  // controla o card "Importe a planilha de horas" (id="step1" em
+  // FileUpload.tsx) — precisa viver na store (não em useState local) porque
+  // trocar de aba (Painel de Gerência/Diagnóstico e voltar) desmonta e
+  // remonta essa árvore inteira; um estado de componente resetaria sozinho a
+  // cada volta, mas a store persiste. `true` por padrão (nada carregado
+  // ainda); `setPackages` desliga sozinho ao carregar um relatório com
+  // sucesso; "Trocar arquivo" liga de novo via `setShowImportCard(true)` sem
+  // descartar o relatório atual (o usuário pode desistir da troca).
+  showImportCard: boolean;
   activePackageId: string | null;
   reportMode: "single" | "multi";
   currentIssues: RowIssue[];
@@ -100,6 +109,7 @@ export interface StoreState {
 
   // actions
   setPackages: (pkgs: WorkPackage[], activeId?: string | null) => void;
+  setShowImportCard: (v: boolean) => void;
   setActivePackageId: (id: string) => void;
   setReportMode: (mode: "single" | "multi") => void;
   setIssues: (issues: RowIssue[]) => void;
@@ -180,6 +190,7 @@ function mergeGroupIntoPackage(targetPkg: WorkPackage, sourceGroup: Group, claim
 export const useReportStore = create<StoreState>()(
   immer((set, get) => ({
     packages: [],
+    showImportCard: true,
     activePackageId: null,
     reportMode: "single",
     currentIssues: [],
@@ -200,6 +211,7 @@ export const useReportStore = create<StoreState>()(
     setPackages: (pkgs, activeId) =>
       set((s) => {
         s.packages = pkgs;
+        s.showImportCard = pkgs.length === 0;
         s.activePackageId = activeId ?? (pkgs[0]?.id ?? null);
         s.undoStack = [];
         s.hasGeneratedOnce = false;
@@ -219,6 +231,7 @@ export const useReportStore = create<StoreState>()(
         s.reportMode = mode;
         if (s.packages.length > 0) {
           s.packages = [];
+          s.showImportCard = true;
           s.activePackageId = null;
           s.currentIssues = [];
           s.undoStack = [];
@@ -279,9 +292,14 @@ export const useReportStore = create<StoreState>()(
         if (!snap) return;
         restoreSnapshot(snap, s);
       }),
+    setShowImportCard: (v) =>
+      set((s) => {
+        s.showImportCard = v;
+      }),
     resetParsedState: () =>
       set((s) => {
         s.packages = [];
+        s.showImportCard = true;
         s.activePackageId = null;
         s.currentIssues = [];
         s.undoStack = [];

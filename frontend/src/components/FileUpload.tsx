@@ -230,7 +230,17 @@ function formatFileSize(bytes: number): string {
 
 export function FileUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState("");
+  const [status, setStatusText] = useState("");
+  const [statusIsError, setStatusIsError] = useState(false);
+  // wrapper em vez de trocar toda chamada existente — `isError` default
+  // false cobre a maioria (mensagens neutras tipo "Analisando...",
+  // "Encontrados N grupos."); só as chamadas que hoje representam falha
+  // (arquivo inválido, "não encontrei", "Erro ao ...") passam `true`, pra
+  // não ficarem com o mesmo cinza neutro de "Carregando"/status normal.
+  const setStatus = (text: string, isError = false) => {
+    setStatusText(text);
+    setStatusIsError(isError);
+  };
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [source, setSource] = useState<"file" | "db">("file");
@@ -241,6 +251,7 @@ export function FileUpload() {
   const [clientReportMode, setClientReportMode] = useState<"pacote" | "projeto">("pacote");
   const isManager = useAuthStore((s) => s.user?.isManager);
   const reportMode = useReportStore((s) => s.reportMode);
+  const showImportCard = useReportStore((s) => s.showImportCard);
   const monthLabel = useReportStore((s) => s.header.monthLabel);
   const setHeaderField = useReportStore((s) => s.setHeaderField);
   const setPackages = useReportStore((s) => s.setPackages);
@@ -265,7 +276,7 @@ export function FileUpload() {
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      setStatus("Esse arquivo não é um .xlsx. Exporte a planilha do Projectile nesse formato.");
+      setStatus("Esse arquivo não é um .xlsx. Exporte a planilha do Projectile nesse formato.", true);
       return;
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -276,8 +287,6 @@ export function FileUpload() {
     if (fileInputRef.current) fileInputRef.current.value = "";
     applyFile(null);
     useReportStore.getState().resetParsedState();
-    const step1 = document.getElementById("step1");
-    if (step1) step1.style.display = "block";
   };
 
   const setMode = (mode: "single" | "multi") => {
@@ -292,7 +301,7 @@ export function FileUpload() {
   // o projeto inteiro como "Enviado" a partir de um relatório de 1 pacote só.
   const applyParseResponse = (data: ParseResponse, isPacoteMode: boolean) => {
     if (data.packages.length === 0) {
-      setStatus("Não encontrei grupos de atividades. Confira o aviso acima (se houver).");
+      setStatus("Não encontrei grupos de atividades. Confira o aviso acima (se houver).", true);
       setPackages([], null);
       setIssues(data.issues || []);
       return;
@@ -328,8 +337,6 @@ export function FileUpload() {
         ? `Encontrados ${pkgs.length} pacotes de trabalho (${totalGroups} grupo(s) no total).`
         : `Encontrados ${totalGroups} grupo(s).`
     );
-    const step1 = document.getElementById("step1");
-    if (step1) step1.style.display = "none";
   };
 
   const handleParse = async () => {
@@ -348,7 +355,7 @@ export function FileUpload() {
       applyParseResponse(data, reportMode === "multi");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setStatus("Erro ao analisar: " + msg);
+      setStatus("Erro ao analisar: " + msg, true);
     }
   };
 
@@ -381,7 +388,7 @@ export function FileUpload() {
       applyParseResponse(data, clientReportMode === "pacote");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setStatus("Erro ao buscar: " + msg);
+      setStatus("Erro ao buscar: " + msg, true);
     } finally {
       setSearching(false);
     }
@@ -404,7 +411,7 @@ export function FileUpload() {
       applyParseResponse(data, reportMode === "multi");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setStatus("Erro ao buscar: " + msg);
+      setStatus("Erro ao buscar: " + msg, true);
     } finally {
       setSearching(false);
     }
@@ -412,7 +419,7 @@ export function FileUpload() {
 
   return (
     <>
-      <div className="card upload-card" id="step1">
+      <div className={`card upload-card ${showImportCard ? "visible" : ""}`} id="step1">
         <div className="upload-header">
           <span className="upload-doc-id">Projectile → Relatório</span>
           <span className="upload-header-rule" aria-hidden="true" />
@@ -583,7 +590,7 @@ export function FileUpload() {
           </>
         )}
 
-        <p className="muted">{status}</p>
+        <p className={statusIsError ? "error-text" : "muted"}>{status}</p>
       </div>
     </>
   );
