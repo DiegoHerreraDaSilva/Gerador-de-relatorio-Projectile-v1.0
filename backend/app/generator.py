@@ -221,23 +221,52 @@ def _national_holidays(year: int) -> set[datetime.date]:
     return holidays
 
 
-def count_business_days(start: datetime.date, end: datetime.date) -> int:
-    """Conta dias úteis (seg-sex, sem feriado nacional) estritamente APÓS
-    `start` até `end` inclusive — usado por `email_ingest.py` pra medir quanto
-    tempo depois do fechamento do mês um relatório foi enviado. O intervalo é
-    entre duas datas quaisquer, possivelmente cruzando anos, então o conjunto
-    de feriados é recalculado por ano conforme o cursor avança."""
-    if end <= start:
-        return 0
+def business_days_between(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+    """Dias úteis (seg-sex, sem feriado nacional) de `start` até `end`, ambos
+    INCLUSIVE — diferente de `count_business_days`, que exclui o `start` (ver
+    o docstring dela). Devolve a lista, não a contagem, porque o Dashboard de
+    horas precisa saber QUAIS dias são úteis pra achar os que ficaram sem
+    apontamento, não só quantos são.
+
+    O intervalo pode cruzar anos, então o conjunto de feriados é recalculado
+    por ano conforme o cursor avança."""
     holidays_by_year: dict[int, set[datetime.date]] = {}
-    count = 0
-    day = start + datetime.timedelta(days=1)
+    days: list[datetime.date] = []
+    day = start
     while day <= end:
         holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
         if day.weekday() < 5 and day not in holidays:
-            count += 1
+            days.append(day)
         day += datetime.timedelta(days=1)
-    return count
+    return days
+
+
+def national_holidays_between(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+    """Feriados nacionais no intervalo (inclusive), ordenados — usado pra
+    marcar a célula do dia no calendário do dashboard como feriado em vez de
+    "dia útil sem apontamento"."""
+    holidays_by_year: dict[int, set[datetime.date]] = {}
+    found: list[datetime.date] = []
+    day = start
+    while day <= end:
+        holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
+        if day in holidays:
+            found.append(day)
+        day += datetime.timedelta(days=1)
+    return found
+
+
+def count_business_days(start: datetime.date, end: datetime.date) -> int:
+    """Conta dias úteis (seg-sex, sem feriado nacional) estritamente APÓS
+    `start` até `end` inclusive — usado por `email_ingest.py` pra medir quanto
+    tempo depois do fechamento do mês um relatório foi enviado.
+
+    A exclusão do próprio `start` é a semântica de que `email_ingest.py:460` e
+    `management.py` dependem — NÃO mudar. Quem quer o intervalo fechado nas
+    duas pontas usa `business_days_between`."""
+    if end <= start:
+        return 0
+    return len(business_days_between(start + datetime.timedelta(days=1), end))
 
 
 def _replace_header_cell(sheet_xml: str, ref: str, style: int, text: str) -> str:

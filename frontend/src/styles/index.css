@@ -210,140 +210,293 @@
   .gauge-value { font-size: 1.35rem; font-weight: 700; color: var(--text); margin-top: 2px; }
 
   /* ============================================================
-     Dashboard de horas — página própria, com seu próprio sistema de
-     card/tabela/toolbar (não reaproveita .card/.kpi-grid/.kpi-table do
-     Painel de Gerência), pra poder seguir de perto o layout de referência
-     (ícone em caixa no canto do KPI, barra com rótulo+valor em cima, donut
-     com legenda) sem brigar com as regras da outra tela.
+     Dashboard de horas — página própria (prefixo .myh-), com seu próprio
+     sistema de grade/card/tabela. Não reaproveita .card/.kpi-grid/.kpi-table
+     do Painel de Gerência de propósito: as duas telas têm densidade e
+     hierarquia diferentes, e compartilhar as classes fazia uma arrastar a
+     outra a cada ajuste.
      ============================================================ */
-  .my-hours-page { display: flex; flex-direction: column; gap: 20px; }
+  .myh-page { display: flex; flex-direction: column; gap: 20px; max-width: 1400px; }
 
-  .my-hours-title { margin: 0 0 2px; font-size: 1.3rem; font-weight: 700; color: var(--text); }
-  .my-hours-subtitle { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+  /* --- cabeçalho / proveniência / controles --- */
+  .myh-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .myh-title { margin: 0 0 3px; font-size: 1.5rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+  .myh-prov { margin: 0; font-size: 0.8rem; }
+  .myh-head-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
-  .my-hours-toolbar {
-    display: flex;
-    align-items: flex-end;
-    gap: 12px;
+  /* chip da referência de jornada: a procedência do número contra o qual
+     tudo é comparado. Fica sempre visível — um percentual sem fonte é um
+     número sem procedência. */
+  .myh-ref-chip {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 6px 12px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--surface-2); line-height: 1.25;
   }
-  .my-hours-period { display: flex; flex-direction: column; gap: 4px; margin-right: auto; }
-  .my-hours-period-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
-  .my-hours-period select {
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-    font-size: 0.85rem;
-  }
-  .my-hours-refresh {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .my-hours-refresh:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent-hi); }
-  .my-hours-refresh svg.spin { animation: spin 0.9s linear infinite; }
-  .my-hours-refresh:disabled { opacity: 0.6; cursor: default; }
+  .myh-ref-chip strong { font-size: 0.9rem; color: var(--text); font-variant-numeric: tabular-nums; }
+  .myh-ref-chip span { font-size: 0.7rem; color: var(--text-muted); }
+  .myh-ref-chip.is-declared { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .myh-ref-chip.is-estimated { border-style: dashed; }
+  .myh-ref-chip.is-missing { border-style: dashed; opacity: 0.75; }
+  .myh-divergence { flex-basis: 100%; margin: 0; display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--warn); }
 
-  /* card próprio desta página — mesma receita visual do design system
-     (gradiente + hairline + sombra + contorno luminoso na base), escrita de
-     novo aqui em vez de importar .card, pra essa página poder evoluir sem
-     puxar o resto do app junto. */
-  .my-hours-card {
-    position: relative;
-    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 18px;
-    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+  .period-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--surface-2); }
+  .period-seg button {
+    padding: 7px 14px; border: none; background: transparent; cursor: pointer;
+    font-size: 0.82rem; font-weight: 600; color: var(--text-muted);
+    transition: background 0.15s ease, color 0.15s ease;
   }
-  .my-hours-card::after {
-    content: "";
-    position: absolute; left: 16px; right: 16px; bottom: -1px;
-    height: 2px; border-radius: 2px; pointer-events: none;
+  .period-seg button + button { border-left: 1px solid var(--border); }
+  .period-seg button:hover:not(:disabled) { color: var(--text); background: color-mix(in srgb, var(--text) 5%, transparent); }
+  .period-seg button.active { background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600, var(--accent)) 100%); color: #fff; }
+  .period-seg button:disabled { opacity: 0.55; cursor: default; }
+
+  .myh-refresh {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 14px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-muted);
+    font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .myh-refresh:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent-hi); }
+  .myh-refresh svg.spin { animation: spin 0.9s linear infinite; }
+  .myh-refresh:disabled { opacity: 0.6; cursor: default; }
+
+  /* --- grade de 12 colunas explícita ---
+     `repeat(auto-fit, minmax(...))` foi rejeitado: em larguras intermediárias
+     ele jogava o terceiro card sozinho na linha inteira, criando exatamente
+     as áreas vazias que o redesenho precisava eliminar. */
+  .myh-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; align-items: start; }
+  .myh-col-5 { grid-column: span 5; }
+  .myh-col-7 { grid-column: span 7; }
+  .myh-col-12 { grid-column: span 12; }
+  .myh-stack { display: flex; flex-direction: column; gap: 16px; }
+  .myh-grid.is-refreshing { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+
+  /* --- card --- */
+  .myh-card {
+    position: relative; min-width: 0;
+    padding: 18px 20px 20px; border-radius: 14px;
+    border: 1px solid var(--border);
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-2) 140%);
+    box-shadow: inset 0 1px 0 0 var(--hairline, rgba(255,255,255,0.05)), 0 1px 0 rgba(0,0,0,0.25);
+  }
+  /* o fio aceso na base é assinatura de card de VISUALIZAÇÃO: em card de
+     texto, erro ou skeleton ele virava enfeite competindo com o dado */
+  .myh-card--viz::after {
+    content: ""; position: absolute; left: 18px; right: 18px; bottom: -1px;
+    height: 2px; border-radius: 2px; pointer-events: none; opacity: 0.75;
     background: linear-gradient(90deg, transparent 0%, var(--accent) 18%, var(--accent-hi) 50%, var(--accent) 82%, transparent 100%);
     box-shadow: 0 0 12px 0 var(--accent-glow);
-    opacity: 0.8;
   }
-  .my-hours-card-title { margin: 0 0 14px; font-size: 0.92rem; font-weight: 600; color: var(--text); }
-
-  /* KPIs — linha de cards pequenos e compactos, número + rótulo à esquerda,
-     ícone numa caixa colorida no canto superior direito. */
-  .my-hours-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
-  .my-hours-kpi-card { display: flex; flex-direction: column; gap: 4px; padding: 16px; }
-  .my-hours-kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-  .my-hours-kpi-value { font-size: 1.7rem; font-weight: 700; color: var(--text); line-height: 1.15; }
-  .my-hours-kpi-icon-box {
-    flex-shrink: 0;
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
-    color: var(--accent-hi);
+  .myh-card--error { border-color: var(--bad); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .myh-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+  .myh-card-title {
+    margin: 0 0 16px; padding-bottom: 10px; font-size: 0.9rem; font-weight: 600;
+    color: var(--text); letter-spacing: 0.01em;
+    border-bottom: 1px solid var(--border);
   }
-  .my-hours-kpi-label { font-size: 0.82rem; color: var(--text-muted); }
-  .my-hours-kpi-sub { font-size: 0.74rem; color: var(--text-muted); margin: 0; }
-
-  .my-hours-viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
-
-  /* BarList — ranking horizontal, cor única (ver components/BarList.tsx).
-     Rótulo + valor numa linha, barra cheia por baixo (não lado a lado). */
-  .bar-list { display: flex; flex-direction: column; gap: 14px; }
-  .bar-list-row { display: flex; flex-direction: column; gap: 6px; }
-  .bar-list-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-  .bar-list-label { font-size: 0.85rem; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-list-value { font-size: 0.85rem; color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .bar-track {
-    height: 8px;
-    border-radius: 999px;
-    overflow: hidden;
-    background: var(--surface-2);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  .myh-card-head .myh-card-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+  .myh-card-sub { margin: -6px 0 14px; font-size: 0.78rem; }
+  .myh-card-foot { margin: 14px 0 0; font-size: 0.73rem; line-height: 1.45; }
+  .myh-collapse, .myh-link {
+    border: none; background: none; padding: 0; cursor: pointer;
+    font-size: 0.78rem; font-weight: 600; color: var(--accent-hi);
   }
-  .bar-track-fill {
-    height: 100%;
-    border-radius: 999px;
+  .myh-collapse:hover, .myh-link:hover { text-decoration: underline; }
+
+  .myh-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; }
+  .myh-banner--info { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
+  .myh-banner--error { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid var(--bad); color: var(--text); }
+  .myh-banner--error button { border: 1px solid var(--bad); background: none; color: var(--text); border-radius: 7px; padding: 3px 10px; cursor: pointer; font-size: 0.78rem; }
+
+  .myh-satellites { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 18px; font-size: 0.85rem; color: var(--text-muted); }
+  .myh-satellites strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .delta-up { color: var(--ok); } .delta-up strong { color: var(--ok); }
+  .delta-down { color: var(--warn); } .delta-down strong { color: var(--warn); }
+
+  .myh-big-number { margin: 0; font-size: 2.1rem; font-weight: 700; color: var(--text); line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .myh-big-number span { font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-left: 6px; }
+  .myh-big-number--warn { color: var(--warn); }
+  .myh-projection { margin: 12px 0 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
+  .myh-projection strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .myh-ok { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.88rem; color: var(--ok); }
+
+  .myh-chips, .myh-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; }
+  .myh-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-2);
+    font-size: 0.76rem; color: var(--text); font-variant-numeric: tabular-nums;
+  }
+  .myh-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .myh-chip.is-selected { border-color: var(--accent); color: var(--accent-hi); }
+
+  .myh-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 44px 24px; text-align: center; color: var(--text-muted); }
+  .myh-empty h3 { margin: 0; font-size: 1rem; color: var(--text); font-weight: 600; }
+  .myh-empty p { margin: 0; max-width: 46ch; line-height: 1.5; }
+  .myh-empty-actions { display: flex; gap: 10px; margin-top: 8px; }
+  .myh-empty-actions button:not(.btn-primary) { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 9px; padding: 8px 16px; cursor: pointer; font-size: 0.82rem; }
+
+  .myh-limits { padding: 14px 20px; }
+  .myh-limits summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+  .myh-limits summary:hover { color: var(--text); }
+  .myh-limits ul { margin: 14px 0 4px; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; }
+  .myh-limits li { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
+  .myh-limits strong { color: var(--text); font-weight: 600; }
+
+  /* --- V1 bullet --- */
+  .bullet { display: flex; flex-direction: column; gap: 14px; }
+  .bullet-track { position: relative; height: 34px; border-radius: 8px; background: var(--surface-2); box-shadow: inset 0 1px 3px rgba(0,0,0,0.25); overflow: visible; }
+  .bullet-band { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: color-mix(in srgb, var(--accent) 11%, transparent); }
+  .bullet-fill {
+    position: absolute; top: 6px; bottom: 6px; left: 0; border-radius: 5px;
     background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hi) 100%);
-    box-shadow: 0 0 6px -1px var(--accent-glow);
-    transition: width 0.2s ease;
+    box-shadow: 0 0 12px -2px var(--accent-glow);
+    transition: width 0.25s ease;
+  }
+  .bullet-marker { position: absolute; top: -3px; bottom: -3px; width: 3px; border-radius: 2px; background: var(--text); transform: translateX(-1px); }
+  .bullet-marker--estimated { background: repeating-linear-gradient(180deg, var(--text-muted) 0 4px, transparent 4px 8px); }
+  .bullet-legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 0.82rem; color: var(--text-muted); }
+  .bullet-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .bullet-legend-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .bullet-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+  .bullet-swatch--fill { background: linear-gradient(135deg, var(--accent), var(--accent-hi)); }
+  .bullet-swatch--marker { width: 3px; height: 14px; border-radius: 2px; background: var(--text); }
+  .bullet-swatch--estimated { background: repeating-linear-gradient(180deg, var(--text-muted) 0 3px, transparent 3px 6px); }
+
+  /* --- V2 calendário-heatmap --- */
+  /* grade e legenda LADO A LADO: com a legenda embaixo, o card de 7 colunas
+     ficava com uma área morta larga à direita da grade de um mês só */
+  .calheat { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
+  /* hug do conteúdo (0 1 auto): com `flex: 1 1` a área dos meses crescia além
+     da grade e abria um vão entre ela e a legenda */
+  .calheat-months { flex: 0 1 auto; display: flex; flex-wrap: wrap; gap: 22px; min-width: 0; }
+  .calheat-month { min-width: 0; flex: 0 0 auto; }
+  .calheat-month-name { font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 8px; }
+  .calheat-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; width: 336px; max-width: 100%; }
+  .calheat--compact .calheat-grid { width: 182px; gap: 3px; }
+  .calheat-weekday { font-size: 0.62rem; font-weight: 600; color: var(--text-muted); text-align: center; padding-bottom: 2px; }
+  .calheat-cell {
+    aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+    border-radius: 5px; font-size: 0.66rem; font-variant-numeric: tabular-nums;
+    border: 1px solid transparent; padding: 0;
+  }
+  .calheat-cell--blank { background: none; border: none; }
+  .calheat-cell--worked { background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; border: none; }
+  .calheat-cell--worked:hover { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
+  .calheat-cell--selected { outline: 2px solid var(--text); outline-offset: 1px; }
+  /* lacuna: contorno em vez de preenchimento — a célula vazia É a informação */
+  .calheat-cell--gap { border-color: var(--bad); color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+  .calheat-cell--off { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-muted); opacity: 0.55; }
+  .calheat-cell--future { background: none; border-color: var(--border); color: var(--text-muted); opacity: 0.4; }
+  .calheat-cell--outside { opacity: 0.18; color: var(--text-muted); }
+  .calheat-cell--outlier { position: relative; }
+  .calheat-cell--outlier::after { content: ""; position: absolute; top: 2px; right: 2px; width: 4px; height: 4px; border-radius: 50%; background: var(--warn); }
+  .calheat-legend { flex: 0 1 200px; display: flex; flex-direction: column; gap: 9px; font-size: 0.72rem; color: var(--text-muted); }
+  .calheat-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .calheat-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; display: block; aspect-ratio: auto; }
+  .calheat-legend-note { margin-top: 4px; line-height: 1.45; }
+
+  /* --- V3 colunas mensais --- */
+  .monthcols { display: flex; flex-direction: column; gap: 12px; }
+  .monthcols-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.76rem; }
+  .monthcols-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .monthcols-toggle button { border: none; background: var(--surface-2); color: var(--text-muted); font-size: 0.72rem; font-weight: 600; padding: 4px 10px; cursor: pointer; }
+  .monthcols-toggle button + button { border-left: 1px solid var(--border); }
+  .monthcols-toggle button.active { background: var(--accent); color: #fff; }
+  .monthcols-plot { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 5px; align-items: end; }
+  .monthcols-col { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  .monthcols-bar-area { width: 100%; height: 130px; display: flex; align-items: flex-end; justify-content: center; }
+  .monthcols-bar {
+    width: 100%; max-width: 34px; border-radius: 4px 4px 0 0;
+    background: linear-gradient(180deg, var(--accent-hi) 0%, var(--accent) 100%);
+    transition: height 0.25s ease;
+  }
+  /* mês em curso hachurado: comparar 4 dias com meses fechados é o erro de
+     leitura mais fácil de cometer nesta tela */
+  .monthcols-bar--partial { background: repeating-linear-gradient(135deg, var(--accent) 0 4px, color-mix(in srgb, var(--accent) 35%, transparent) 4px 8px); }
+  .monthcols-nodata { width: 100%; max-width: 34px; height: 3px; border-radius: 2px; background: var(--border); }
+  .monthcols-value { font-size: 0.64rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .monthcols-label { font-size: 0.66rem; color: var(--text-muted); white-space: nowrap; }
+  .monthcols-label--partial { font-style: italic; }
+  .monthcols-median { position: absolute; left: 0; right: 0; height: 1px; background: var(--text-muted); opacity: 0.45; z-index: 1; }
+  .monthcols-note { margin: 0; font-size: 0.72rem; line-height: 1.45; }
+
+  /* --- V4 janela do dia --- */
+  .daywin { display: flex; flex-direction: column; gap: 8px; }
+  .daywin-summary { margin: 0 0 6px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
+  .daywin-summary strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .daywin-axis { position: relative; height: 14px; margin-left: 46px; margin-right: 62px; }
+  .daywin-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 0.62rem; color: var(--text-muted); }
+  .daywin-rows { position: relative; display: flex; flex-direction: column; gap: 3px; max-height: 320px; overflow-y: auto; }
+  .daywin-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-muted); opacity: 0.3; margin-left: 46px; z-index: 1; }
+  .daywin-row { display: flex; align-items: center; gap: 8px; }
+  .daywin-date { width: 38px; flex-shrink: 0; font-size: 0.68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .daywin-track { position: relative; flex: 1 1 auto; min-width: 0; height: 13px; border-radius: 4px; background: var(--surface-2); }
+  .daywin-span { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hi) 100%); min-width: 3px; }
+  .daywin-hours { width: 54px; flex-shrink: 0; text-align: right; font-size: 0.68rem; color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* --- V5 barras por pacote --- */
+  .pacotebars { display: flex; flex-direction: column; gap: 13px; }
+  .pacotebars-row {
+    display: flex; flex-direction: column; gap: 6px; width: 100%;
+    border: none; background: none; padding: 0; cursor: pointer; text-align: left;
+    transition: opacity 0.15s ease;
+  }
+  .pacotebars-row:disabled { cursor: default; }
+  .pacotebars-row.is-dimmed { opacity: 0.35; }
+  .pacotebars-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .pacotebars-label { flex: 1 1 auto; min-width: 0; font-size: 0.84rem; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pacotebars-value { flex: 0 0 auto; font-size: 0.8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pacotebars-row.is-selected .pacotebars-value { color: var(--accent-hi); }
+  .pacotebars-single { margin: 0; font-size: 0.88rem; color: var(--text-muted); line-height: 1.5; }
+  .pacotebars-single strong { color: var(--text); }
+  .bar-track { display: block; height: 9px; border-radius: 999px; overflow: hidden; background: var(--surface-2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.18); }
+  .bar-track-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hi) 100%); box-shadow: 0 0 6px -2px var(--accent); transition: width 0.2s ease; }
+
+  /* --- skeleton: mesma geometria da página final, pra nada saltar --- */
+  .skel { background: var(--surface-2); border-radius: 6px; animation: skelPulse 1.4s ease-in-out infinite; }
+  .skel-title { height: 13px; width: 42%; margin-bottom: 18px; }
+  .skel-bullet { height: 34px; }
+  .skel-calendar { height: 210px; }
+  .skel-chart { height: 168px; }
+  .skel-line { height: 11px; margin-bottom: 10px; }
+  .skel-row { height: 26px; margin-bottom: 6px; }
+  @keyframes skelPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+  /* --- tabela de lançamentos --- */
+  .myh-table-wrap { overflow: auto; max-height: 60vh; margin-top: 12px; }
+  .myh-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  .myh-table th, .myh-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .myh-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.02em; }
+  .myh-table td { color: var(--text); }
+  .myh-table tbody tr:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+  .myh-td-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .myh-td-time { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  /* observação é a única coluna elástica: sem o teto ela empurrava Horas pra
+     fora do card em textos longos */
+  .myh-td-obs { max-width: 44ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .myh-table th:first-child, .myh-table td:first-child { white-space: nowrap; }
+  .myh-table tfoot td { font-weight: 700; border-bottom: none; border-top: 1px solid var(--border); background: var(--surface); position: sticky; bottom: 0; }
+
+  /* foco visível em todos os controles da página (o arquivo tem outline:none
+     espalhado, e sem isso nada aqui era navegável a olho por teclado) */
+  .myh-page button:focus-visible,
+  .myh-page [tabindex]:focus-visible,
+  .myh-page summary:focus-visible {
+    outline: 2px solid var(--accent-hi); outline-offset: 2px; border-radius: 4px;
   }
 
-  /* LineChart — ver components/LineChart.tsx */
-  .line-chart { display: flex; flex-direction: column; gap: 4px; }
-  .line-chart-svg { width: 100%; height: 160px; display: block; }
-  .line-chart-line { filter: drop-shadow(0 0 7px var(--accent-glow)); }
-  .line-chart-point { fill: var(--accent-hi); }
-  .line-chart-labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); }
+  @media (max-width: 900px) {
+    .myh-col-5, .myh-col-7, .myh-col-12 { grid-column: span 12; }
+    .myh-head-controls { width: 100%; }
+  }
 
-  /* Donut — ver components/Donut.tsx */
-  .donut { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-  .donut-svg { width: 100%; max-width: 190px; height: auto; }
-  .donut-center-value { fill: var(--text); font-size: 26px; font-weight: 700; }
-  .donut-center-label { fill: var(--text-muted); font-size: 11px; }
-  .donut-legend { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-  .donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
-  .donut-legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-  .donut-legend-label { flex: 1; color: var(--text); }
-  .donut-legend-value { color: var(--text-muted); font-variant-numeric: tabular-nums; }
-
-  /* tabela de lançamentos — própria desta página */
-  .my-hours-table-wrap { overflow-x: auto; }
-  .my-hours-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  .my-hours-table th, .my-hours-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-  .my-hours-table th:last-child, .my-hours-table td:last-child { text-align: right; }
-  .my-hours-table th { color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  .my-hours-table tbody tr:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+  @media (prefers-reduced-motion: reduce) {
+    .myh-refresh svg.spin { animation: none; }
+    .skel { animation: none; }
+    .bullet-fill, .bar-track-fill, .monthcols-bar { transition: none; }
+  }
 
   /* scroll horizontal de segurança — se as colunas (ou um valor grande demais)
      não couberem na largura do card, rola dentro da tabela em vez de vazar
@@ -353,11 +506,28 @@
   .kpi-table th, .kpi-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
   .kpi-table th:first-child, .kpi-table td:first-child { text-align: left; }
   .kpi-table th { color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  .sortable-th { cursor: pointer; user-select: none; }
-  .sortable-th:hover { color: var(--accent-hi); }
-  .sortable-th-inner { display: inline-flex; align-items: center; gap: 4px; }
-  .sortable-th-icon-idle { opacity: 0.35; flex-shrink: 0; }
-  .sortable-th:hover .sortable-th-icon-idle { opacity: 0.7; }
+  .sortable-th { padding: 0 !important; }
+  /* o clique vive num <button> real (ver SortableTh.tsx): um <th> com onClick
+     não recebe foco nem responde a Enter/Espaço. O botão herda o padding da
+     célula pra área de clique cobrir o cabeçalho inteiro. */
+  .sortable-th-btn {
+    display: inline-flex; align-items: center; gap: 4px; width: 100%;
+    padding: 5px 8px; border: none; background: none; cursor: pointer;
+    font: inherit; color: inherit; text-transform: inherit;
+    letter-spacing: inherit; text-align: inherit; user-select: none;
+  }
+  .sortable-th-btn:hover { color: var(--accent-hi); }
+  .sortable-th-btn:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: -2px; }
+  /* 0.35 não alcançava o contraste mínimo de componente (WCAG 1.4.11) */
+  .sortable-th-icon-idle { opacity: 0.6; flex-shrink: 0; }
+  .sortable-th-btn:hover .sortable-th-icon-idle { opacity: 1; }
+
+  /* conteúdo só pra leitor de tela — usado nas tabelas equivalentes dos
+     gráficos e nos anúncios de aria-live */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
   .kpi-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--text) 5%, transparent); }
   .kpi-table tfoot td { font-weight: 700; border-bottom: none; border-top: 1px solid var(--border); }
   /* `input[type=text]{width:100%}` (regra global, definida bem depois neste

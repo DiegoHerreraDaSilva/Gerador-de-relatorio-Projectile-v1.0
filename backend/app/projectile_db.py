@@ -175,7 +175,16 @@ def fetch_my_hours(
     `project_id`/`external` (igual `fetch_engineering_hours`) — nenhuma das
     duas funções tinha as duas coisas juntas. Usada pelo Dashboard de horas
     pessoal (`GET /my-hours`), que precisa de projeto e faturável/não
-    faturável por lançamento, não só o texto do pacote."""
+    faturável por lançamento, não só o texto do pacote.
+
+    Traz também `inicio`/`fim` (`ttimebit.pStart`/`pEnd`, varchar "HHMM" —
+    medido 100% preenchido nos 11.278 lançamentos de 2026, o que habilita
+    análise de horário do dia) e `top_project` (`tjob.capTopProject`, 99,96%
+    preenchido — o nível acima do projeto, ex: "1471 INT_Administrativo").
+
+    NÃO traz `ttimebit.pAssessableTime` de propósito: medido NULL em 100% dos
+    lançamentos de quem só tem trabalho interno (77% no geral), então
+    `tjob.pExternal` continua sendo o único sinal confiável de faturável."""
     if not employee_id and not employee_name:
         raise ValueError("informe employee_id ou employee_name")
     try:
@@ -188,7 +197,9 @@ def fetch_my_hours(
                 f"""
                 SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
                        tb.pNote AS observacao, tj.pProject AS project_id,
-                       te.pCostCenter AS cost_center, tj.pExternal AS external
+                       te.pCostCenter AS cost_center, tj.pExternal AS external,
+                       tb.pStart AS inicio, tb.pEnd AS fim,
+                       tj.capTopProject AS top_project
                 FROM ttimebit tb
                 JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
                 JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
@@ -203,6 +214,100 @@ def fetch_my_hours(
             return cur.fetchall()
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao consultar horas do Projectile: {e}") from e
+
+
+def fetch_employee_contracts(employee_id: str) -> list[dict]:
+    """Jornada contratual do funcionário, uma linha por vigência de contrato:
+    `{"begin", "end", "weekday_hours": {0..6 -> horas}}` (0=segunda, igual
+    `date.weekday()`).
+
+    `temployeecontract.pPlannedTimeMonday..Sunday` é a única fonte REAL de
+    "horas esperadas por dia" neste banco — validado: 564 dos 578 contratos
+    têm segunda preenchida, e sábado/domingo vêm NULL (tratados como 0). As
+    alternativas foram medidas e descartadas:
+    `biemployeeplannedpresencedaily` tem 441k linhas mas para em 2024-11-08, e
+    `tworkingtime` tem só 1.184 linhas pra 125 funcionários desde 2009 (com
+    `pPresence` sujo, misturando tipo de presença com descrição de job).
+
+    Devolve TODAS as vigências (são poucas — 3 num caso real medido) em vez da
+    válida numa data só: o dashboard cobre até 12 meses e um contrato pode
+    mudar no meio do período, então quem chama resolve dia a dia. Lista vazia
+    é resultado legítimo e comum (ex: estagiário sem contrato cadastrado) —
+    quem chama precisa ter um fallback, nunca assumir 8h."""
+    try:
+        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+            cur.execute(
+                """
+                SELECT pContractBegin, pContractEnd,
+                       pPlannedTimeMonday, pPlannedTimeTuesday, pPlannedTimeWednesday,
+                       pPlannedTimeThursday, pPlannedTimeFriday, pPlannedTimeSaturday,
+                       pPlannedTimeSunday
+                FROM temployeecontract
+                WHERE sysClientId = %s AND pEmployee = %s
+                ORDER BY pContractBegin
+                """,
+                (_SYS_CLIENT_ID, employee_id),
+            )
+            columns = (
+                "pPlannedTimeMonday", "pPlannedTimeTuesday", "pPlannedTimeWednesday",
+                "pPlannedTimeThursday", "pPlannedTimeFriday", "pPlannedTimeSaturday",
+                "pPlannedTimeSunday",
+            )
+            return [
+                {
+                    "begin": row["pContractBegin"],
+                    "end": row["pContractEnd"],
+                    "weekday_hours": {i: float(row[c] or 0) for i, c in enumerate(columns)},
+                }
+                for row in cur.fetchall()
+            ]
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar contrato do Projectile: {e}") from e
+
+
+def fetch_daily_hours_totals(
+    start_date: str, end_date: str,
+    employee_id: str | None = None, employee_name: str | None = None,
+) -> list[dict]:
+    """Total de horas por DIA do funcionário (`[{"data", "horas"}]`, ordenado)
+    — mesmos joins e filtros de `fetch_my_hours`, só agregado no SQL.
+
+    Existe separado porque o Dashboard de horas precisa de uma janela MUITO
+    maior que o período exibido: a tendência mensal cobre 13 meses e o
+    baseline empírico de jornada precisa de ~120 dias, mas trazer 12 meses de
+    lançamentos crus só pra somar por dia seria trafegar milhares de linhas
+    duas vezes. Uma chamada com janela longa alimenta a série mensal, o
+    baseline e os percentis diários de uma vez.
+
+    Não devolve dia sem apontamento: dia ausente não é "dia de 0h", é dia sem
+    informação (pode ser férias/atestado, e medido que este banco não tem
+    fonte confiável de ausência). Quem precisa da lista de dias úteis pega em
+    `generator.business_days_between`."""
+    if not employee_id and not employee_name:
+        raise ValueError("informe employee_id ou employee_name")
+    try:
+        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+            if employee_id:
+                match_clause, match_param = "tj.pEmployee = %s", employee_id
+            else:
+                match_clause, match_param = "tj.capEmployee LIKE %s", f"%{employee_name}%"
+            cur.execute(
+                f"""
+                SELECT tb.pDate AS data, SUM(tb.pTime) AS horas
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                WHERE {match_clause}
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                GROUP BY tb.pDate
+                ORDER BY tb.pDate
+                """,
+                (match_param, _SYS_CLIENT_ID, start_date, end_date),
+            )
+            return cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar totais diários do Projectile: {e}") from e
 
 
 def fetch_engineering_hours(
