@@ -78,7 +78,7 @@ frontend/
 
 ## Conventions
 
-- **Git**: `main` único branch, 3 commits iniciais (`project commit`, `QoL`) — PT-BR curtos, sem Conventional Commits. Sem PR workflow detectado.
+- **Git**: histórico começou com `main` único branch, sem PR — PT-BR curtos, sem Conventional Commits. **A partir de 2026-09** (desde que `.github/workflows/ci.yml` existe): mudança pequena/óbvia pode ir direto pra `main`; mudança maior ou que mexa em CI/deploy/infra vai numa branch com PR, pra ver o ✅/❌ do Actions antes de mergear (evita repetir o incidente de levar um `ci.yml` quebrado direto pra `main`).
 - **Nomes**: `snake_case` em Python, `camelCase` em TS, `PascalCase` para componentes. Arquivos `kebab` não usado.
 - **Commits**: curtos, sem prefixo. Histórico raso — não inferir padrão estável.
 - **Estilo frontend**: CSS vars `:root` / `:root[data-theme="light"]` (`frontend/src/styles/index.css:19`), preview sempre `#fff/#1a1a1a` (não usa tokens). `escapeHtml` não necessário em JSX (React escapa).
