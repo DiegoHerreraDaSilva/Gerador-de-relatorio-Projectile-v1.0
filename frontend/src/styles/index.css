@@ -273,8 +273,17 @@
   .myh-col-5 { grid-column: span 5; }
   .myh-col-7 { grid-column: span 7; }
   .myh-col-12 { grid-column: span 12; }
-  .myh-stack { display: flex; flex-direction: column; gap: 16px; }
   .myh-grid.is-refreshing { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+
+  /* dias úteis sem apontamento + ritmo e projeção do mês: lado a lado, mesma
+     altura. Flex (não outra faixa da grade de 12 colunas) porque é um par
+     isolado — esticar a grade inteira (align-items:stretch) também igualaria
+     Tendência a Onde seu tempo foi, cuja diferença de altura natural é grande
+     demais pra esticar sem abrir um vão vazio enorme dentro do card menor.
+     align-items:stretch é o default do flex, então as duas .myh-card já saem
+     com a mesma altura sem propriedade extra. */
+  .myh-row-pair { display: flex; gap: 16px; }
+  .myh-row-pair > .myh-card { flex: 1 1 0; }
 
   /* --- card --- */
   .myh-card {
@@ -499,6 +508,7 @@
   @media (max-width: 900px) {
     .myh-col-5, .myh-col-7, .myh-col-12 { grid-column: span 12; }
     .myh-head-controls { width: 100%; }
+    .myh-row-pair { flex-direction: column; }
   }
 
   @media (prefers-reduced-motion: reduce) {

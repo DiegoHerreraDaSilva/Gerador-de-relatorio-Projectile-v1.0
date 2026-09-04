@@ -65,7 +65,7 @@ export function BulletBar({
       <div className="bullet-legend">
         <span className="bullet-legend-item">
           <span className="bullet-swatch bullet-swatch--fill" />
-          apontado <strong>{fmtNum(actual)} h</strong>
+          Apontado <strong>{fmtNum(actual)} h</strong>
         </span>
         {expectedClosed !== null && expectedClosed > 0 ? (
           <span className="bullet-legend-item">
@@ -74,7 +74,7 @@ export function BulletBar({
                 allowsPercentage ? "" : "bullet-swatch--estimated"
               }`}
             />
-            {allowsPercentage ? "esperado até hoje" : "referência estimada até hoje"}{" "}
+            {allowsPercentage ? "Esperado até hoje" : "Referência estimada até hoje"}{" "}
             <strong>{fmtNum(expectedClosed)} h</strong>
             {adherence !== null && <> · <strong>{Math.round(adherence * 100)}%</strong></>}
           </span>
@@ -83,7 +83,7 @@ export function BulletBar({
         )}
         {expectedPeriod !== null && (
           <span className="bullet-legend-item muted">
-            período inteiro {fmtNum(expectedPeriod)} h
+            Período inteiro {fmtNum(expectedPeriod)} h
           </span>
         )}
       </div>

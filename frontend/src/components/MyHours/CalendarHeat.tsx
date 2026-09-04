@@ -154,11 +154,11 @@ export function CalendarHeat({
                 const title = [
                   cell.date.split("-").reverse().join("/"),
                   cell.state === "worked" ? `${fmtNum(cell.hours ?? 0)} h` : null,
-                  cell.state === "gap" ? "dia útil sem apontamento" : null,
-                  isHoliday ? "feriado nacional" : null,
-                  cell.state === "off" && !isHoliday ? "fim de semana" : null,
-                  cell.state === "future" ? "ainda não encerrado" : null,
-                  cell.outlier ? "fora do seu padrão" : null,
+                  cell.state === "gap" ? "Dia útil sem apontamento" : null,
+                  isHoliday ? "Feriado nacional" : null,
+                  cell.state === "off" && !isHoliday ? "Fim de semana" : null,
+                  cell.state === "future" ? "Ainda não encerrado" : null,
+                  cell.outlier ? "Fora do seu padrão" : null,
                 ]
                   .filter(Boolean)
                   .join(" · ");
@@ -206,24 +206,24 @@ export function CalendarHeat({
       <div className="calheat-legend">
         <span className="calheat-legend-item">
           <span className="calheat-swatch calheat-cell--worked" style={{ opacity: 1 }} />
-          apontado
+          Apontado
         </span>
         <span className="calheat-legend-item">
           <span className="calheat-swatch calheat-cell--gap" />
-          dia útil sem apontamento
+          Dia útil sem apontamento
         </span>
         <span className="calheat-legend-item">
           <span className="calheat-swatch calheat-cell--off" />
-          fim de semana / feriado
+          Fim de semana / feriado
         </span>
         <span className="calheat-legend-item">
           <span className="calheat-swatch calheat-cell--future" />
-          não encerrado
+          Não encerrado
         </span>
         <span className="calheat-legend-note muted">
           {referenceHours && referenceHours > 0
-            ? `intensidade = horas ÷ ${fmtNum(referenceHours)} h de referência`
-            : `intensidade relativa ao maior dia do período (${fmtNum(maxHours)} h)`}
+            ? `Intensidade = horas ÷ ${fmtNum(referenceHours)} h de referência`
+            : `Intensidade relativa ao maior dia do período (${fmtNum(maxHours)} h)`}
         </span>
       </div>
     </div>

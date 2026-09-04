@@ -203,7 +203,7 @@ export function MyHoursDashboard() {
               </span>
               {avgPerDay !== null && (
                 <span>
-                  média <strong>{fmtNum(avgPerDay)} h</strong>/dia apontado
+                  Média <strong>{fmtNum(avgPerDay)} h</strong>/dia apontado
                 </span>
               )}
               {s.comparison && (
@@ -216,8 +216,8 @@ export function MyHoursDashboard() {
             </div>
           </section>
 
-          {/* R2 — calendário + lacunas/ritmo */}
-          <section className="myh-card myh-card--viz myh-col-7">
+          {/* R2 — calendário, sozinho, largura total */}
+          <section className="myh-card myh-card--viz myh-col-12">
             <h3 className="myh-card-title">Calendário de apontamento</h3>
             <CalendarHeat
               totals={perDay}
@@ -254,7 +254,8 @@ export function MyHoursDashboard() {
             )}
           </section>
 
-          <div className="myh-col-5 myh-stack">
+          {/* R3 — dias úteis sem apontamento ao lado de ritmo e projeção, mesma altura */}
+          <div className="myh-col-12 myh-row-pair">
             <section className="myh-card">
               <h3 className="myh-card-title">Dias úteis sem apontamento</h3>
               {s.gapDays.length === 0 ? (
@@ -319,7 +320,7 @@ export function MyHoursDashboard() {
               {isCurrentMonth &&
                 (projection ? (
                   <p className="myh-projection">
-                    projeção do mês <strong>~{fmtNum(projection.mid)} h</strong>
+                    Projeção do mês <strong>~{fmtNum(projection.mid)} h</strong>
                     <span className="muted">
                       {" "}
                       (faixa {fmtNum(projection.low)}–{fmtNum(projection.high)} h)
@@ -328,7 +329,7 @@ export function MyHoursDashboard() {
                       <>
                         <br />
                         <span className="muted">
-                          sua mediana mensal: {fmtNum(monthlyMedian)} h
+                          Sua mediana mensal: {fmtNum(monthlyMedian)} h
                         </span>
                       </>
                     )}
@@ -341,7 +342,7 @@ export function MyHoursDashboard() {
             </section>
           </div>
 
-          {/* R3 — tendência + pacotes */}
+          {/* R4 — tendência + pacotes */}
           <section className="myh-card myh-card--viz myh-col-7">
             <h3 className="myh-card-title">Tendência — 13 meses</h3>
             <MonthlyColumns series={s.monthlySeries} />
@@ -358,10 +359,10 @@ export function MyHoursDashboard() {
                 {billing.worthShowing
                   ? `${fmtNum(billing.externo)} h externo / ${fmtNum(billing.interno)} h interno`
                   : billing.interno === billing.total
-                  ? "todo o período é trabalho interno"
+                  ? "Todo o período é trabalho interno"
                   : billing.externo === billing.total
-                  ? "todo o período é trabalho externo"
-                  : "classificação do projeto indisponível"}
+                  ? "Todo o período é trabalho externo"
+                  : "Classificação do projeto indisponível"}
               </p>
             )}
             <PacoteBars
@@ -374,7 +375,7 @@ export function MyHoursDashboard() {
             </p>
           </section>
 
-          {/* R4 — janela do dia */}
+          {/* R5 — janela do dia */}
           <section className="myh-card myh-card--viz myh-col-12">
             <div className="myh-card-head">
               <h3 className="myh-card-title">Janela do dia</h3>
@@ -390,7 +391,7 @@ export function MyHoursDashboard() {
             {showWindows && <DayWindows windows={windows} />}
           </section>
 
-          {/* R5 — tabela */}
+          {/* R6 — tabela */}
           <section className="myh-card myh-col-12">
             <div className="myh-card-head">
               <h3 className="myh-card-title">Lançamentos</h3>
@@ -476,7 +477,7 @@ export function MyHoursDashboard() {
             </div>
           </section>
 
-          {/* R6 — limites dos dados */}
+          {/* R7 — limites dos dados */}
           <details className="myh-card myh-col-12 myh-limits">
             <summary>Limites destes dados</summary>
             <ul>
@@ -526,9 +527,9 @@ function MyHoursHeader({ s }: { s: ReturnType<typeof useMyHoursStore.getState> }
   const ref = s.reference;
   const refDetail =
     ref.source === "empirical" && ref.sample_days
-      ? `mediana de ${ref.sample_days} dias`
+      ? `Mediana de ${ref.sample_days} dias`
       : ref.source === "calendar"
-      ? "sem contrato cadastrado"
+      ? "Sem contrato cadastrado"
       : null;
 
   return (
@@ -560,8 +561,8 @@ function MyHoursHeader({ s }: { s: ReturnType<typeof useMyHoursStore.getState> }
           </span>
         ) : (
           <span className="myh-ref-chip is-missing">
-            <strong>sem referência</strong>
-            <span>histórico insuficiente</span>
+            <strong>Sem referência</strong>
+            <span>Histórico insuficiente</span>
           </span>
         )}
 

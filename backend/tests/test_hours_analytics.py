@@ -159,7 +159,7 @@ class TestResolveReference:
         ref = resolve_reference(
             [_contract(datetime.date(2023, 1, 1), None)], _intern_history(hours=6.0), TODAY
         )
-        assert ref["divergence_note"] == "contrato 8 h · seu padrão medido ~6 h"
+        assert ref["divergence_note"] == "Contrato 8 h · Seu padrão medido ~6 h"
 
     def test_historico_nao_autoriza_percentual(self):
         # é o caso REAL do usuário de referência: sem contrato cadastrado

@@ -12,11 +12,11 @@ export function MyHoursSkeleton() {
         <div className="skel skel-title" />
         <div className="skel skel-bullet" />
       </div>
-      <div className="myh-card myh-col-7">
+      <div className="myh-card myh-col-12">
         <div className="skel skel-title" />
         <div className="skel skel-calendar" />
       </div>
-      <div className="myh-col-5 myh-stack">
+      <div className="myh-col-12 myh-row-pair">
         <div className="myh-card">
           <div className="skel skel-title" />
           <div className="skel skel-line" />

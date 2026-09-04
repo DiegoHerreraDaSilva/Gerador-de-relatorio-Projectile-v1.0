@@ -54,9 +54,9 @@ export function DayWindows({ windows }: { windows: DayWindow[] }) {
     <div className="daywin">
       {medianStart !== null && medianEnd !== null && (
         <p className="daywin-summary">
-          janela mediana <strong>{hhmm(medianStart)}–{hhmm(medianEnd)}</strong>
+          Janela mediana <strong>{hhmm(medianStart)}–{hhmm(medianEnd)}</strong>
           {medianSpan !== null && <> ({fmtNum(medianSpan)} h)</>}
-          {medianLogged !== null && <> · apontado <strong>{fmtNum(medianLogged)} h</strong></>}
+          {medianLogged !== null && <> · Apontado <strong>{fmtNum(medianLogged)} h</strong></>}
           {uncovered !== null && uncovered > 0 && (
             <> · <strong>{fmtNum(uncovered)} h</strong> não apontadas (inclui intervalo)</>
           )}

@@ -67,7 +67,7 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
         </div>
         {medianClosed !== null && (
           <span className="muted">
-            mediana dos meses fechados: {fmtNum(medianClosed)} {unit}
+            Mediana dos meses fechados: {fmtNum(medianClosed)} {unit}
           </span>
         )}
       </div>
@@ -86,7 +86,7 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
           const title = m.no_data
             ? `${label(m.month)}: sem informação`
             : `${label(m.month)}: ${fmtNum(m.hours)} h em ${m.days_worked} dias` +
-              ` (${m.business_days} dias úteis)${m.partial ? " · mês em curso" : ""}`;
+              ` (${m.business_days} dias úteis)${m.partial ? " · Mês em curso" : ""}`;
           return (
             <div className="monthcols-col" key={m.month} title={title}>
               <div className="monthcols-bar-area">
@@ -119,7 +119,7 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
           {series.map((m) => (
             <tr key={m.month}>
               <td>{label(m.month)}{m.partial ? " (parcial)" : ""}</td>
-              <td>{m.no_data ? "sem informação" : `${fmtNum(m.hours)} h`}</td>
+              <td>{m.no_data ? "Sem informação" : `${fmtNum(m.hours)} h`}</td>
               <td>{m.no_data ? "—" : m.days_worked}</td>
             </tr>
           ))}

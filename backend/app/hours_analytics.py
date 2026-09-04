@@ -151,7 +151,7 @@ def resolve_reference(
         per_day = round(sum(worked) / len(worked), 2) if worked else 0.0
         note = None
         if empirical and abs(empirical[0] - per_day) > DIVERGENCE_NOTE_THRESHOLD_HOURS:
-            note = f"contrato {_hours_pt(per_day)} · seu padrão medido ~{_hours_pt(empirical[0])}"
+            note = f"Contrato {_hours_pt(per_day)} · Seu padrão medido ~{_hours_pt(empirical[0])}"
         return {
             "source": "contract",
             "hours_per_weekday": per_weekday,
