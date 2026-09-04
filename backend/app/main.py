@@ -7,6 +7,7 @@ import re
 import tempfile
 import uuid
 import zipfile
+from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -49,7 +50,15 @@ from .auth import (
 )
 from .chat_ops import OperationError, apply_operations
 from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
-from .generator import ActivityInput, GroupInput, NonFiniteValueError, ReportHeader, parse_month_label, generate_report
+from .generator import (
+    ActivityInput,
+    GroupInput,
+    NonFiniteValueError,
+    ReportHeader,
+    count_business_days,
+    parse_month_label,
+    generate_report,
+)
 from .pdf_generator import generate_report_pdf
 from . import email_ingest
 from .management import (
@@ -67,6 +76,7 @@ from .projectile_db import (
     fetch_all_projects_with_details,
     fetch_clients_for_projects,
     fetch_employee_hours,
+    fetch_my_hours,
     fetch_project_codes,
     fetch_project_details,
     fetch_project_hours,
@@ -369,6 +379,71 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
 
     packages, issues = group_hours(rows, split_by_package=(payload.mode == "multi"))
     return _build_parse_response(packages, issues)
+
+
+_MY_HOURS_PERIOD_MONTHS = {"current_month": 1, "last_3": 3, "last_6": 6, "last_12": 12}
+
+
+def _my_hours_date_range(period: str) -> tuple[date, date]:
+    """(início, fim) do período pedido — sempre até HOJE (não faz sentido
+    pedir horas de um dia que ainda não aconteceu), voltando N meses
+    completos a partir do mês corrente. `current_month` = só o mês corrente
+    (o caso de uso principal: "como estou indo esse mês")."""
+    today = date.today()
+    months_back = _MY_HOURS_PERIOD_MONTHS[period]
+    month_index = today.month - 1 - (months_back - 1)
+    year = today.year + month_index // 12
+    month = month_index % 12 + 1
+    return date(year, month, 1), today
+
+
+@app.get("/my-hours")
+async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends(require_session)):
+    """Dashboard de horas pessoal — dado do PRÓPRIO usuário logado (mesma
+    regra de `/parse-db`: nunca confia em identidade vinda do cliente).
+    Devolve os lançamentos crus (o frontend agrega por projeto/dia/faturável
+    — poucas dezenas/centenas de linhas por período, sem necessidade de
+    agregar no SQL, mesmo padrão de `/management/kpis`)."""
+    if period not in _MY_HOURS_PERIOD_MONTHS:
+        raise HTTPException(400, f"Período inválido: {period!r} (use current_month/last_3/last_6/last_12).")
+    start_date, end_date = _my_hours_date_range(period)
+
+    try:
+        rows = fetch_my_hours(
+            start_date.isoformat(), end_date.isoformat(),
+            employee_id=_user.get("employee_id"), employee_name=_user["name"],
+        )
+        project_ids = sorted({r["project_id"] for r in rows if r.get("project_id")})
+        project_details = fetch_project_details(project_ids) if project_ids else {}
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+
+    # dias úteis esperados no período: count_business_days conta ESTRITAMENTE
+    # depois do 1º argumento (ver generator.py) — passa a véspera do início
+    # pra incluir o próprio dia 1 na contagem.
+    business_days_expected = count_business_days(start_date - timedelta(days=1), end_date)
+
+    entries = [
+        {
+            "date": r["data"].isoformat() if hasattr(r["data"], "isoformat") else str(r["data"]),
+            "hours": float(r["horas"] or 0),
+            "pacote": str(r.get("pacote") or ""),
+            "observacao": str(r.get("observacao") or ""),
+            "project_id": r.get("project_id"),
+            "project_name": (project_details.get(r.get("project_id")) or {}).get("name") or "Sem projeto",
+            "cost_center": r.get("cost_center"),
+            "billable": r.get("external") != "0",
+        }
+        for r in rows
+    ]
+
+    return {
+        "entries": entries,
+        "business_days_expected": business_days_expected,
+        "period": period,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
 
 
 def _resolve_month_range(month_label: str) -> tuple[str, str]:

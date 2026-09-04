@@ -209,6 +209,142 @@
   .gauge-svg { width: 100%; max-width: 180px; height: auto; }
   .gauge-value { font-size: 1.35rem; font-weight: 700; color: var(--text); margin-top: 2px; }
 
+  /* ============================================================
+     Dashboard de horas — página própria, com seu próprio sistema de
+     card/tabela/toolbar (não reaproveita .card/.kpi-grid/.kpi-table do
+     Painel de Gerência), pra poder seguir de perto o layout de referência
+     (ícone em caixa no canto do KPI, barra com rótulo+valor em cima, donut
+     com legenda) sem brigar com as regras da outra tela.
+     ============================================================ */
+  .my-hours-page { display: flex; flex-direction: column; gap: 20px; }
+
+  .my-hours-title { margin: 0 0 2px; font-size: 1.3rem; font-weight: 700; color: var(--text); }
+  .my-hours-subtitle { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+
+  .my-hours-toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .my-hours-period { display: flex; flex-direction: column; gap: 4px; margin-right: auto; }
+  .my-hours-period-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+  .my-hours-period select {
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  .my-hours-refresh {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .my-hours-refresh:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent-hi); }
+  .my-hours-refresh svg.spin { animation: spin 0.9s linear infinite; }
+  .my-hours-refresh:disabled { opacity: 0.6; cursor: default; }
+
+  /* card próprio desta página — mesma receita visual do design system
+     (gradiente + hairline + sombra + contorno luminoso na base), escrita de
+     novo aqui em vez de importar .card, pra essa página poder evoluir sem
+     puxar o resto do app junto. */
+  .my-hours-card {
+    position: relative;
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+  }
+  .my-hours-card::after {
+    content: "";
+    position: absolute; left: 16px; right: 16px; bottom: -1px;
+    height: 2px; border-radius: 2px; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 18%, var(--accent-hi) 50%, var(--accent) 82%, transparent 100%);
+    box-shadow: 0 0 12px 0 var(--accent-glow);
+    opacity: 0.8;
+  }
+  .my-hours-card-title { margin: 0 0 14px; font-size: 0.92rem; font-weight: 600; color: var(--text); }
+
+  /* KPIs — linha de cards pequenos e compactos, número + rótulo à esquerda,
+     ícone numa caixa colorida no canto superior direito. */
+  .my-hours-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .my-hours-kpi-card { display: flex; flex-direction: column; gap: 4px; padding: 16px; }
+  .my-hours-kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .my-hours-kpi-value { font-size: 1.7rem; font-weight: 700; color: var(--text); line-height: 1.15; }
+  .my-hours-kpi-icon-box {
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+    color: var(--accent-hi);
+  }
+  .my-hours-kpi-label { font-size: 0.82rem; color: var(--text-muted); }
+  .my-hours-kpi-sub { font-size: 0.74rem; color: var(--text-muted); margin: 0; }
+
+  .my-hours-viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+
+  /* BarList — ranking horizontal, cor única (ver components/BarList.tsx).
+     Rótulo + valor numa linha, barra cheia por baixo (não lado a lado). */
+  .bar-list { display: flex; flex-direction: column; gap: 14px; }
+  .bar-list-row { display: flex; flex-direction: column; gap: 6px; }
+  .bar-list-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .bar-list-label { font-size: 0.85rem; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-list-value { font-size: 0.85rem; color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar-track {
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-2);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+  .bar-track-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hi) 100%);
+    box-shadow: 0 0 6px -1px var(--accent-glow);
+    transition: width 0.2s ease;
+  }
+
+  /* LineChart — ver components/LineChart.tsx */
+  .line-chart { display: flex; flex-direction: column; gap: 4px; }
+  .line-chart-svg { width: 100%; height: 160px; display: block; }
+  .line-chart-line { filter: drop-shadow(0 0 7px var(--accent-glow)); }
+  .line-chart-point { fill: var(--accent-hi); }
+  .line-chart-labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); }
+
+  /* Donut — ver components/Donut.tsx */
+  .donut { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .donut-svg { width: 100%; max-width: 190px; height: auto; }
+  .donut-center-value { fill: var(--text); font-size: 26px; font-weight: 700; }
+  .donut-center-label { fill: var(--text-muted); font-size: 11px; }
+  .donut-legend { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+  .donut-legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .donut-legend-label { flex: 1; color: var(--text); }
+  .donut-legend-value { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  /* tabela de lançamentos — própria desta página */
+  .my-hours-table-wrap { overflow-x: auto; }
+  .my-hours-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .my-hours-table th, .my-hours-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .my-hours-table th:last-child, .my-hours-table td:last-child { text-align: right; }
+  .my-hours-table th { color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .my-hours-table tbody tr:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+
   /* scroll horizontal de segurança — se as colunas (ou um valor grande demais)
      não couberem na largura do card, rola dentro da tabela em vez de vazar
      por cima do card vizinho (como aconteceu quando os cards ficaram estreitos) */
@@ -217,6 +353,11 @@
   .kpi-table th, .kpi-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
   .kpi-table th:first-child, .kpi-table td:first-child { text-align: left; }
   .kpi-table th { color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .sortable-th { cursor: pointer; user-select: none; }
+  .sortable-th:hover { color: var(--accent-hi); }
+  .sortable-th-inner { display: inline-flex; align-items: center; gap: 4px; }
+  .sortable-th-icon-idle { opacity: 0.35; flex-shrink: 0; }
+  .sortable-th:hover .sortable-th-icon-idle { opacity: 0.7; }
   .kpi-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--text) 5%, transparent); }
   .kpi-table tfoot td { font-weight: 700; border-bottom: none; border-top: 1px solid var(--border); }
   /* `input[type=text]{width:100%}` (regra global, definida bem depois neste

@@ -166,6 +166,45 @@ def fetch_employee_hours(
         raise ProjectileDbError(f"Falha ao consultar horas do Projectile: {e}") from e
 
 
+def fetch_my_hours(
+    start_date: str, end_date: str,
+    employee_id: str | None = None, employee_name: str | None = None,
+) -> list[dict]:
+    """Como `fetch_employee_hours` (mesmo filtro por funcionário, mesmo
+    fallback pra nome), mas junta também `temployee` (`cost_center`) e traz
+    `project_id`/`external` (igual `fetch_engineering_hours`) — nenhuma das
+    duas funções tinha as duas coisas juntas. Usada pelo Dashboard de horas
+    pessoal (`GET /my-hours`), que precisa de projeto e faturável/não
+    faturável por lançamento, não só o texto do pacote."""
+    if not employee_id and not employee_name:
+        raise ValueError("informe employee_id ou employee_name")
+    try:
+        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+            if employee_id:
+                match_clause, match_param = "tj.pEmployee = %s", employee_id
+            else:
+                match_clause, match_param = "tj.capEmployee LIKE %s", f"%{employee_name}%"
+            cur.execute(
+                f"""
+                SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
+                       tb.pNote AS observacao, tj.pProject AS project_id,
+                       te.pCostCenter AS cost_center, tj.pExternal AS external
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
+                WHERE {match_clause}
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                ORDER BY tb.pDate, tb.pStart
+                """,
+                (match_param, _SYS_CLIENT_ID, start_date, end_date),
+            )
+            return cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar horas do Projectile: {e}") from e
+
+
 def fetch_engineering_hours(
     start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
 ) -> list[dict]:

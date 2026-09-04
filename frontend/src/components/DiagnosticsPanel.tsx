@@ -3,9 +3,11 @@ import { createPortal } from "react-dom";
 import { Trash2, Pencil, Check, X, ChevronDown, RefreshCw } from "lucide-react";
 import { ExtraHoursInput } from "./ExtraHoursInput";
 import { ManagementFilters } from "./ManagementFilters";
+import { SortableTh } from "./SortableTh";
 import { useManagementStore } from "../store/useManagementStore";
-import { useDiagnosticsStore, type Sample, type Project } from "../store/useDiagnosticsStore";
+import { useDiagnosticsStore, type Sample, type Project, type SkippedMessage } from "../store/useDiagnosticsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -220,6 +222,19 @@ export function DiagnosticsPanel() {
   });
   const displaySkipped = skipped.filter((s) => displayMonths.has(String(s.received_at || "").slice(0, 7)));
 
+  const sampleSort = useSortableRows<Sample>(displaySamples, (s, key) => {
+    if (key === "client") return clientFor(s.project_id);
+    if (key === "project") return s.project_name;
+    if (key === "pacote") return s.pacote_scope || "Projeto inteiro";
+    if (key === "month") return s.month;
+    if (key === "hours") return s.billed_hours;
+    if (key === "days") return s.business_days;
+    return s.source;
+  });
+  const skippedSort = useSortableRows<SkippedMessage>(displaySkipped, (s, key) =>
+    key === "date" ? s.received_at : s.reason
+  );
+
   // projetos com horas dentro do Período/Competência selecionados — mesma
   // fonte que alimenta a tabela "Relatórios enviados" do Painel de Gerência.
   const projectIdsInPeriod = useMemo(() => {
@@ -362,14 +377,21 @@ export function DiagnosticsPanel() {
             <table className="kpi-table">
               <thead>
                 <tr>
-                  <th>Cliente</th><th>Projeto</th><th>Pacote</th><th>Competência</th><th>Horas</th><th>Dias</th><th>Origem</th><th>Ações</th>
+                  <SortableTh sortKey="client" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Cliente</SortableTh>
+                  <SortableTh sortKey="project" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Projeto</SortableTh>
+                  <SortableTh sortKey="pacote" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Pacote</SortableTh>
+                  <SortableTh sortKey="month" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Competência</SortableTh>
+                  <SortableTh sortKey="hours" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Horas</SortableTh>
+                  <SortableTh sortKey="days" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Dias</SortableTh>
+                  <SortableTh sortKey="source" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Origem</SortableTh>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {displaySamples.length === 0 && (
                   <tr><td colSpan={8} className="muted">Nenhuma amostra nesse período.</td></tr>
                 )}
-                {displaySamples.map((s) => (
+                {sampleSort.sortedRows.map((s) => (
                   <tr key={s.sample_id}>
                     {editingId === s.sample_id ? (
                       <>
@@ -438,10 +460,15 @@ export function DiagnosticsPanel() {
         <h3>E-mails pulados</h3>
         <div className="kpi-table-wrap diagnostics-table-wrap">
           <table className="kpi-table">
-            <thead><tr><th>Data</th><th>Motivo</th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh sortKey="date" activeKey={skippedSort.sortKey} direction={skippedSort.direction} onSort={skippedSort.toggleSort}>Data</SortableTh>
+                <SortableTh sortKey="reason" activeKey={skippedSort.sortKey} direction={skippedSort.direction} onSort={skippedSort.toggleSort}>Motivo</SortableTh>
+              </tr>
+            </thead>
             <tbody>
               {displaySkipped.length === 0 && <tr><td colSpan={2} className="muted">Nenhum e-mail pulado nesse período.</td></tr>}
-              {displaySkipped.map((s, i) => (
+              {skippedSort.sortedRows.map((s, i) => (
                 <tr key={`${s.message_id}-${i}`}>
                   <td>{s.received_at ? s.received_at.slice(0, 10) : "—"}</td>
                   <td>{s.reason}</td>

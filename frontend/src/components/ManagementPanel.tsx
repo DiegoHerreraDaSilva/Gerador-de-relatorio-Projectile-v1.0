@@ -2,8 +2,11 @@ import { Fragment, useEffect, useState } from "react";
 import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus } from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
+import { SortableTh } from "./SortableTh";
+import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
 import { useManagementStore, round2 } from "../store/useManagementStore";
+import type { MonthRow, ProjectSendStatusRow } from "../store/useManagementStore";
 
 function pctClass(value: number | null, metaValue: number, metaType: "min" | "max"): string {
   if (value === null) return "";
@@ -129,6 +132,37 @@ export function ManagementPanel() {
   const sendStatusNoneCount = sendStatusRowsInPeriod.filter((r) => r.status === "none").length;
   const sendStatusRows = sendStatusRowsInPeriod.filter((r) => (sendStatusTab === "all" ? true : r.status === sendStatusTab));
 
+  // ordenação clicável de cabeçalho — cada tabela tem seu próprio estado
+  // (mesmo as 3 primeiras, que mostram os mesmos meses: colunas diferentes,
+  // então faz sentido cada uma ordenar independente das outras). Sem coluna
+  // clicada, mantém a ordem que já vinha (cronológica pros meses, maior
+  // hora primeiro pra pacotes não faturáveis, cliente/projeto pra envios).
+  const perfSort = useSortableRows<MonthRow>(displayRows, (r, key) => {
+    if (key === "month") return r.month;
+    if (key === "worked") return r.worked_hours;
+    if (key === "billed") return r.billed_hours;
+    if (key === "perfHours") return r.perf_hours;
+    return r.perf_kpi_pct;
+  });
+  const elaborationSort = useSortableRows<MonthRow>(displayRows, (r, key) =>
+    key === "month" ? r.month : r.elaboration_days
+  );
+  const nonbillableSort = useSortableRows<MonthRow>(displayRows, (r, key) => {
+    if (key === "month") return r.month;
+    if (key === "worked") return r.worked_hours;
+    if (key === "nonbillable") return r.nonbillable_hours;
+    return r.nonbillable_kpi_pct;
+  });
+  const packageSort = useSortableRows<{ pkg: string; hours: number }>(packageRows, (p, key) =>
+    key === "pkg" ? p.pkg : p.hours
+  );
+  const sendStatusSort = useSortableRows<ProjectSendStatusRow>(sendStatusRows, (r, key) => {
+    if (key === "client") return r.client;
+    if (key === "project") return r.project_name;
+    if (key === "month") return r.month;
+    return r.status;
+  });
+
   return (
     <div className="management-layout">
       <ManagementFilters />
@@ -161,10 +195,16 @@ export function ManagementPanel() {
           }}
         >
           <thead>
-            <tr><th>Competência</th><th>Trabalhadas</th><th>Faturadas</th><th>Perf. H</th><th>KPI %</th></tr>
+            <tr>
+              <SortableTh sortKey="month" activeKey={perfSort.sortKey} direction={perfSort.direction} onSort={perfSort.toggleSort}>Competência</SortableTh>
+              <SortableTh sortKey="worked" activeKey={perfSort.sortKey} direction={perfSort.direction} onSort={perfSort.toggleSort}>Trabalhadas</SortableTh>
+              <SortableTh sortKey="billed" activeKey={perfSort.sortKey} direction={perfSort.direction} onSort={perfSort.toggleSort}>Faturadas</SortableTh>
+              <SortableTh sortKey="perfHours" activeKey={perfSort.sortKey} direction={perfSort.direction} onSort={perfSort.toggleSort}>Perf. H</SortableTh>
+              <SortableTh sortKey="perfPct" activeKey={perfSort.sortKey} direction={perfSort.direction} onSort={perfSort.toggleSort}>KPI %</SortableTh>
+            </tr>
           </thead>
           <tbody>
-            {displayRows.map((r) => (
+            {perfSort.sortedRows.map((r) => (
               <tr key={r.month}>
                 <td>{r.month}</td>
                 <td>{fmtNum(r.worked_hours)}</td>
@@ -198,10 +238,13 @@ export function ManagementPanel() {
           }}
         >
           <thead>
-            <tr><th>Competência</th><th>KPI (Dias)</th></tr>
+            <tr>
+              <SortableTh sortKey="month" activeKey={elaborationSort.sortKey} direction={elaborationSort.direction} onSort={elaborationSort.toggleSort}>Competência</SortableTh>
+              <SortableTh sortKey="days" activeKey={elaborationSort.sortKey} direction={elaborationSort.direction} onSort={elaborationSort.toggleSort}>KPI (Dias)</SortableTh>
+            </tr>
           </thead>
           <tbody>
-            {displayRows.map((r) => (
+            {elaborationSort.sortedRows.map((r) => (
               <tr key={r.month}>
                 <td>{r.month}</td>
                 <td>{r.elaboration_days === null ? "—" : fmtNum(r.elaboration_days)}</td>
@@ -226,10 +269,15 @@ export function ManagementPanel() {
           }}
         >
           <thead>
-            <tr><th>Competência</th><th>Total Horas</th><th>Horas NãoFat</th><th>KPI %</th></tr>
+            <tr>
+              <SortableTh sortKey="month" activeKey={nonbillableSort.sortKey} direction={nonbillableSort.direction} onSort={nonbillableSort.toggleSort}>Competência</SortableTh>
+              <SortableTh sortKey="worked" activeKey={nonbillableSort.sortKey} direction={nonbillableSort.direction} onSort={nonbillableSort.toggleSort}>Total Horas</SortableTh>
+              <SortableTh sortKey="nonbillable" activeKey={nonbillableSort.sortKey} direction={nonbillableSort.direction} onSort={nonbillableSort.toggleSort}>Horas NãoFat</SortableTh>
+              <SortableTh sortKey="nonbillablePct" activeKey={nonbillableSort.sortKey} direction={nonbillableSort.direction} onSort={nonbillableSort.toggleSort}>KPI %</SortableTh>
+            </tr>
           </thead>
           <tbody>
-            {displayRows.map((r) => (
+            {nonbillableSort.sortedRows.map((r) => (
               <tr key={r.month}>
                 <td>{r.month}</td>
                 <td>{fmtNum(r.worked_hours)}</td>
@@ -260,13 +308,17 @@ export function ManagementPanel() {
           <div className="kpi-table-wrap nonbillable-packages-table-wrap">
             <table className="kpi-table">
               <thead>
-                <tr><th>Pacote de trabalho</th><th>Horas</th><th>% do não faturável</th></tr>
+                <tr>
+                  <SortableTh sortKey="pkg" activeKey={packageSort.sortKey} direction={packageSort.direction} onSort={packageSort.toggleSort}>Pacote de trabalho</SortableTh>
+                  <SortableTh sortKey="hours" activeKey={packageSort.sortKey} direction={packageSort.direction} onSort={packageSort.toggleSort}>Horas</SortableTh>
+                  <SortableTh sortKey="pct" activeKey={packageSort.sortKey} direction={packageSort.direction} onSort={packageSort.toggleSort}>% do não faturável</SortableTh>
+                </tr>
               </thead>
               <tbody>
                 {packageRows.length === 0 && (
                   <tr><td colSpan={3} className="muted">Nenhum pacote não faturável no período selecionado.</td></tr>
                 )}
-                {packageRows.map((p) => (
+                {packageSort.sortedRows.map((p) => (
                   <tr key={p.pkg}>
                     <td>{p.pkg}</td>
                     <td>{fmtNum(p.hours)}</td>
@@ -324,7 +376,12 @@ export function ManagementPanel() {
           <div className="kpi-table-wrap send-status-table-wrap">
             <table className="kpi-table">
               <thead>
-                <tr><th>Cliente</th><th>Projeto</th><th>Competência</th><th>Enviado</th></tr>
+                <tr>
+                  <SortableTh sortKey="client" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Cliente</SortableTh>
+                  <SortableTh sortKey="project" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Projeto</SortableTh>
+                  <SortableTh sortKey="month" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Competência</SortableTh>
+                  <SortableTh sortKey="status" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Enviado</SortableTh>
+                </tr>
               </thead>
               <tbody>
                 {sendStatusRows.length === 0 && (
@@ -342,7 +399,7 @@ export function ManagementPanel() {
                     </td>
                   </tr>
                 )}
-                {sendStatusRows.map((r) => {
+                {sendStatusSort.sortedRows.map((r) => {
                   const rowKey = `${r.project_id}-${r.month}`;
                   const isExpanded = expandedSendStatusRow === rowKey;
                   return (

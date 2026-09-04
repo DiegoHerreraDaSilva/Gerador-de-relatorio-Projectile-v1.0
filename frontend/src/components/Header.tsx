@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { useAuthStore } from "../store/useAuthStore";
 import type { AppView } from "../App";
@@ -39,6 +39,8 @@ export function Header({
           <>Painel de <span className="app-header-accent">Gerência</span></>
         ) : view === "diagnostics" ? (
           <>Diagnóstico de <span className="app-header-accent">relatórios</span></>
+        ) : view === "dashboard" ? (
+          <>Dashboard de <span className="app-header-accent">horas</span></>
         ) : (
           <>Geração de <span className="app-header-accent">Relatório de Horas</span></>
         )}
@@ -51,6 +53,14 @@ export function Header({
         >
           <FileText size={15} strokeWidth={1.8} />
           Gerar Relatório
+        </button>
+        <button
+          type="button"
+          className={`nav-tab ${view === "dashboard" ? "active" : ""}`}
+          onClick={() => onNavigate("dashboard")}
+        >
+          <Activity size={15} strokeWidth={1.8} />
+          Dashboard de horas
         </button>
         {canSeeManagementPanel && (
           <>
