@@ -204,28 +204,16 @@ npm --prefix frontend run preview
 
 ---
 
-## CI/CD (GitHub Actions)
+## CI (GitHub Actions)
 
-`.github/workflows/ci.yml` — 3 jobs:
+`.github/workflows/ci.yml` — 2 jobs, todo push e todo PR pra `main`:
 
-| Job | Quando roda | O que faz |
-|---|---|---|
-| `backend-tests` | todo push/PR | `pip install -r backend/requirements-dev.txt` + `pytest backend/tests/` |
-| `frontend-build` | todo push/PR | `npm ci` + `npm run test` (vitest) + `npm run build` (tsc -b && vite build); publica `frontend/dist` como artifact |
-| `deploy` | só push direto em `main`, só se os 2 jobs acima passarem (`needs:`), e só se `vars.DEPLOY_ENABLED == 'true'` (ver abaixo) | copia o `frontend/dist` já buildado + `git pull`/`pip install`/reinicia o serviço no servidor Windows via SSH |
-
-**Secrets necessários** (Settings → Secrets and variables → Actions → aba **Secrets**, no repositório GitHub) pro job `deploy`:
-
-| Secret | Valor |
+| Job | O que faz |
 |---|---|
-| `DEPLOY_HOST` | endereço do servidor Windows (IP ou hostname) |
-| `DEPLOY_USERNAME` | usuário SSH no servidor |
-| `DEPLOY_SSH_KEY` | chave privada SSH (par cadastrado no `authorized_keys` do servidor) |
-| `DEPLOY_PORT` | opcional, default `22` |
+| `backend-tests` | `pip install -r backend/requirements-dev.txt` + `pytest backend/tests/` |
+| `frontend-build` | `npm ci` + `npm run test` (vitest) + `npm run build` (tsc -b && vite build) |
 
-**Interruptor do deploy** (Settings → Secrets and variables → Actions → aba **Variables**, não a de Secrets — o `if:` de um job não consegue ler `secrets` diretamente): crie uma variável `DEPLOY_ENABLED` com valor `true` só depois de testar o SSH manualmente e ter certeza que o servidor está pronto. Enquanto ela não existir (ou não for `true`), o job `deploy` aparece **pulado** (cinza), nunca falha em vermelho.
-
-Servidor precisa ter **OpenSSH Server**, `git`, Python 3.11+ e [`nssm`](https://nssm.cc/) instalados e no `PATH` — é assim que o job reinicia o serviço do backend depois do `git pull`. `DEPLOY_PATH` (pasta do checkout) e `SERVICE_NAME` (nome do serviço nssm) ficam como `env:` no topo do job `deploy` em `ci.yml` — ajuste os valores lá antes do primeiro deploy real.
+Sem deploy automático — a conexão SSH direto entre o servidor e o GitHub foi avaliada como um risco não aceitável pra esse projeto. Atualizar o servidor continua manual, seguindo os passos de **Build & Run** acima (`git pull`, reinstalar dependências, `npm run build`, reiniciar o processo/serviço).
 
 ---
 
