@@ -78,7 +78,7 @@ frontend/
 
 ## Conventions
 
-- **Git**: histórico começou com `main` único branch, sem PR — PT-BR curtos, sem Conventional Commits. **A partir de 2026-09** (desde que `.github/workflows/ci.yml` existe): **toda** mudança, pequena ou grande, vai numa branch nova com Pull Request — nunca commit direto na `main`. Sem exceção por tamanho (regra simplificada depois de um round de "pequeno pode ir direto" ter gerado confusão). Fluxo: commit → branch nova → push → link do PR pro usuário revisar/mergear.
+- **Git**: `main` único branch, sem PR — PT-BR curtos, sem Conventional Commits. Commit e `git push` **direto na `main`** (testado: branch+PR foi tentado em 2026-09 e revertido a pedido do usuário — achou desnecessário pro caso solo). `.github/workflows/ci.yml` roda testes em todo push pra `main` mesmo assim — é a rede de segurança, não o PR.
 - **Nomes**: `snake_case` em Python, `camelCase` em TS, `PascalCase` para componentes. Arquivos `kebab` não usado.
 - **Commits**: curtos, sem prefixo. Histórico raso — não inferir padrão estável.
 - **Estilo frontend**: CSS vars `:root` / `:root[data-theme="light"]` (`frontend/src/styles/index.css:19`), preview sempre `#fff/#1a1a1a` (não usa tokens). `escapeHtml` não necessário em JSX (React escapa).
