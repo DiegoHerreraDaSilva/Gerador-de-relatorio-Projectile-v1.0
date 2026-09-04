@@ -212,9 +212,9 @@ npm --prefix frontend run preview
 |---|---|---|
 | `backend-tests` | todo push/PR | `pip install -r backend/requirements-dev.txt` + `pytest backend/tests/` |
 | `frontend-build` | todo push/PR | `npm ci` + `npm run test` (vitest) + `npm run build` (tsc -b && vite build); publica `frontend/dist` como artifact |
-| `deploy` | só push direto em `main`, e só se os 2 jobs acima passarem (`needs:`) | copia o `frontend/dist` já buildado + `git pull`/`pip install`/reinicia o serviço no servidor Windows via SSH |
+| `deploy` | só push direto em `main`, só se os 2 jobs acima passarem (`needs:`), e só se `vars.DEPLOY_ENABLED == 'true'` (ver abaixo) | copia o `frontend/dist` já buildado + `git pull`/`pip install`/reinicia o serviço no servidor Windows via SSH |
 
-**Secrets necessários** (Settings → Secrets and variables → Actions, no repositório GitHub) pro job `deploy`:
+**Secrets necessários** (Settings → Secrets and variables → Actions → aba **Secrets**, no repositório GitHub) pro job `deploy`:
 
 | Secret | Valor |
 |---|---|
@@ -222,6 +222,8 @@ npm --prefix frontend run preview
 | `DEPLOY_USERNAME` | usuário SSH no servidor |
 | `DEPLOY_SSH_KEY` | chave privada SSH (par cadastrado no `authorized_keys` do servidor) |
 | `DEPLOY_PORT` | opcional, default `22` |
+
+**Interruptor do deploy** (Settings → Secrets and variables → Actions → aba **Variables**, não a de Secrets — o `if:` de um job não consegue ler `secrets` diretamente): crie uma variável `DEPLOY_ENABLED` com valor `true` só depois de testar o SSH manualmente e ter certeza que o servidor está pronto. Enquanto ela não existir (ou não for `true`), o job `deploy` aparece **pulado** (cinza), nunca falha em vermelho.
 
 Servidor precisa ter **OpenSSH Server**, `git`, Python 3.11+ e [`nssm`](https://nssm.cc/) instalados e no `PATH` — é assim que o job reinicia o serviço do backend depois do `git pull`. `DEPLOY_PATH` (pasta do checkout) e `SERVICE_NAME` (nome do serviço nssm) ficam como `env:` no topo do job `deploy` em `ci.yml` — ajuste os valores lá antes do primeiro deploy real.
 

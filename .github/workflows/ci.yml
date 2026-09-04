@@ -66,11 +66,14 @@ jobs:
   deploy:
     name: Deploy (servidor Windows)
     needs: [backend-tests, frontend-build]
-    # `secrets.DEPLOY_HOST != ''` faz esse job ser PULADO (não falhar em
-    # vermelho) enquanto os secrets do servidor ainda não foram cadastrados —
-    # ver README "CI/CD (GitHub Actions)". Remova essa condição extra se
-    # quiser que falhe alto quando um secret estiver faltando.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DEPLOY_HOST != ''
+    # `vars.DEPLOY_ENABLED` (Settings > Secrets and variables > Actions >
+    # Variables, NÃO em Secrets) faz esse job ser PULADO (não falhar em
+    # vermelho) até você criar essa variável com valor "true" — só depois de
+    # cadastrar os secrets do servidor e testar o SSH manualmente. O `if:`
+    # de um job não pode ler `secrets` diretamente (erro "Unrecognized
+    # named-value: 'secrets'"), só `vars`, por isso o interruptor é uma
+    # variable e não um secret — ver README "CI/CD (GitHub Actions)".
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     env:
       # TODO: preencher com os valores reais do servidor antes de habilitar
