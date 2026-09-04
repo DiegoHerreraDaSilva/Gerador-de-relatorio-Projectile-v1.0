@@ -14,9 +14,9 @@ jobs:
     name: Backend (pytest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -32,9 +32,9 @@ jobs:
     name: Frontend (vitest + typecheck + build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: "npm"
@@ -57,7 +57,7 @@ jobs:
       # backend/app/main.py). Empacota aqui pra não precisar rebuildar
       # de novo no servidor Windows (que pode não ter Node instalado).
       - name: Publicar frontend/dist como artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: frontend-dist
           path: frontend/dist
@@ -83,7 +83,7 @@ jobs:
       SERVICE_NAME: 'RelatorioHoras'            # nome do serviço Windows (nssm) que roda o uvicorn
     steps:
       - name: Baixar frontend/dist já buildado
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: frontend-dist
           path: frontend-dist
