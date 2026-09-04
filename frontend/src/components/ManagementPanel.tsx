@@ -18,7 +18,7 @@ function fmtPct(value: number | null): string {
   return value === null ? "—" : `${fmtNum(value * 100)}%`;
 }
 
-type CheckEmailsResult = { messages_found: number; samples_added: number; skipped: number };
+type CheckEmailsResult = { messages_found: number; samples_added: number; duplicates_found: number; skipped: number };
 
 async function checkEmails(): Promise<CheckEmailsResult> {
   const res = await fetch("/management/kpis/check-emails", { method: "POST" });
@@ -51,12 +51,16 @@ export function ManagementPanel() {
     setCheckEmailsMessage("");
     try {
       const result = await checkEmails();
+      const duplicateNote =
+        result.duplicates_found > 0
+          ? ` ${result.duplicates_found} duplicata(s) ignorada(s) (não contou horas).`
+          : "";
       setCheckEmailsMessage(
-        result.samples_added > 0
+        (result.samples_added > 0
           ? `${result.samples_added} relatório(s) novo(s) processado(s).`
           : result.messages_found > 0
             ? `${result.messages_found} e-mail(s) verificado(s), nenhum gerou dado novo.`
-            : "Nenhum relatório enviado."
+            : "Nenhum relatório enviado.") + duplicateNote
       );
       await load(true, true);
     } catch {

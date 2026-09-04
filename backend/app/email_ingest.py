@@ -552,7 +552,7 @@ def process_new_emails() -> dict:
     polling automático também está rodando. Devolve um resumo (contagens)
     pra dar feedback imediato de quem chamou sob demanda."""
     messages = fetch_new_messages()
-    summary = {"messages_found": len(messages), "samples_added": 0, "skipped": 0}
+    summary = {"messages_found": len(messages), "samples_added": 0, "duplicates_found": 0, "skipped": 0}
     if not messages:
         return summary
 
@@ -604,7 +604,7 @@ def process_new_emails() -> dict:
                         parsed_month = parse_month_label(month_label)
                         month_key = f"{parsed_month[0]:04d}-{parsed_month[1]:02d}"
 
-                        management.append_project_kpi_sample({
+                        is_duplicate = management.append_project_kpi_sample({
                             "email_message_id": message_id,
                             "received_at": received_at,
                             "sender": sender,
@@ -617,7 +617,10 @@ def process_new_emails() -> dict:
                             "business_days": business_days,
                             "pacote_scope": pacote_scope,
                         })
-                        summary["samples_added"] += 1
+                        if is_duplicate:
+                            summary["duplicates_found"] += 1
+                        else:
+                            summary["samples_added"] += 1
                     except (EmailIngestError, ProjectileDbError) as e:
                         attachment_errors.append(str(e))
                     except Exception as e:

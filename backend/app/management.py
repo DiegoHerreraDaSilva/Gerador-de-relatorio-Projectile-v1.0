@@ -156,6 +156,12 @@ def _load_data() -> dict:
             # comportamento em vez de marcar dado antigo como "parcial".
             sample["pacote_scope"] = None
             migrated = True
+    if any("is_duplicate" not in sample for sample in data["project_kpi_samples"]):
+        # depende de olhar TODAS as amostras juntas (não dá pra decidir
+        # amostra a amostra), por isso é uma passada própria, não um
+        # default fixo dentro do loop acima — ver _recompute_duplicate_flags.
+        _recompute_duplicate_flags(data["project_kpi_samples"])
+        migrated = True
     if migrated:
         _save_data(data)
     return data
@@ -165,6 +171,31 @@ def _save_data(data: dict) -> None:
     os.makedirs(_DATA_DIR, exist_ok=True)
     with open(_DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _recompute_duplicate_flags(samples: list[dict]) -> None:
+    """Marca `is_duplicate=True` em toda amostra AUTOMÁTICA (`source !=
+    "manual"`) que repete a identidade `(project_id, month, pacote_scope)` de
+    uma amostra mais antiga — o mesmo relatório chegou de novo por e-mail
+    (reenvio acidental ou duplicado), e `compute_monthly_kpis` não deve somar
+    `billed_hours`/`business_days` dela de novo. A ocorrência mais antiga
+    (por `received_at`) nunca é duplicata; toda repetição depois dela é,
+    mesmo que o valor de horas seja diferente (decisão do usuário: não tenta
+    adivinhar se é correção ou engano — uma correção de verdade usa o
+    override manual já existente no Painel de Gerência). Amostras manuais
+    nunca entram nessa checagem (não são aditivas em `compute_monthly_kpis`).
+
+    Muta `samples` in-place. Chamada a cada mutação da lista (append/editar/
+    apagar), não só uma vez na criação — apagar a amostra "original" precisa
+    promover a próxima da mesma identidade de volta a não-duplicada."""
+    seen: set[tuple] = set()
+    for sample in sorted(samples, key=lambda s: s.get("received_at") or ""):
+        if sample.get("source") == "manual":
+            sample["is_duplicate"] = False
+            continue
+        identity = (sample.get("project_id"), sample.get("month"), sample.get("pacote_scope"))
+        sample["is_duplicate"] = identity in seen
+        seen.add(identity)
 
 
 def set_manual_entry(month: str, billed_hours: float | None, elaboration_days: float | None) -> None:
@@ -181,18 +212,25 @@ def is_message_processed(message_id: str) -> bool:
     return message_id in data["processed_message_ids"]
 
 
-def append_project_kpi_sample(sample: dict) -> None:
+def append_project_kpi_sample(sample: dict) -> bool:
     """Registra uma amostra vinda de um e-mail processado com sucesso
     (`email_ingest.process_new_emails`) e marca o e-mail como processado, na
     mesma escrita — evita reprocessar o mesmo e-mail numa chamada futura. Um
     e-mail com vários anexos (vários projetos) chama isso uma vez por anexo,
     todas com o mesmo `email_message_id` — só adiciona o id à lista de
-    processados na primeira vez, pra não duplicar."""
+    processados na primeira vez, pra não duplicar.
+
+    Devolve `True` se a amostra saiu marcada `is_duplicate` (mesmo
+    `project_id`/`month`/`pacote_scope` de uma amostra já existente — ver
+    `_recompute_duplicate_flags`) — `email_ingest.py` usa isso pra contar
+    separadamente no resumo do polling em vez de somar como "amostra nova"."""
     data = _load_data()
     data["project_kpi_samples"].append(sample)
+    _recompute_duplicate_flags(data["project_kpi_samples"])
     if sample["email_message_id"] not in data["processed_message_ids"]:
         data["processed_message_ids"].append(sample["email_message_id"])
     _save_data(data)
+    return bool(sample.get("is_duplicate"))
 
 
 def append_skipped_message(message_id: str, received_at: str, reason: str) -> None:
@@ -244,6 +282,9 @@ def update_project_kpi_sample(sample_id: str, patch: dict) -> bool:
                 sample[key] = value
         if sample.get("source") == "email":
             sample["edited"] = True
+        # corrigir project_id/month pode mudar se essa amostra passa a
+        # colidir (ou deixa de colidir) com outra — recalcula do zero.
+        _recompute_duplicate_flags(data["project_kpi_samples"])
         _save_data(data)
         return True
     return False
@@ -259,6 +300,9 @@ def delete_project_kpi_sample(sample_id: str) -> bool:
     remaining = [s for s in samples if s.get("sample_id") != sample_id]
     if len(remaining) == len(samples):
         return False
+    # apagar a amostra "original" (não-duplicada) de uma identidade precisa
+    # promover a próxima da mesma identidade de volta a não-duplicada.
+    _recompute_duplicate_flags(remaining)
     data["project_kpi_samples"] = remaining
     _save_data(data)
     return True
@@ -486,9 +530,14 @@ def compute_monthly_kpis(
     # allowed_project_ids usado acima pra worked_hours/nonbillable_hours —
     # billed_hours é soma (vai "somando a cada e-mail recebido"),
     # elaboration_days é média das amostras do(s) projeto(s) filtrado(s).
+    # Amostra marcada `is_duplicate` (mesmo projeto/mês/pacote já registrado
+    # antes, ver _recompute_duplicate_flags) não soma de novo — só a
+    # ocorrência mais antiga daquela identidade conta pra essas duas somas.
     auto_by_month: dict[str, dict] = {}
     for sample in data.get("project_kpi_samples", []):
         if allowed_project_ids is not None and sample.get("project_id") not in allowed_project_ids:
+            continue
+        if sample.get("is_duplicate"):
             continue
         sample_month = sample.get("month")
         if not sample_month:

@@ -14,6 +14,9 @@ export type Sample = {
   // null = amostra cobre o projeto inteiro; string = cobre só esse pacote de
   // trabalho (lido da marca oculta do .xlsx, ver generator.py/email_ingest.py).
   pacote_scope: string | null;
+  // true = mesmo projeto/mês/pacote já tinha amostra antes (reenvio) — não
+  // entrou na soma de horas faturadas (ver management._recompute_duplicate_flags).
+  is_duplicate: boolean;
 };
 
 export type SkippedMessage = { message_id: string; received_at: string; reason: string };

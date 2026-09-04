@@ -402,7 +402,17 @@ export function DiagnosticsPanel() {
                         <td>{s.project_name}</td>
                         <td className="muted diagnostics-pacote-cell" title={s.pacote_scope || undefined}>{s.pacote_scope || "Projeto inteiro"}</td>
                         <td>{s.month}</td>
-                        <td>{fmtNum(s.billed_hours)}</td>
+                        <td>
+                          {fmtNum(s.billed_hours)}
+                          {s.is_duplicate && (
+                            <span
+                              className="diagnostics-duplicate-badge"
+                              title="Mesmo projeto/mês/pacote já tinha amostra — não contou pra soma de horas faturadas."
+                            >
+                              duplicada
+                            </span>
+                          )}
+                        </td>
                         <td>{fmtNum(s.business_days)}</td>
                         <td>
                           <span className={`diagnostics-source-badge ${s.source}`}>{s.source === "manual" ? "manual" : "e-mail"}</span>
