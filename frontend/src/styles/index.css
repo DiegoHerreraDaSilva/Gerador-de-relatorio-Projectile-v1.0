@@ -1024,6 +1024,19 @@
      alguns painéis). */
   .error-text { color: var(--bad); font-size: 0.85rem; }
 
+  /* rede de segurança do ErrorBoundary — a página inteira quebrando sem
+     aviso (fundo escuro vazio) virava "não abre" sem nenhuma pista; isto dá
+     um estado visível, com o erro real e um jeito de se recuperar. */
+  .error-boundary {
+    max-width: 480px; margin: 15vh auto 0; padding: 32px 28px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    text-align: center; color: var(--bad);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow-card);
+  }
+  .error-boundary h2 { margin: 4px 0 0; color: var(--text); font-size: 1.1rem; }
+  .error-boundary .btn-primary { margin-top: 10px; }
+
   /* ---------- Barra de resumo ---------- */
   .summary-row {
     display: none;

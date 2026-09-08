@@ -73,18 +73,21 @@ export function ManagementPanel() {
     }
   };
 
-  if (!rows) {
-    return (
-      <div className="card management-panel">
-        <h2>Painel de Gerência</h2>
-        <p className={error ? "error-text" : "muted"}>{error || "Carregando..."}</p>
-      </div>
-    );
-  }
-
   // Competência filtra só a exibição/agregação — os 12 meses continuam
   // carregados na store, sem novo fetch, só muda o que entra nas somas.
-  const displayRows = selectedMonths.length ? rows.filter((r) => selectedMonths.includes(r.month)) : rows;
+  //
+  // `rows ?? []` (em vez de um `return` antes disto) é obrigatório: os
+  // `useSortableRows` mais abaixo são Hooks, e Hooks não podem vir depois de
+  // um `return` condicional — o número de Hooks chamados precisa ser IGUAL
+  // em todo render. Antes disto, o primeiro render (rows ainda null,
+  // carregando) chamava menos Hooks que o render seguinte (rows populado),
+  // e o React quebra o componente inteiro nessa transição — como não existe
+  // error boundary alguma, a página inteira sumia. Só não estourava quando
+  // `rows` já vinha populado no MESMO carregamento (Zustand mantém o dado de
+  // uma visita anterior), daí o "às vezes abre, às vezes não".
+  const displayRows = selectedMonths.length
+    ? (rows ?? []).filter((r) => selectedMonths.includes(r.month))
+    : rows ?? [];
 
   const totalWorked = round2(displayRows.reduce((s, r) => s + r.worked_hours, 0));
   // total de Faturadas/Perf.H só soma os meses com "Faturadas" preenchida —
@@ -162,6 +165,17 @@ export function ManagementPanel() {
     if (key === "month") return r.month;
     return r.status;
   });
+
+  // só agora, DEPOIS de todo Hook já ter sido chamado, é seguro sair mais
+  // cedo — ver o comentário grande acima de `displayRows`.
+  if (!rows) {
+    return (
+      <div className="card management-panel">
+        <h2>Painel de Gerência</h2>
+        <p className={error ? "error-text" : "muted"}>{error || "Carregando..."}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="management-layout">
@@ -418,7 +432,7 @@ export function ManagementPanel() {
                             >
                               <span
                                 className={`send-status-badge ${r.status}`}
-                                title={`Faltam: ${r.missing_pacotes.join(", ")}`}
+                                title={`Faltam: ${(r.missing_pacotes ?? []).join(", ")}`}
                               >
                                 <Minus size={14} strokeWidth={3} />
                               </span>
@@ -445,7 +459,7 @@ export function ManagementPanel() {
                             <div className="send-status-missing-panel">
                               <span className="send-status-missing-label">Pacotes faltando neste mês:</span>
                               <ul>
-                                {r.missing_pacotes.map((pacote) => (
+                                {(r.missing_pacotes ?? []).map((pacote) => (
                                   <li key={pacote}>{pacote}</li>
                                 ))}
                               </ul>
