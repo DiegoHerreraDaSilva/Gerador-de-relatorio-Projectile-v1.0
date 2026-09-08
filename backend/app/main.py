@@ -500,6 +500,9 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
             "project_name": _unescape_twice(
                 (project_details.get(r.get("project_id")) or {}).get("name")
             ) or "Sem projeto",
+            "client": _unescape_twice(
+                (project_details.get(r.get("project_id")) or {}).get("client")
+            ) or None,
             "top_project": _unescape_twice(r.get("top_project")) or None,
             "cost_center": r.get("cost_center"),
             # tri-estado deliberado: `external != "0"` empurrava NULL e

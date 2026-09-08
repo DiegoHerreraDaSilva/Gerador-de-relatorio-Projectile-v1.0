@@ -8,9 +8,14 @@
 export function MyHoursSkeleton() {
   return (
     <div className="myh-grid" aria-hidden="true">
-      <div className="myh-card myh-col-12">
-        <div className="skel skel-title" />
-        <div className="skel skel-bullet" />
+      <div className="myh-col-12 myh-kpi-row">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div className="myh-card" key={i}>
+            <div className="skel skel-title" />
+            <div className="skel skel-line" />
+            <div className="skel skel-line" />
+          </div>
+        ))}
       </div>
       <div className="myh-card myh-col-12">
         <div className="skel skel-title" />

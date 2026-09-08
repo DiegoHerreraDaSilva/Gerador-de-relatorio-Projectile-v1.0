@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import type {
-  MyHoursBusinessDays,
-  MyHoursComparison,
-  MyHoursDailyStats,
-  MyHoursEntry,
-  MyHoursReference,
-  MyHoursResponse,
-  MonthlyPoint,
+import {
+  EMPTY_MY_HOURS_FILTERS,
+  type MyHoursBusinessDays,
+  type MyHoursComparison,
+  type MyHoursDailyStats,
+  type MyHoursEntry,
+  type MyHoursFilters,
+  type MyHoursReference,
+  type MyHoursResponse,
+  type MonthlyPoint,
 } from "../utils/myHours";
 
 export type MyHoursPeriod = "current_month" | "last_3" | "last_6" | "last_12";
@@ -36,7 +38,6 @@ interface MyHoursState {
   businessDays: MyHoursBusinessDays;
   reference: MyHoursReference;
   expected: { closed: number | null; period: number | null; month: number | null };
-  gapDays: string[];
   outlierDays: string[];
   monthlySeries: MonthlyPoint[];
   comparison: MyHoursComparison | null;
@@ -54,18 +55,25 @@ interface MyHoursState {
   _inFlight: boolean;
   _pending: boolean;
 
-  /** Cross-filter: afeta SÓ a tabela e o esmaecimento das barras, nunca os
-   * KPIs. Um filtro que muda a âncora silenciosamente transforma a página
-   * numa mentira — quem clica num pacote não espera que o total do período
-   * mude embaixo dele. */
-  selectedPacote: string | null;
+  /** Filtros de Competência/Cliente/Projeto/Pacote — mesmo conceito e nomes
+   * do Painel de Gerência (`ManagementFilters.tsx`), cruzando entre si: cada
+   * dropdown mostra só as opções que sobrevivem aos OUTROS filtros ativos
+   * (ver `filterOptions` em `utils/myHours.ts`). Ao contrário do antigo
+   * clique-numa-barra (que só afetava a tabela), estes filtros são globais —
+   * recalculam os cards, o calendário e os gráficos, igual às outras abas. */
+  filters: MyHoursFilters;
+
+  /** Drill-down de um dia específico ao clicar no calendário — continua
+   * separado dos filtros acima porque "dia" não é uma das dimensões pedidas
+   * (Competência/Cliente/Projeto/Pacote); afeta só a tabela. */
   selectedDate: string | null;
 
   load: (force?: boolean) => Promise<void>;
   setPeriod: (period: MyHoursPeriod) => void;
-  togglePacote: (pacote: string) => void;
+  setFilter: (dim: keyof MyHoursFilters, values: string[]) => void;
+  togglePacoteFilter: (pacote: string) => void;
   toggleDate: (date: string) => void;
-  clearFilters: () => void;
+  resetFilters: () => void;
 }
 
 export const useMyHoursStore = create<MyHoursState>((set, get) => ({
@@ -73,7 +81,6 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
   businessDays: EMPTY_BUSINESS_DAYS,
   reference: EMPTY_REFERENCE,
   expected: { closed: null, period: null, month: null },
-  gapDays: [],
   outlierDays: [],
   monthlySeries: [],
   comparison: null,
@@ -90,7 +97,7 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
   refreshing: false,
   _inFlight: false,
   _pending: false,
-  selectedPacote: null,
+  filters: EMPTY_MY_HOURS_FILTERS,
   selectedDate: null,
 
   load: async (force = false) => {
@@ -120,7 +127,6 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
         businessDays: data.business_days,
         reference: data.reference,
         expected: data.expected,
-        gapDays: data.gap_days,
         outlierDays: data.outlier_days,
         monthlySeries: data.monthly_series,
         comparison: data.comparison,
@@ -132,7 +138,7 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
         loaded: true,
         error: "",
         errorKind: "",
-        selectedPacote: null,
+        filters: EMPTY_MY_HOURS_FILTERS,
         selectedDate: null,
       });
     } catch (e) {
@@ -155,8 +161,20 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
     get().load(true);
   },
 
-  togglePacote: (pacote) =>
-    set((s) => ({ selectedPacote: s.selectedPacote === pacote ? null : pacote })),
+  setFilter: (dim, values) => set((s) => ({ filters: { ...s.filters, [dim]: values } })),
+
+  // clicar numa barra de pacote alterna esse pacote dentro do MESMO filtro
+  // do dropdown "Pacote de Trabalho" — uma fonte de verdade só, em vez de um
+  // mecanismo de clique paralelo ao painel de filtros.
+  togglePacoteFilter: (pacote) =>
+    set((s) => {
+      const current = s.filters.pacotes;
+      const next = current.includes(pacote)
+        ? current.filter((p) => p !== pacote)
+        : [...current, pacote];
+      return { filters: { ...s.filters, pacotes: next } };
+    }),
+
   toggleDate: (date) => set((s) => ({ selectedDate: s.selectedDate === date ? null : date })),
-  clearFilters: () => set({ selectedPacote: null, selectedDate: null }),
+  resetFilters: () => set({ filters: EMPTY_MY_HOURS_FILTERS, selectedDate: null }),
 }));

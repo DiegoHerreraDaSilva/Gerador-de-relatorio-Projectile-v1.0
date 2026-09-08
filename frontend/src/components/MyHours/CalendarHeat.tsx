@@ -121,12 +121,20 @@ export function CalendarHeat({
     cursor.setMonth(cursor.getMonth() + 1, 1);
   }
 
+  // grade fixa de até 6 meses por linha (pedido explícito): em 12 meses (last_12)
+  // isso dá 2 linhas de 6; em recortes menores (3/6 meses) a linha simplesmente
+  // não enche as 6 colunas, sem que o CSS precise saber quantos meses existem.
+  const monthCols = Math.min(6, months.length);
+
   return (
     // grade compacta já a partir de 2 meses: em tamanho cheio, 3 meses
     // quebravam em 2 linhas e faziam o card passar de 900px de altura,
     // abrindo um vão enorme ao lado da coluna da direita
     <div className={`calheat ${months.length > 1 ? "calheat--compact" : ""}`}>
-      <div className="calheat-months">
+      <div
+        className="calheat-months"
+        style={months.length > 1 ? { gridTemplateColumns: `repeat(${monthCols}, 1fr)` } : undefined}
+      >
       {months.map(({ year, month }) => {
         const cells = buildMonth(
           year, month, totals, businessSet, gapSet, outlierSet, today, rangeStart, rangeEnd

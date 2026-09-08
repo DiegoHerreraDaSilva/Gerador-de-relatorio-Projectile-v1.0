@@ -3,18 +3,21 @@ import { AlertTriangle, CalendarX2, Check, RefreshCw, X } from "lucide-react";
 import { useMyHoursStore, type MyHoursPeriod } from "../store/useMyHoursStore";
 import { SortableTh } from "./SortableTh";
 import { useSortableRows } from "../hooks/useSortableRows";
-import { BulletBar } from "./MyHours/BulletBar";
 import { CalendarHeat } from "./MyHours/CalendarHeat";
 import { MonthlyColumns } from "./MyHours/MonthlyColumns";
 import { PacoteBars } from "./MyHours/PacoteBars";
 import { PeriodSegmented } from "./MyHours/PeriodSegmented";
+import { MyHoursFilters } from "./MyHours/MyHoursFilters";
 import { MyHoursSkeleton } from "./MyHours/MyHoursSkeleton";
 import { fmtNum } from "../utils/fmt";
 import {
   aggregateByPacote,
+  applyMyHoursFilters,
   billingSplit,
   dailyTotals,
   distinctDaysWorked,
+  gapDays as computeGapDays,
+  hasActiveMyHoursFilters,
   totalHours,
   weekdayProfile,
   type MyHoursEntry,
@@ -47,19 +50,39 @@ export function MyHoursDashboard() {
   }, []);
 
   const isCurrentMonth = s.period === "current_month";
+  const filtersActive = hasActiveMyHoursFilters(s.filters);
 
-  // KPIs sempre sobre o período INTEIRO — o cross-filter não os toca
-  const total = totalHours(s.entries);
-  const daysWorked = distinctDaysWorked(s.entries);
+  // Competência/Cliente/Projeto/Pacote são filtros GLOBAIS (ao contrário do
+  // antigo clique-numa-barra, que só afetava a tabela): recalculam cards,
+  // calendário e gráficos derivados dos lançamentos, igual às outras abas.
+  // O que continua de fora — referência de jornada, esperado, comparação com
+  // o período anterior — vem pronto do backend sobre o período INTEIRO,
+  // porque jornada é uma propriedade da pessoa, não do cliente/projeto
+  // filtrado; por isso os cards que usam esses valores dizem isso.
+  const filteredEntries = useMemo(
+    () => applyMyHoursFilters(s.entries, s.filters),
+    [s.entries, s.filters]
+  );
+
+  const total = totalHours(filteredEntries);
+  const daysWorked = distinctDaysWorked(filteredEntries);
   const avgPerDay = daysWorked > 0 ? total / daysWorked : null;
-  const perDay = useMemo(() => dailyTotals(s.entries), [s.entries]);
-  const pacotes = useMemo(() => aggregateByPacote(s.entries), [s.entries]);
-  const billing = useMemo(() => billingSplit(s.entries), [s.entries]);
-  const weekday = useMemo(() => weekdayProfile(s.entries), [s.entries]);
+  const perDay = useMemo(() => dailyTotals(filteredEntries), [filteredEntries]);
+  const pacotes = useMemo(() => aggregateByPacote(filteredEntries), [filteredEntries]);
+  const billing = useMemo(() => billingSplit(filteredEntries), [filteredEntries]);
+  const weekday = useMemo(() => weekdayProfile(filteredEntries), [filteredEntries]);
+
+  // lacuna recalculada sobre o FILTRADO: um dia útil sem apontamento NESTE
+  // recorte (ex.: filtrado por Cliente X, um dia trabalhado só noutro
+  // cliente também conta como lacuna do recorte).
+  const gapDays = useMemo(
+    () => computeGapDays(perDay, s.businessDays.closed),
+    [perDay, s.businessDays.closed]
+  );
 
   const projectNames = useMemo(
-    () => Array.from(new Set(s.entries.map((e) => e.project_name).filter(Boolean))),
-    [s.entries]
+    () => Array.from(new Set(filteredEntries.map((e) => e.project_name).filter(Boolean))),
+    [filteredEntries]
   );
 
   // ritmo e projeção do mês (só no mês corrente, com pisos)
@@ -67,6 +90,7 @@ export function MyHoursDashboard() {
   const pace = closedCount > 0 ? total / closedCount : null;
   const canProject =
     isCurrentMonth &&
+    !filtersActive &&
     closedCount >= MIN_CLOSED_DAYS_TO_PROJECT &&
     s.dailyStats.n >= MIN_SAMPLE_TO_PROJECT &&
     s.dailyStats.median !== null;
@@ -85,15 +109,11 @@ export function MyHoursDashboard() {
     return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
   }, [s.monthlySeries]);
 
-  // cross-filter: SÓ a tabela
+  // drill-down de um dia (clique no calendário) — separado dos filtros
+  // globais, afeta só a tabela
   const filtered = useMemo(
-    () =>
-      s.entries.filter(
-        (e) =>
-          (s.selectedPacote === null || e.pacote === s.selectedPacote) &&
-          (s.selectedDate === null || e.date === s.selectedDate)
-      ),
-    [s.entries, s.selectedPacote, s.selectedDate]
+    () => filteredEntries.filter((e) => s.selectedDate === null || e.date === s.selectedDate),
+    [filteredEntries, s.selectedDate]
   );
 
   const sort = useSortableRows<MyHoursEntry>(filtered, (e, key) => {
@@ -132,6 +152,7 @@ export function MyHoursDashboard() {
   }
 
   const empty = s.entries.length === 0;
+  const emptyFiltered = !empty && filteredEntries.length === 0;
 
   return (
     <div className="myh-page">
@@ -155,8 +176,17 @@ export function MyHoursDashboard() {
       <p className="sr-only" aria-live="polite">
         {s.refreshing
           ? "Atualizando"
-          : `${s.entries.length} lançamentos, ${fmtNum(total)} horas no período`}
+          : `${filtered.length} lançamentos, ${fmtNum(total)} horas no recorte filtrado`}
       </p>
+
+      {!empty && (
+        <MyHoursFilters
+          entries={s.entries}
+          filters={s.filters}
+          onChange={s.setFilter}
+          onReset={s.resetFilters}
+        />
+      )}
 
       {empty ? (
         <div className="myh-card myh-empty">
@@ -173,37 +203,69 @@ export function MyHoursDashboard() {
             <button type="button" onClick={() => s.load(true)}>Atualizar</button>
           </div>
         </div>
+      ) : emptyFiltered ? (
+        <div className="myh-card myh-empty">
+          <CalendarX2 size={28} strokeWidth={1.5} />
+          <h3>Nenhum lançamento com os filtros atuais</h3>
+          <p className="muted">Tente remover algum filtro de Competência, Cliente, Projeto ou Pacote.</p>
+          <div className="myh-empty-actions">
+            <button type="button" className="btn-primary" onClick={s.resetFilters}>
+              Limpar filtros
+            </button>
+          </div>
+        </div>
       ) : (
         <div className={`myh-grid ${s.refreshing ? "is-refreshing" : ""}`}>
-          {/* R1 — fechamento do período */}
-          <section className="myh-card myh-card--viz myh-col-12">
-            <h3 className="myh-card-title">Fechamento do período</h3>
-            <BulletBar
-              actual={total}
-              expectedClosed={s.expected.closed}
-              expectedPeriod={s.expected.period}
-              allowsPercentage={s.reference.allows_percentage}
-              referenceLabel={s.reference.label}
-            />
-            <div className="myh-satellites">
-              <span>
-                <strong>{daysWorked}</strong> {daysWorked === 1 ? "dia" : "dias"} com apontamento
-                {closedCount > 0 && <span className="muted"> de {closedCount} úteis encerrados</span>}
-              </span>
-              {avgPerDay !== null && (
-                <span>
-                  Média <strong>{fmtNum(avgPerDay)} h</strong>/dia apontado
-                </span>
+          {/* R1 — KPIs individuais no lugar do gráfico de fechamento */}
+          <div className="myh-col-12 myh-kpi-row">
+            <section className="myh-card">
+              <h3 className="myh-card-title">Horas apontadas</h3>
+              <p className="myh-big-number">{fmtNum(total)}<span> h</span></p>
+              <p className="myh-card-foot muted">
+                {daysWorked} {daysWorked === 1 ? "dia" : "dias"} com apontamento
+                {filtersActive && " neste filtro"}
+              </p>
+            </section>
+
+            <section className="myh-card">
+              <h3 className="myh-card-title">Dias com apontamento</h3>
+              <p className="myh-big-number">
+                {daysWorked}
+                {closedCount > 0 && <span> de {closedCount}</span>}
+              </p>
+              <p className="myh-card-foot muted">dias úteis encerrados no período</p>
+            </section>
+
+            <section className="myh-card">
+              <h3 className="myh-card-title">Média por dia apontado</h3>
+              <p className="myh-big-number">
+                {avgPerDay !== null ? fmtNum(avgPerDay) : "—"}<span> h/dia</span>
+              </p>
+              <p className="myh-card-foot muted">
+                {fmtNum(total)} h ÷ {daysWorked} {daysWorked === 1 ? "dia" : "dias"}
+              </p>
+            </section>
+
+            <section className="myh-card">
+              <h3 className="myh-card-title">Referência da sua jornada</h3>
+              {s.expected.closed !== null ? (
+                <>
+                  <p className="myh-big-number">
+                    {s.reference.allows_percentage ? "" : "~"}
+                    {fmtNum(s.expected.closed)}<span> h</span>
+                  </p>
+                  <p className="myh-card-foot muted">
+                    {s.reference.allows_percentage ? "esperado" : "estimado"} até hoje ·{" "}
+                    {filtersActive
+                      ? "período completo, sem os filtros acima"
+                      : `${fmtNum(totalHours(s.entries))} h apontadas`}
+                  </p>
+                </>
+              ) : (
+                <p className="muted">Sem referência de jornada — histórico insuficiente.</p>
               )}
-              {s.comparison && (
-                <span className={s.comparison.delta_hours >= 0 ? "delta-up" : "delta-down"}>
-                  {s.comparison.delta_hours >= 0 ? "+" : ""}
-                  {fmtNum(s.comparison.delta_hours)} h
-                  <span className="muted"> vs {s.comparison.label}</span>
-                </span>
-              )}
-            </div>
-          </section>
+            </section>
+          </div>
 
           {/* R2 — calendário, sozinho, largura total */}
           <section className="myh-card myh-card--viz myh-col-12">
@@ -211,7 +273,7 @@ export function MyHoursDashboard() {
             <CalendarHeat
               totals={perDay}
               businessDays={s.businessDays.list}
-              gapDays={s.gapDays}
+              gapDays={gapDays}
               holidays={s.businessDays.holidays}
               outlierDays={s.outlierDays}
               today={s.today}
@@ -247,7 +309,7 @@ export function MyHoursDashboard() {
           <div className="myh-col-12 myh-row-pair">
             <section className="myh-card">
               <h3 className="myh-card-title">Dias úteis sem apontamento</h3>
-              {s.gapDays.length === 0 ? (
+              {gapDays.length === 0 ? (
                 <p className="myh-ok">
                   <Check size={16} strokeWidth={2.2} />
                   Nenhum dia útil encerrado sem apontamento — {daysWorked} de {closedCount}.
@@ -255,11 +317,11 @@ export function MyHoursDashboard() {
               ) : (
                 <>
                   <p className="myh-big-number myh-big-number--warn">
-                    {s.gapDays.length}
-                    <span> {s.gapDays.length === 1 ? "dia" : "dias"}</span>
+                    {gapDays.length}
+                    <span> {gapDays.length === 1 ? "dia" : "dias"}</span>
                   </p>
                   <div className="myh-chips">
-                    {s.gapDays.slice(0, MAX_GAP_CHIPS).map((d) => (
+                    {gapDays.slice(0, MAX_GAP_CHIPS).map((d) => (
                       <button
                         type="button"
                         key={d}
@@ -270,9 +332,9 @@ export function MyHoursDashboard() {
                         {brDate(d)} ({weekdayOf(d)})
                       </button>
                     ))}
-                    {s.gapDays.length > MAX_GAP_CHIPS && (
+                    {gapDays.length > MAX_GAP_CHIPS && (
                       <span className="muted">
-                        e outros {s.gapDays.length - MAX_GAP_CHIPS}
+                        e outros {gapDays.length - MAX_GAP_CHIPS}
                       </span>
                     )}
                   </div>
@@ -300,14 +362,16 @@ export function MyHoursDashboard() {
                       dois dias sem apontamento */}
                   <p className="myh-card-foot muted">
                     {fmtNum(total)} h ÷ {closedCount} dias úteis encerrados
-                    {s.gapDays.length > 0 && `, incluindo ${s.gapDays.length} sem apontamento`}.
+                    {gapDays.length > 0 && `, incluindo ${gapDays.length} sem apontamento`}.
                   </p>
                 </>
               ) : (
                 <p className="muted">Nenhum dia útil encerrado neste período ainda.</p>
               )}
               {isCurrentMonth &&
-                (projection ? (
+                (filtersActive ? (
+                  <p className="muted">Projeção indisponível com filtros ativos.</p>
+                ) : projection ? (
                   <p className="myh-projection">
                     Projeção do mês <strong>~{fmtNum(projection.mid)} h</strong>
                     <span className="muted">
@@ -335,6 +399,12 @@ export function MyHoursDashboard() {
           <section className="myh-card myh-card--viz myh-col-7">
             <h3 className="myh-card-title">Tendência — 13 meses</h3>
             <MonthlyColumns series={s.monthlySeries} />
+            {filtersActive && (
+              <p className="myh-card-foot muted">
+                Não considera os filtros de Competência/Cliente/Projeto/Pacote — é sobre
+                todo o seu histórico.
+              </p>
+            )}
           </section>
 
           <section className="myh-card myh-card--viz myh-col-5">
@@ -356,8 +426,8 @@ export function MyHoursDashboard() {
             )}
             <PacoteBars
               items={pacotes}
-              selected={s.selectedPacote}
-              onSelect={s.togglePacote}
+              selected={s.filters.pacotes}
+              onSelect={s.togglePacoteFilter}
             />
             <p className="myh-card-foot muted">
               Externo/interno é a classificação do projeto, não faturamento.
@@ -370,33 +440,22 @@ export function MyHoursDashboard() {
               <h3 className="myh-card-title">Lançamentos</h3>
               <span className="muted">
                 {filtered.length}
-                {filtered.length !== s.entries.length && ` de ${s.entries.length}`}{" "}
-                {s.entries.length === 1 ? "lançamento" : "lançamentos"}
+                {filtered.length !== filteredEntries.length && ` de ${filteredEntries.length}`}{" "}
+                {filtered.length === 1 ? "lançamento" : "lançamentos"}
               </span>
             </div>
 
-            {(s.selectedPacote || s.selectedDate) && (
+            {s.selectedDate && (
               <div className="myh-active-filters">
-                {s.selectedPacote && (
-                  <button
-                    type="button"
-                    className="myh-chip is-selected"
-                    onClick={() => s.togglePacote(s.selectedPacote!)}
-                  >
-                    {s.selectedPacote} <X size={12} strokeWidth={2.5} />
-                  </button>
-                )}
-                {s.selectedDate && (
-                  <button
-                    type="button"
-                    className="myh-chip is-selected"
-                    onClick={() => s.toggleDate(s.selectedDate!)}
-                  >
-                    {brDate(s.selectedDate)} <X size={12} strokeWidth={2.5} />
-                  </button>
-                )}
-                <button type="button" className="myh-link" onClick={s.clearFilters}>
-                  Limpar filtros
+                <button
+                  type="button"
+                  className="myh-chip is-selected"
+                  onClick={() => s.toggleDate(s.selectedDate!)}
+                >
+                  {brDate(s.selectedDate)} <X size={12} strokeWidth={2.5} />
+                </button>
+                <button type="button" className="myh-link" onClick={() => s.toggleDate(s.selectedDate!)}>
+                  Limpar
                 </button>
               </div>
             )}
@@ -468,6 +527,12 @@ export function MyHoursDashboard() {
                 {s.reference.hours_per_day !== null && ` (${fmtNum(s.reference.hours_per_day)} h/dia)`}
                 {!s.reference.allows_percentage &&
                   " — por não ser jornada de contrato declarada, esta tela não afirma percentual de cumprimento."}
+              </li>
+              <li>
+                <strong>Referência, tendência de 13 meses, projeção e comparação</strong> sempre
+                olham o período completo do usuário — não reagem aos filtros de
+                Competência/Cliente/Projeto/Pacote, porque descrevem sua jornada e seu
+                histórico, não um recorte de trabalho.
               </li>
               <li>
                 <strong>Planejado vs realizado por pacote</strong> não está disponível:

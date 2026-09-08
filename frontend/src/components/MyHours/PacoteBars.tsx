@@ -30,15 +30,16 @@ function capWithOthers(items: PacoteTotal[]): PacoteTotal[] {
  * auto-referente e não informa nada; pelo total, uma barra cheia significa de
  * fato "todo o período foi neste pacote".
  *
- * Cada barra é um `<button>` que filtra a tabela — e SÓ a tabela. O filtro
- * nunca recalcula os KPIs do topo. */
+ * Cada barra é um `<button>` que alterna esse pacote dentro do filtro
+ * "Pacote de Trabalho" (o mesmo do painel de filtros) — clicar na barra e
+ * marcar a opção no dropdown são a mesma ação, uma fonte de verdade só. */
 export function PacoteBars({
   items,
   selected,
   onSelect,
 }: {
   items: PacoteTotal[];
-  selected: string | null;
+  selected: string[];
   onSelect: (name: string) => void;
 }) {
   if (items.length === 0) {
@@ -59,8 +60,8 @@ export function PacoteBars({
   return (
     <div className="pacotebars">
       {capped.map((item) => {
-        const isSelected = selected === item.name;
-        const dimmed = selected !== null && !isSelected;
+        const isSelected = selected.includes(item.name);
+        const dimmed = selected.length > 0 && !isSelected;
         return (
           <button
             type="button"

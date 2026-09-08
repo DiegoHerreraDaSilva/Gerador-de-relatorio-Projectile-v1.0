@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateByPacote,
+  applyMyHoursFilters,
   billingSplit,
+  competenciaOf,
   dailyTotals,
   distinctDaysWorked,
+  EMPTY_MY_HOURS_FILTERS,
+  filterOptions,
+  gapDays,
+  hasActiveMyHoursFilters,
   totalHours,
   weekdayProfile,
   type MyHoursEntry,
+  type MyHoursFilters,
 } from "../myHours";
 
 let seq = 0;
@@ -23,11 +30,16 @@ function entry(partial: Partial<MyHoursEntry> = {}): MyHoursEntry {
     observacao: "Atendimento",
     project_id: "1462.3.1",
     project_name: "TCI",
+    client: "Schwaben",
     top_project: "1471 INT_Administrativo",
     cost_center: "ADM",
     billing_class: "interno",
     ...partial,
   };
+}
+
+function filters(partial: Partial<MyHoursFilters> = {}): MyHoursFilters {
+  return { ...EMPTY_MY_HOURS_FILTERS, ...partial };
 }
 
 describe("totalHours / distinctDaysWorked", () => {
@@ -185,5 +197,124 @@ describe("weekdayProfile", () => {
     ]);
     expect(profile.counts[0]).toBe(2);
     expect(profile.averages[0]).toBe(5);
+  });
+});
+
+describe("competenciaOf", () => {
+  it("extrai o mês da data", () => {
+    expect(competenciaOf(entry({ date: "2026-08-03" }))).toBe("2026-08");
+  });
+});
+
+describe("applyMyHoursFilters", () => {
+  const entries = [
+    entry({ date: "2026-07-03", client: "Schwaben", project_name: "TCI", pacote: "TCI_Suporte" }),
+    entry({ date: "2026-08-03", client: "MBB", project_name: "OTC", pacote: "OTC_Infra" }),
+    entry({ date: "2026-08-10", client: "MBB", project_name: "OTC", pacote: "OTC_Suporte" }),
+  ];
+
+  it("filtro vazio devolve tudo", () => {
+    expect(applyMyHoursFilters(entries, EMPTY_MY_HOURS_FILTERS)).toHaveLength(3);
+  });
+
+  it("filtra por competência (mês)", () => {
+    const result = applyMyHoursFilters(entries, filters({ months: ["2026-08"] }));
+    expect(result).toHaveLength(2);
+  });
+
+  it("filtra por cliente", () => {
+    const result = applyMyHoursFilters(entries, filters({ clients: ["Schwaben"] }));
+    expect(result).toHaveLength(1);
+  });
+
+  it("combina múltiplas dimensões com E, não OU", () => {
+    const result = applyMyHoursFilters(
+      entries,
+      filters({ clients: ["MBB"], pacotes: ["OTC_Suporte"] })
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].date).toBe("2026-08-10");
+  });
+
+  it("exclude ignora a própria dimensão (base do cross-filter)", () => {
+    // com clients=["MBB"] só há 1 pacote (OTC_Suporte) nos dados restantes;
+    // mas calculando as opções de "pacotes" o próprio filtro de pacotes
+    // precisa ser ignorado, senão marcar uma opção troca as outras por [].
+    const result = applyMyHoursFilters(
+      entries,
+      filters({ clients: ["MBB"], pacotes: ["OTC_Infra"] }),
+      "pacotes"
+    );
+    expect(result.map((e) => e.pacote).sort()).toEqual(["OTC_Infra", "OTC_Suporte"]);
+  });
+
+  it("lançamento sem cliente cai em 'Sem cliente'", () => {
+    const result = applyMyHoursFilters(
+      [entry({ client: null })],
+      filters({ clients: ["Sem cliente"] })
+    );
+    expect(result).toHaveLength(1);
+  });
+});
+
+describe("filterOptions", () => {
+  const entries = [
+    entry({ client: "Schwaben", project_name: "TCI" }),
+    entry({ client: "MBB", project_name: "OTC" }),
+    entry({ client: "MBB", project_name: "OTC2" }),
+  ];
+
+  it("lista as opções distintas, ordenadas", () => {
+    expect(filterOptions(entries, EMPTY_MY_HOURS_FILTERS, "clients")).toEqual(["MBB", "Schwaben"]);
+  });
+
+  it("cruza com os OUTROS filtros ativos (cross-filter)", () => {
+    // com Cliente=MBB selecionado, as opções de Projeto só mostram os de MBB
+    const result = filterOptions(entries, filters({ clients: ["MBB"] }), "projects");
+    expect(result).toEqual(["OTC", "OTC2"]);
+  });
+
+  it("a própria dimensão não se autofiltra", () => {
+    // Cliente já selecionado como MBB não pode fazer a lista de opções de
+    // Cliente colapsar pra só ["MBB"] — Schwaben precisa continuar visível
+    // pra dar pra trocar de filtro.
+    const result = filterOptions(entries, filters({ clients: ["MBB"] }), "clients");
+    expect(result).toEqual(["MBB", "Schwaben"]);
+  });
+});
+
+describe("hasActiveMyHoursFilters", () => {
+  it("falso quando tudo vazio", () => {
+    expect(hasActiveMyHoursFilters(EMPTY_MY_HOURS_FILTERS)).toBe(false);
+  });
+
+  it("verdadeiro com qualquer dimensão ativa", () => {
+    expect(hasActiveMyHoursFilters(filters({ clients: ["MBB"] }))).toBe(true);
+  });
+});
+
+describe("gapDays", () => {
+  it("dia útil encerrado sem horas é lacuna", () => {
+    const perDay = new Map([["2026-08-03", 6]]);
+    const closed = ["2026-08-03", "2026-08-04"];
+    expect(gapDays(perDay, closed)).toEqual(["2026-08-04"]);
+  });
+
+  it("recalculado sobre o filtrado: dia com horas só noutro filtro vira lacuna", () => {
+    // dia 04 tem horas no total, mas nenhuma no recorte filtrado (perDay já
+    // vem calculado só sobre os lançamentos filtrados) -> é lacuna do recorte
+    const perDayFiltrado = new Map([["2026-08-03", 6]]);
+    expect(gapDays(perDayFiltrado, ["2026-08-03", "2026-08-04"])).toEqual(["2026-08-04"]);
+  });
+
+  it("mais recente primeiro", () => {
+    expect(gapDays(new Map(), ["2026-08-03", "2026-08-04", "2026-08-05"])).toEqual([
+      "2026-08-05", "2026-08-04", "2026-08-03",
+    ]);
+  });
+
+  it("sem lacuna devolve lista vazia", () => {
+    const perDay = new Map([["2026-08-03", 6]]);
+    expect(gapDays(perDay, ["2026-08-03"])).toEqual([]);
   });
 });

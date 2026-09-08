@@ -149,7 +149,10 @@
     border-radius: 0;
   }
   .mgmt-filter { display: flex; flex-direction: column; gap: 5px; flex: 0 0 200px; }
-  .management-filters .mgmt-filter-narrow { flex-basis: 150px; }
+  /* `.myh-filters` (Dashboard de horas) reaproveita os mesmos dropdowns do
+     Painel de Gerência — precisa entrar nesta lista de ancestrais, senão os
+     tamanhos abaixo (escopados só a `.management-filters`) não se aplicam. */
+  .management-filters .mgmt-filter-narrow, .myh-filters .mgmt-filter-narrow { flex-basis: 150px; }
   .management-filters .mgmt-filter-wide { flex-basis: 230px; }
   .management-filters .mgmt-filter-wider { flex-basis: 280px; }
   .mgmt-filter-reset {
@@ -170,8 +173,8 @@
   .mgmt-filter-reset:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
   .mgmt-filter-reset:disabled { opacity: 0.45; cursor: default; }
   .mgmt-filter-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
-  .management-filters .month-dropdown { flex: none; width: 100%; }
-  .management-filters .month-dropdown-list { width: 100%; max-height: 260px; }
+  .management-filters .month-dropdown, .myh-filters .month-dropdown { flex: none; width: 100%; }
+  .management-filters .month-dropdown-list, .myh-filters .month-dropdown-list { width: 100%; max-height: 260px; }
   /* qualifica com o ancestral `.mgmt-filter` pra ganhar de propósito de
      `.month-dropdown-trigger` (mesma especificidade, definida depois no
      arquivo) — mesma lição do `.kpi-card input.kpi-input` acima. */
@@ -243,6 +246,18 @@
   .myh-ref-chip.is-missing { border-style: dashed; opacity: 0.75; }
   .myh-divergence { flex-basis: 100%; margin: 0; display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--warn); }
 
+  /* painel de filtros — Competência/Cliente/Projeto/Pacote — mesma linguagem
+     visual do `.management-filters` (mesmos componentes de dropdown,
+     `.mgmt-filter*`), mas sem `position:sticky`: esta página já tem seu
+     próprio cabeçalho fixo-por-scroll, grudar mais um elemento no topo
+     empilharia duas barras coladas na viewport. */
+  .myh-filters {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
+    padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border);
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+  }
+
   .period-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--surface-2); }
   .period-seg button {
     padding: 7px 14px; border: none; background: transparent; cursor: pointer;
@@ -284,6 +299,13 @@
      com a mesma altura sem propriedade extra. */
   .myh-row-pair { display: flex; gap: 16px; }
   .myh-row-pair > .myh-card { flex: 1 1 0; }
+
+  /* KPIs individuais no lugar do bullet — mesmo raciocínio de altura igual
+     do par acima, só que para N cards (hoje 4): todos title+número+rodapé,
+     então esticar não abre vão perceptível. `flex-wrap` deixa cair pra 2
+     por linha antes do breakpoint de 900px empilhar tudo em 1 coluna. */
+  .myh-kpi-row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .myh-kpi-row > .myh-card { flex: 1 1 220px; }
 
   /* --- card --- */
   .myh-card {
@@ -357,25 +379,6 @@
   .myh-limits li { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
   .myh-limits strong { color: var(--text); font-weight: 600; }
 
-  /* --- V1 bullet --- */
-  .bullet { display: flex; flex-direction: column; gap: 14px; }
-  .bullet-track { position: relative; height: 34px; border-radius: 8px; background: var(--surface-2); box-shadow: inset 0 1px 3px rgba(0,0,0,0.25); overflow: visible; }
-  .bullet-band { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: color-mix(in srgb, var(--accent) 11%, transparent); }
-  .bullet-fill {
-    position: absolute; top: 6px; bottom: 6px; left: 0; border-radius: 5px;
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hi) 100%);
-    box-shadow: 0 0 12px -2px var(--accent-glow);
-    transition: width 0.25s ease;
-  }
-  .bullet-marker { position: absolute; top: -3px; bottom: -3px; width: 3px; border-radius: 2px; background: var(--text); transform: translateX(-1px); }
-  .bullet-marker--estimated { background: repeating-linear-gradient(180deg, var(--text-muted) 0 4px, transparent 4px 8px); }
-  .bullet-legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 0.82rem; color: var(--text-muted); }
-  .bullet-legend-item { display: inline-flex; align-items: center; gap: 7px; }
-  .bullet-legend-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
-  .bullet-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
-  .bullet-swatch--fill { background: linear-gradient(135deg, var(--accent), var(--accent-hi)); }
-  .bullet-swatch--marker { width: 3px; height: 14px; border-radius: 2px; background: var(--text); }
-  .bullet-swatch--estimated { background: repeating-linear-gradient(180deg, var(--text-muted) 0 3px, transparent 3px 6px); }
 
   /* --- V2 calendário-heatmap --- */
   /* grade e legenda LADO A LADO: com a legenda embaixo, o card de 7 colunas
@@ -384,15 +387,19 @@
   /* base = largura máxima da grade de um mês, encolhível: com `flex: 1 1` a
      área dos meses crescia além da grade e abria um vão até a legenda */
   .calheat-months { flex: 0 1 430px; display: flex; flex-wrap: wrap; gap: 22px; min-width: 0; }
-  /* multi-mês precisa acomodar N grades de 182px e quebrar linha */
-  .calheat--compact .calheat-months { flex: 1 1 auto; }
+  /* multi-mês vira grade de até 6 colunas (pedido explícito): com 12 meses
+     dá 2 linhas de 6, sem depender de quanto cabe na largura do card —
+     o número de colunas real vem inline (min(6, nº de meses do recorte)). */
+  .calheat--compact .calheat-months { flex: 1 1 auto; display: grid; gap: 18px 14px; }
   .calheat-month { min-width: 0; flex: 0 0 auto; }
   .calheat-month-name { font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 8px; }
   /* mês único cresce com o card (até 430px): fixo em 336px, num card largo
      sobrava um vazio à direita da grade — o mesmo defeito, só migrado pra
      dentro do card. Célula maior num calendário é ganho de leitura. */
   .calheat-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; width: 100%; min-width: 280px; max-width: 430px; }
-  .calheat--compact .calheat-grid { width: 182px; min-width: 0; max-width: 182px; gap: 3px; }
+  /* no modo 6 colunas cada mês ocupa a célula inteira da grade — largura fixa
+     de 182px descolava do container quando 6 meses cabiam com folga */
+  .calheat--compact .calheat-grid { width: 100%; min-width: 0; max-width: 200px; gap: 3px; }
   .calheat-weekday { font-size: 0.62rem; font-weight: 600; color: var(--text-muted); text-align: center; padding-bottom: 2px; }
   .calheat-cell {
     aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
@@ -410,10 +417,25 @@
   .calheat-cell--outside { opacity: 0.18; color: var(--text-muted); }
   .calheat-cell--outlier { position: relative; }
   .calheat-cell--outlier::after { content: ""; position: absolute; top: 2px; right: 2px; width: 4px; height: 4px; border-radius: 50%; background: var(--warn); }
-  .calheat-legend { flex: 0 1 200px; display: flex; flex-direction: column; gap: 9px; font-size: 0.72rem; color: var(--text-muted); }
-  .calheat-legend-item { display: inline-flex; align-items: center; gap: 7px; }
-  .calheat-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; display: block; aspect-ratio: auto; }
-  .calheat-legend-note { margin-top: 4px; line-height: 1.45; }
+  /* legenda antes ficava pequena (0.72rem) e com os mesmos swatches sutis
+     das células — o que é certo NA célula (fim de semana/futuro precisam
+     ser discretos) lia mal COMO CHAVE da legenda. Fundo próprio + swatch
+     maior + texto no tom principal (não muted) resolve a legibilidade sem
+     mudar a intensidade das células em si. */
+  .calheat-legend {
+    flex: 0 1 210px; display: flex; flex-direction: column; gap: 10px;
+    font-size: 0.8rem; color: var(--text); padding: 12px 14px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .calheat-legend-item { display: inline-flex; align-items: center; gap: 9px; }
+  .calheat-swatch { width: 15px; height: 15px; border-radius: 4px; flex-shrink: 0; display: block; aspect-ratio: auto; }
+  /* --off/--future são discretos DE PROPÓSITO como célula (fim de
+     semana/futuro não devem competir com os dias trabalhados) — mas como
+     CHAVE da legenda precisam de contraste próprio, então reforça só aqui,
+     sem alterar a aparência das células reais do calendário. */
+  .calheat-legend .calheat-cell--off { opacity: 1; background: color-mix(in srgb, var(--text) 16%, transparent); }
+  .calheat-legend .calheat-cell--future { opacity: 1; border: 1.5px solid var(--text-muted); }
+  .calheat-legend-note { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); line-height: 1.5; color: var(--text-muted); font-size: 0.74rem; }
 
   /* --- V3 colunas mensais --- */
   .monthcols { display: flex; flex-direction: column; gap: 12px; }
@@ -461,7 +483,6 @@
   /* --- skeleton: mesma geometria da página final, pra nada saltar --- */
   .skel { background: var(--surface-2); border-radius: 6px; animation: skelPulse 1.4s ease-in-out infinite; }
   .skel-title { height: 13px; width: 42%; margin-bottom: 18px; }
-  .skel-bullet { height: 34px; }
   .skel-calendar { height: 210px; }
   .skel-chart { height: 168px; }
   .skel-line { height: 11px; margin-bottom: 10px; }
@@ -500,7 +521,7 @@
   @media (prefers-reduced-motion: reduce) {
     .myh-refresh svg.spin { animation: none; }
     .skel { animation: none; }
-    .bullet-fill, .bar-track-fill, .monthcols-bar { transition: none; }
+    .bar-track-fill, .monthcols-bar { transition: none; }
   }
 
   /* scroll horizontal de segurança — se as colunas (ou um valor grande demais)

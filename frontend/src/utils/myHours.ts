@@ -17,6 +17,7 @@ export type MyHoursEntry = {
   observacao: string;
   project_id: string | null;
   project_name: string;
+  client: string | null;
   top_project: string | null;
   cost_center: string | null;
   billing_class: BillingClass;
@@ -92,6 +93,107 @@ export type MyHoursResponse = {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Competência = mês do lançamento ("YYYY-MM"), mesmo conceito e nome do
+ * filtro "Competência" do Painel de Gerência (`ManagementFilters.tsx`) —
+ * lá vem pronto de `rows`; aqui não existe agregação mensal pré-pronta
+ * no payload de entries, então deriva direto da data. */
+export function competenciaOf(entry: MyHoursEntry): string {
+  return entry.date.slice(0, 7);
+}
+
+export type MyHoursFilters = {
+  months: string[];
+  clients: string[];
+  projects: string[];
+  pacotes: string[];
+};
+
+export const EMPTY_MY_HOURS_FILTERS: MyHoursFilters = {
+  months: [],
+  clients: [],
+  projects: [],
+  pacotes: [],
+};
+
+const FILTER_FIELD: Record<keyof MyHoursFilters, (e: MyHoursEntry) => string> = {
+  months: competenciaOf,
+  clients: (e) => e.client || "Sem cliente",
+  projects: (e) => e.project_name,
+  pacotes: (e) => e.pacote || "Sem pacote",
+};
+
+/** Aplica os filtros do painel (Competência/Cliente/Projeto/Pacote) sobre os
+ * lançamentos, com filtro vazio (`[]`) significando "todos".
+ *
+ * `exclude` ignora a própria dimensão — é o que permite cada dropdown
+ * calcular suas opções a partir dos OUTROS filtros ativos sem se autofiltrar
+ * (ver `filterOptions` abaixo; mesmo padrão da skill de dashboard Schwaben:
+ * um filtro nunca colapsa a própria lista de opções). Sem essa exclusão,
+ * marcar uma opção de Cliente faria as outras opções de Cliente desaparecerem
+ * do próprio dropdown de Cliente. */
+export function applyMyHoursFilters(
+  entries: MyHoursEntry[],
+  filters: MyHoursFilters,
+  exclude?: keyof MyHoursFilters
+): MyHoursEntry[] {
+  return entries.filter((e) =>
+    (Object.keys(filters) as (keyof MyHoursFilters)[]).every((dim) => {
+      if (dim === exclude) return true;
+      const active = filters[dim];
+      if (active.length === 0) return true;
+      return active.includes(FILTER_FIELD[dim](e));
+    })
+  );
+}
+
+/** Opções disponíveis pra UMA dimensão do filtro, calculadas sobre os
+ * lançamentos já filtrados pelas OUTRAS dimensões (cross-filter) — nunca
+ * sobre o universo bruto: "aparecendo somente os que tiveram apontamento
+ * pelo usuário logado" já vem de graça (todo `entries` já é só do usuário
+ * logado), e cruzar com os demais filtros é o que faz cada filtro
+ * realmente filtrar os outros, como pedido. */
+export function filterOptions(
+  entries: MyHoursEntry[],
+  filters: MyHoursFilters,
+  dim: keyof MyHoursFilters
+): string[] {
+  const scoped = applyMyHoursFilters(entries, filters, dim);
+  return Array.from(new Set(scoped.map(FILTER_FIELD[dim]))).sort((a, b) =>
+    a.localeCompare(b, "pt-BR")
+  );
+}
+
+export function hasActiveMyHoursFilters(filters: MyHoursFilters): boolean {
+  return Object.values(filters).some((v) => v.length > 0);
+}
+
+function monthLabel(month: string): string {
+  const [y, m] = month.split("-");
+  const names = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  return `${names[Number(m) - 1]}/${y.slice(2)}`;
+}
+
+/** Rótulo amigável pra cada dimensão de filtro — só Competência precisa
+ * de formatação (as demais já são texto de exibição). */
+export const MY_HOURS_FILTER_LABEL: Record<keyof MyHoursFilters, (opt: string) => string> = {
+  months: monthLabel,
+  clients: (opt) => opt,
+  projects: (opt) => opt,
+  pacotes: (opt) => opt,
+};
+
+/** Dias úteis encerrados sem apontamento — recalculado no cliente a partir
+ * dos lançamentos JÁ FILTRADOS, pra "lacuna" significar "sem apontamento
+ * dentro do que está filtrado" (ex.: com um Cliente selecionado, um dia em
+ * que só se trabalhou noutro cliente aparece como lacuna desse recorte).
+ * Mesma regra do backend (`hours_analytics.gap_days`), só que sobre o
+ * subconjunto visível em vez do total do período. */
+export function gapDays(perDay: Map<string, number>, businessDaysClosed: string[]): string[] {
+  return businessDaysClosed
+    .filter((d) => (perDay.get(d) ?? 0) <= 0)
+    .sort((a, b) => b.localeCompare(a));
 }
 
 export function totalHours(entries: MyHoursEntry[]): number {
