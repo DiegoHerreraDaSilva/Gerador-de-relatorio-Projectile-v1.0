@@ -132,11 +132,15 @@ export interface StoreState {
   addGroup: (packageId?: string) => void;
   removeGroup: (groupId: string, packageId?: string) => void;
   addActivity: (groupId: string, packageId?: string) => void;
-  addActivityFromIssue: (
+  // recupera linha(s) ignorada(s) do aviso (ValidationBanner) num único
+  // lote — um só snapshot de undo pro grupo inteiro selecionado, e a hora
+  // vem fixa (extra: false, mesmo tratamento visual de atividade importada,
+  // sem input editável) porque já é um valor confiável lido do Projectile,
+  // não um número digitado à mão.
+  addActivitiesFromIssues: (
     groupId: string,
     packageId: string,
-    description: string,
-    hours: number | null
+    items: Array<{ description: string; hours: number }>
   ) => void;
   removeActivities: (packageId: string, items: Array<{ groupId: string; activityId: string }>) => void;
   updateGroupName: (groupId: string, name: string, packageId?: string) => void;
@@ -371,14 +375,16 @@ export const useReportStore = create<StoreState>()(
         g.activities.push({ id: genId(), description: "", hours: null, extra: true });
         s.hasGeneratedOnce = false;
       }),
-    addActivityFromIssue: (groupId, packageId, description, hours) =>
+    addActivitiesFromIssues: (groupId, packageId, items) =>
       set((s) => {
         const pkg = s.packages.find((p) => p.id === packageId);
         const g = pkg?.groups.find((gr) => gr.id === groupId);
-        if (!g) return;
+        if (!g || !items.length) return;
         const snap = snapshotState(s);
         s.undoStack.push(snap); if (s.undoStack.length > 50) s.undoStack.shift();
-        g.activities.push({ id: genId(), description, hours, extra: true });
+        items.forEach(({ description, hours }) => {
+          g.activities.push({ id: genId(), description, hours, extra: false });
+        });
         s.hasGeneratedOnce = false;
       }),
     removeActivities: (packageId, items) =>

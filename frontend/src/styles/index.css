@@ -1728,9 +1728,21 @@
     background: color-mix(in srgb, var(--warn) 10%, var(--surface));
   }
   .validation-banner.visible { display: block; }
-  .validation-banner-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .validation-banner-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .validation-banner-title { font-size: 0.88rem; font-weight: 600; color: var(--warn); }
   .validation-banner.collapsed .validation-list { display: none; }
+  /* dropdown de pacote/grupo + botão de adicionar em lote, no título do
+     card — junto do resto do header, entre o texto e o "Recolher". */
+  .issue-recover-bulk { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .issue-recover-select {
+    font-size: 0.82rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+    background: var(--surface);
+    color: var(--text);
+    max-width: 280px;
+  }
   .validation-list {
     list-style: none;
     margin: 12px 0 0;
@@ -1747,10 +1759,11 @@
     border-radius: 6px;
     background: color-mix(in srgb, var(--warn) 6%, transparent);
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    align-items: baseline;
+    gap: 8px;
   }
-  .validation-list .issue-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .validation-list .issue-checkbox { flex: 0 0 auto; cursor: pointer; accent-color: var(--accent); }
+  .validation-list .issue-checkbox-placeholder { flex: 0 0 auto; width: 13px; }
   .validation-list .issue-row {
     flex: 0 0 auto;
     font-weight: 700;
@@ -1762,26 +1775,6 @@
   }
   .validation-list .issue-detail { color: var(--text); }
   .validation-list .issue-highlight { font-weight: 700; color: var(--warn); }
-  .validation-list .issue-recover-toggle {
-    margin-left: auto;
-    font-size: 0.76rem;
-    padding: 2px 8px;
-  }
-  .validation-list .issue-recover-form {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-left: 4px;
-  }
-  .validation-list .issue-recover-form select {
-    font-size: 0.8rem;
-    padding: 3px 6px;
-    max-width: 320px;
-  }
-  .validation-list .issue-recover-form .btn-primary {
-    font-size: 0.78rem;
-    padding: 3px 10px;
-  }
 
   input[type=text], input[type=number] {
     width: 100%;
