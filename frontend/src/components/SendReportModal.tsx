@@ -4,6 +4,7 @@ import { X, Send, Check, AlertTriangle } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useReportStore } from "../store/useReportStore";
 import { computeDefaultFileNameFor } from "../utils/fileName";
+import { findEmptyActivityDescription } from "../utils/calc";
 import { drawGroupsChart } from "../utils/chart";
 import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
 import type { WorkPackage, ReportHeader } from "../api/types";
@@ -122,6 +123,13 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
     if (!header.signer1Name.trim() || !header.signer2Name.trim()) {
       setBatchError("Preencha o nome de quem assina (Schwaben e cliente) antes de enviar.");
       return;
+    }
+    for (const pkg of selectedPkgs) {
+      const empty = findEmptyActivityDescription(pkg);
+      if (empty) {
+        setBatchError(`Preencha a descrição de todas as atividades (grupo "${empty.groupName}" em "${pkg.projectName}") antes de enviar.`);
+        return;
+      }
     }
 
     setSending(true);

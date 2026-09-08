@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeGroupTotals, computeGrandTotalFor, computeGrandBruto } from "../calc";
-import type { Group, Activity } from "../../api/types";
+import { computeGroupTotals, computeGrandTotalFor, computeGrandBruto, findEmptyActivityDescription } from "../calc";
+import type { Group, Activity, WorkPackage } from "../../api/types";
 
 // Estes testes existem pra travar a fórmula que precisa espelhar EXATAMENTE
 // backend/app/generator.py:_build_groups_xml:
@@ -31,6 +31,23 @@ function group(performance: number, hours: Array<number | null | undefined>): Gr
     name: "Grupo",
     performance,
     activities: hours.map((h, i) => activity(h, { id: `a${i}` })),
+  };
+}
+
+function pkg(groups: Group[], overrides: Partial<WorkPackage> = {}): WorkPackage {
+  return {
+    id: "pkg",
+    key: "pkg",
+    projectCode: "SE.01.001",
+    projectName: "Projeto Teste",
+    groups,
+    collapsedGroupIds: new Set(),
+    fileName: "",
+    fileNameEdited: false,
+    chartBar: false,
+    chartPie: false,
+    pacoteScope: null,
+    ...overrides,
   };
 }
 
@@ -107,5 +124,30 @@ describe("computeGrandBruto", () => {
 
   it("retorna 0 para lista vazia de grupos", () => {
     expect(computeGrandBruto([])).toBe(0);
+  });
+});
+
+describe("findEmptyActivityDescription", () => {
+  it("devolve null quando todas as atividades têm descrição preenchida", () => {
+    const g1 = group(1, [10, 5]);
+    expect(findEmptyActivityDescription(pkg([g1]))).toBeNull();
+  });
+
+  it("acha atividade com descrição vazia (string em branco) e devolve o nome do grupo", () => {
+    const g1: Group = { id: "g1", name: "ENG", performance: 1, activities: [activity(10, { description: "   " })] };
+    expect(findEmptyActivityDescription(pkg([g1]))).toEqual({ groupName: "ENG" });
+  });
+
+  it("hours null NÃO conta como campo vazio — atividade extra só de texto é válida", () => {
+    // caso real: linha "Relatório"/"Gerenciamento - Reunião" sem hora própria
+    // (ver generator._build_group_rows) — só a descrição em branco bloqueia.
+    const g1: Group = { id: "g1", name: "ENG", performance: 1, activities: [activity(null, { description: "Relatório" })] };
+    expect(findEmptyActivityDescription(pkg([g1]))).toBeNull();
+  });
+
+  it("verifica todos os grupos do pacote, não só o primeiro", () => {
+    const g1 = group(1, [10]);
+    const g2: Group = { id: "g2", name: "QA", performance: 1, activities: [activity(5, { description: "" })] };
+    expect(findEmptyActivityDescription(pkg([g1, g2]))).toEqual({ groupName: "QA" });
   });
 });
