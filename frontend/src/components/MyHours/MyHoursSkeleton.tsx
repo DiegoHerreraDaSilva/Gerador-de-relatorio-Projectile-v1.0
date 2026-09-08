@@ -33,15 +33,9 @@ export function MyHoursSkeleton() {
           <div className="skel skel-line" />
         </div>
       </div>
-      <div className="myh-card myh-col-7">
+      <div className="myh-card myh-col-12">
         <div className="skel skel-title" />
         <div className="skel skel-chart" />
-      </div>
-      <div className="myh-card myh-col-5">
-        <div className="skel skel-title" />
-        <div className="skel skel-line" />
-        <div className="skel skel-line" />
-        <div className="skel skel-line" />
       </div>
       <div className="myh-card myh-col-12">
         <div className="skel skel-title" />

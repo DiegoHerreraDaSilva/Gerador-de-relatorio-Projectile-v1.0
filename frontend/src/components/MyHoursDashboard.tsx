@@ -28,11 +28,6 @@ const MAX_GAP_CHIPS = 6;
 /** Abaixo desta amplitude entre o maior e o menor dia da semana, cinco barras
  * não informam nada — vira frase. Medido 0,16 h no usuário de referência. */
 const WEEKDAY_AMPLITUDE_THRESHOLD = 0.75;
-/** Pisos para projetar o fim do mês. Sem eles, o dia 1º projetaria o mês
- * inteiro a partir de um único dia de dado. */
-const MIN_CLOSED_DAYS_TO_PROJECT = 5;
-const MIN_SAMPLE_TO_PROJECT = 10;
-
 function brDate(iso: string): string {
   return iso.split("-").reverse().join("/");
 }
@@ -85,29 +80,7 @@ export function MyHoursDashboard() {
     [filteredEntries]
   );
 
-  // ritmo e projeção do mês (só no mês corrente, com pisos)
   const closedCount = s.businessDays.closed_count;
-  const pace = closedCount > 0 ? total / closedCount : null;
-  const canProject =
-    isCurrentMonth &&
-    !filtersActive &&
-    closedCount >= MIN_CLOSED_DAYS_TO_PROJECT &&
-    s.dailyStats.n >= MIN_SAMPLE_TO_PROJECT &&
-    s.dailyStats.median !== null;
-  const projection = canProject
-    ? {
-        low: total + s.businessDays.month_remaining * (s.dailyStats.p25 ?? 0),
-        mid: total + s.businessDays.month_remaining * (s.dailyStats.median ?? 0),
-        high: total + s.businessDays.month_remaining * (s.dailyStats.p75 ?? 0),
-      }
-    : null;
-  const closedMonths = s.monthlySeries.filter((m) => !m.partial && !m.no_data);
-  const monthlyMedian = useMemo(() => {
-    const values = closedMonths.map((m) => m.hours).sort((a, b) => a - b);
-    if (values.length === 0) return null;
-    const mid = Math.floor(values.length / 2);
-    return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
-  }, [s.monthlySeries]);
 
   // drill-down de um dia (clique no calendário) — separado dos filtros
   // globais, afeta só a tabela
@@ -347,56 +320,35 @@ export function MyHoursDashboard() {
             </section>
 
             <section className="myh-card">
-              <h3 className="myh-card-title">
-                {isCurrentMonth ? "Ritmo e projeção do mês" : "Ritmo no período"}
-              </h3>
-              {pace !== null ? (
-                <>
-                  <p className="myh-big-number">
-                    {fmtNum(pace)}
-                    <span> h por dia útil encerrado</span>
-                  </p>
-                  {/* o ritmo divide pelos dias úteis DECORRIDOS, não pelos
-                      trabalhados: sem essa ressalva, "2 h por dia útil" lido
-                      isolado sugere jornada de 2 h, quando são 6 h num dia e
-                      dois dias sem apontamento */}
-                  <p className="myh-card-foot muted">
-                    {fmtNum(total)} h ÷ {closedCount} dias úteis encerrados
-                    {gapDays.length > 0 && `, incluindo ${gapDays.length} sem apontamento`}.
-                  </p>
-                </>
-              ) : (
-                <p className="muted">Nenhum dia útil encerrado neste período ainda.</p>
+              <h3 className="myh-card-title">Onde seu tempo foi</h3>
+              {projectNames.length > 0 && (
+                <p className="myh-card-sub muted">
+                  {projectNames.length === 1
+                    ? `Projeto ${projectNames[0]}`
+                    : `${projectNames.length} projetos`}
+                  {" · "}
+                  {billing.worthShowing
+                    ? `${fmtNum(billing.externo)} h externo / ${fmtNum(billing.interno)} h interno`
+                    : billing.interno === billing.total
+                    ? "Todo o período é trabalho interno"
+                    : billing.externo === billing.total
+                    ? "Todo o período é trabalho externo"
+                    : "Classificação do projeto indisponível"}
+                </p>
               )}
-              {isCurrentMonth &&
-                (filtersActive ? (
-                  <p className="muted">Projeção indisponível com filtros ativos.</p>
-                ) : projection ? (
-                  <p className="myh-projection">
-                    Projeção do mês <strong>~{fmtNum(projection.mid)} h</strong>
-                    <span className="muted">
-                      {" "}
-                      (faixa {fmtNum(projection.low)}–{fmtNum(projection.high)} h)
-                    </span>
-                    {monthlyMedian !== null && (
-                      <>
-                        <br />
-                        <span className="muted">
-                          Sua mediana mensal: {fmtNum(monthlyMedian)} h
-                        </span>
-                      </>
-                    )}
-                  </p>
-                ) : (
-                  <p className="muted">
-                    Poucos dias úteis decorridos pra projetar o mês.
-                  </p>
-                ))}
+              <PacoteBars
+                items={pacotes}
+                selected={s.filters.pacotes}
+                onSelect={s.togglePacoteFilter}
+              />
+              <p className="myh-card-foot muted">
+                Externo/interno é a classificação do projeto, não faturamento.
+              </p>
             </section>
           </div>
 
-          {/* R4 — tendência + pacotes */}
-          <section className="myh-card myh-card--viz myh-col-7">
+          {/* R4 — tendência */}
+          <section className="myh-card myh-card--viz myh-col-12">
             <h3 className="myh-card-title">Tendência — 13 meses</h3>
             <MonthlyColumns series={s.monthlySeries} />
             {filtersActive && (
@@ -405,33 +357,6 @@ export function MyHoursDashboard() {
                 todo o seu histórico.
               </p>
             )}
-          </section>
-
-          <section className="myh-card myh-card--viz myh-col-5">
-            <h3 className="myh-card-title">Onde seu tempo foi</h3>
-            {projectNames.length > 0 && (
-              <p className="myh-card-sub muted">
-                {projectNames.length === 1
-                  ? `Projeto ${projectNames[0]}`
-                  : `${projectNames.length} projetos`}
-                {" · "}
-                {billing.worthShowing
-                  ? `${fmtNum(billing.externo)} h externo / ${fmtNum(billing.interno)} h interno`
-                  : billing.interno === billing.total
-                  ? "Todo o período é trabalho interno"
-                  : billing.externo === billing.total
-                  ? "Todo o período é trabalho externo"
-                  : "Classificação do projeto indisponível"}
-              </p>
-            )}
-            <PacoteBars
-              items={pacotes}
-              selected={s.filters.pacotes}
-              onSelect={s.togglePacoteFilter}
-            />
-            <p className="myh-card-foot muted">
-              Externo/interno é a classificação do projeto, não faturamento.
-            </p>
           </section>
 
           {/* R5 — tabela */}

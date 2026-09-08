@@ -352,8 +352,6 @@
   .myh-big-number { margin: 0; font-size: 2.1rem; font-weight: 700; color: var(--text); line-height: 1.05; font-variant-numeric: tabular-nums; }
   .myh-big-number span { font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-left: 6px; }
   .myh-big-number--warn { color: var(--warn); }
-  .myh-projection { margin: 12px 0 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
-  .myh-projection strong { color: var(--text); font-variant-numeric: tabular-nums; }
   .myh-ok { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.88rem; color: var(--ok); }
 
   .myh-chips, .myh-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; }
@@ -383,7 +381,12 @@
   /* --- V2 calendário-heatmap --- */
   /* grade e legenda LADO A LADO: com a legenda embaixo, o card de 7 colunas
      ficava com uma área morta larga à direita da grade de um mês só */
-  .calheat { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
+  /* com 1 mês só (Mês atual) a grade+legenda somam bem menos que a largura
+     do card — sem centralizar, sobrava um vão vazio enorme à direita. No
+     modo compacto (vários meses) a grade já ocupa mais espaço por si só,
+     então o multi-mês mantém o alinhamento à esquerda de sempre. */
+  .calheat { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 24px; }
+  .calheat--compact { justify-content: flex-start; }
   /* base = largura máxima da grade de um mês, encolhível: com `flex: 1 1` a
      área dos meses crescia além da grade e abria um vão até a legenda */
   .calheat-months { flex: 0 1 430px; display: flex; flex-wrap: wrap; gap: 22px; min-width: 0; }
