@@ -1759,7 +1759,6 @@
   }
   .validation-list .issue-checkbox {
     flex: 0 0 auto;
-    margin-left: auto;
     width: 18px;
     height: 18px;
     cursor: pointer;
