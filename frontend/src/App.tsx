@@ -12,6 +12,7 @@ import { PackageFileName } from "./components/PackageFileName";
 import { Preview } from "./components/Preview/Preview";
 import { GenerateFooter } from "./components/GenerateFooter";
 import { Chat } from "./components/Chat";
+import { ReportTabsBar } from "./components/ReportTabsBar";
 import { useReportStore } from "./store/useReportStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
@@ -81,6 +82,7 @@ export default function App() {
   return (
     <>
       <Header view={view} onNavigate={setView} />
+      <ReportTabsBar />
       {hasPackages && (
         <div className={`summary-row ${hasPackages ? "visible" : ""}`}>
           <div className="summary-bar">

@@ -55,6 +55,20 @@ function clonePackages(pkgs: WorkPackage[]): WorkPackage[] {
   }));
 }
 
+// Set não é serializável em JSON direto — os dois helpers abaixo convertem
+// `Set` <-> `{__set: [...]}` em qualquer profundidade da árvore (não fixo a
+// campos específicos), reaproveitados tanto pelo snapshot de undo (5 campos)
+// quanto pelo bundle completo de uma guia (useReportTabsStore.ts).
+function jsonReplacer(_k: string, v: unknown) {
+  return v instanceof Set ? { __set: Array.from(v) } : v;
+}
+function jsonReviver(_k: string, v: unknown) {
+  if (v && typeof v === "object" && "__set" in (v as Record<string, unknown>)) {
+    return new Set((v as { __set: unknown[] }).__set);
+  }
+  return v;
+}
+
 function snapshotState(state: StoreState): string {
   const snap: Snapshot = {
     packages: clonePackages(state.packages),
@@ -63,20 +77,100 @@ function snapshotState(state: StoreState): string {
     fileName: state.fileName,
     fileNameEdited: state.fileNameEdited,
   };
-  // Sets are not JSON serializable, convert
-  return JSON.stringify(snap, (_k, v) => (v instanceof Set ? { __set: Array.from(v) } : v));
+  return JSON.stringify(snap, jsonReplacer);
 }
 
 function restoreSnapshot(snapshotStr: string, state: StoreState) {
-  const parsed = JSON.parse(snapshotStr, (_k, v) => {
-    if (v && typeof v === "object" && "__set" in v) return new Set(v.__set);
-    return v;
-  }) as Snapshot;
+  const parsed = JSON.parse(snapshotStr, jsonReviver) as Snapshot;
   state.packages = parsed.packages;
   state.header = parsed.header;
   state.activePackageId = parsed.activePackageId;
   state.fileName = parsed.fileName;
   state.fileNameEdited = parsed.fileNameEdited;
+}
+
+// Conteúdo "de uma guia" inteira (ver useReportTabsStore.ts) — mais campos
+// que o Snapshot do undo acima (que só cobre o essencial pra desfazer uma
+// edição). `previewZoom`/`draggedPackageId`/`draggedActivities`/
+// `draggedGroup` ficam de fora de propósito: são preferência de tela ou
+// estado de um drag em andamento, não "conteúdo do relatório" — não fazem
+// sentido trocar junto quando o usuário muda de guia.
+type TabBundle = {
+  packages: WorkPackage[];
+  activePackageId: string | null;
+  reportMode: "single" | "multi";
+  currentIssues: RowIssue[];
+  header: ReportHeader;
+  fileName: string;
+  fileNameEdited: boolean;
+  undoStack: string[];
+  hasGeneratedOnce: boolean;
+  showImportCard: boolean;
+  isSplit: boolean;
+  paneBPackageId: string | null;
+  validationCollapsed: boolean;
+  selectedByPane: Record<string, Set<string>>;
+};
+
+export function serializeTabBundle(state: StoreState): string {
+  const bundle: TabBundle = {
+    packages: clonePackages(state.packages),
+    activePackageId: state.activePackageId,
+    reportMode: state.reportMode,
+    currentIssues: state.currentIssues,
+    header: { ...state.header },
+    fileName: state.fileName,
+    fileNameEdited: state.fileNameEdited,
+    undoStack: state.undoStack,
+    hasGeneratedOnce: state.hasGeneratedOnce,
+    showImportCard: state.showImportCard,
+    isSplit: state.isSplit,
+    paneBPackageId: state.paneBPackageId,
+    validationCollapsed: state.validationCollapsed,
+    selectedByPane: state.selectedByPane,
+  };
+  return JSON.stringify(bundle, jsonReplacer);
+}
+
+export function applyTabBundle(bundleStr: string, state: StoreState) {
+  const parsed = JSON.parse(bundleStr, jsonReviver) as TabBundle;
+  state.packages = parsed.packages;
+  state.activePackageId = parsed.activePackageId;
+  state.reportMode = parsed.reportMode;
+  state.currentIssues = parsed.currentIssues;
+  state.header = parsed.header;
+  state.fileName = parsed.fileName;
+  state.fileNameEdited = parsed.fileNameEdited;
+  state.undoStack = parsed.undoStack;
+  state.hasGeneratedOnce = parsed.hasGeneratedOnce;
+  state.showImportCard = parsed.showImportCard;
+  state.isSplit = parsed.isSplit;
+  state.paneBPackageId = parsed.paneBPackageId;
+  state.validationCollapsed = parsed.validationCollapsed;
+  state.selectedByPane = parsed.selectedByPane;
+}
+
+/** Bundle de uma guia nova/vazia — mesmos valores iniciais do `create()`
+ * da store logo abaixo, exceto `header` (cada guia começa com um header
+ * limpo, não o padrão do dia — ver `createInitialHeader`). */
+export function blankTabBundle(): string {
+  const bundle: TabBundle = {
+    packages: [],
+    activePackageId: null,
+    reportMode: "single",
+    currentIssues: [],
+    header: createInitialHeader(),
+    fileName: "",
+    fileNameEdited: false,
+    undoStack: [],
+    hasGeneratedOnce: false,
+    showImportCard: true,
+    isSplit: false,
+    paneBPackageId: null,
+    validationCollapsed: false,
+    selectedByPane: { "0": new Set(), "1": new Set() },
+  };
+  return JSON.stringify(bundle, jsonReplacer);
 }
 
 export interface StoreState {
