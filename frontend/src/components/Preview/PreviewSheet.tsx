@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useReportStore } from "../../store/useReportStore";
-import { computeGroupTotals, computeGrandTotalFor } from "../../utils/calc";
+import { computeGroupTotals, computeGrandTotalFor, computeGrandBruto } from "../../utils/calc";
 import { fmtNum } from "../../utils/fmt";
 import { drawGroupsChart } from "../../utils/chart";
 import { ExtraHoursInput } from "../ExtraHoursInput";
@@ -114,6 +114,11 @@ export function PreviewSheet({ paneId, packageId }: Props) {
 
   const monthLabelDisplay = header.monthLabel || "Mês/AAAA";
   const totalHoras = computeGrandTotalFor(pkg.groups);
+  const totalBruto = computeGrandBruto(pkg.groups);
+  // performance "geral" é uma média PONDERADA pelo bruto de cada grupo
+  // (total ÷ bruto), não a média simples das performances por grupo — bate
+  // com a conta que o Excel fazia antes (ex: 187,93 ÷ 141,64 ≈ 1,33).
+  const totalPerformance = totalBruto > 0 ? totalHoras / totalBruto : 0;
 
   const handleHeaderInput = (field: string, value: string) => {
     if (field === "projectCode") updateProjectCode(value, pkg.id);
@@ -427,7 +432,16 @@ export function PreviewSheet({ paneId, packageId }: Props) {
       <div className="preview-total">
         <div className="label">Total de horas {monthLabelDisplay}:</div>
         <div className="value">{fmtNum(totalHoras)}</div>
-        <div className="spacer" />
+        <div className="preview-side-box">
+          <div className="preview-side-header">
+            <span>Bruto</span>
+            <span>Performance</span>
+          </div>
+          <div className="preview-side-values">
+            <span className="bruto">{totalBruto ? fmtNum(totalBruto) : ""}</span>
+            <span className="perf-total">{totalBruto ? fmtNum(totalPerformance) : ""}</span>
+          </div>
+        </div>
       </div>
 
       {(pkg.chartBar || pkg.chartPie) && (
