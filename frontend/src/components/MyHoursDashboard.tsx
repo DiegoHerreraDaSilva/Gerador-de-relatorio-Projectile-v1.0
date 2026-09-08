@@ -81,6 +81,13 @@ export function MyHoursDashboard() {
   );
 
   const closedCount = s.businessDays.closed_count;
+  // dias ÚTEIS encerrados com apontamento — não pode passar de `closedCount`
+  // por construção (closedCount - lacunas), diferente de `daysWorked` (conta
+  // QUALQUER dia com hora, incluindo fim de semana/feriado trabalhado, que
+  // não é dia útil e por isso não entra no denominador "de X"). Misturar os
+  // dois no card "Dias com apontamento" dava número maior que o total
+  // (ex: "5 de 4" por causa de um sábado apontado).
+  const closedDaysWorked = Math.max(0, closedCount - gapDays.length);
 
   // drill-down de um dia (clique no calendário) — separado dos filtros
   // globais, afeta só a tabela
@@ -203,10 +210,14 @@ export function MyHoursDashboard() {
             <section className="myh-card">
               <h3 className="myh-card-title">Dias com apontamento</h3>
               <p className="myh-big-number">
-                {daysWorked}
+                {closedDaysWorked}
                 {closedCount > 0 && <span> de {closedCount}</span>}
               </p>
-              <p className="myh-card-foot muted">dias úteis encerrados no período</p>
+              <p className="myh-card-foot muted">
+                dias úteis encerrados no período
+                {daysWorked > closedDaysWorked &&
+                  ` (+${daysWorked - closedDaysWorked} fora de dia útil, ex: fim de semana)`}
+              </p>
             </section>
 
             <section className="myh-card">
@@ -285,7 +296,7 @@ export function MyHoursDashboard() {
               {gapDays.length === 0 ? (
                 <p className="myh-ok">
                   <Check size={16} strokeWidth={2.2} />
-                  Nenhum dia útil encerrado sem apontamento — {daysWorked} de {closedCount}.
+                  Nenhum dia útil encerrado sem apontamento — {closedDaysWorked} de {closedCount}.
                 </p>
               ) : (
                 <>
