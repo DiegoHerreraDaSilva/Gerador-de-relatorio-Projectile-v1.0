@@ -311,11 +311,11 @@
   .myh-card-head .myh-card-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
   .myh-card-sub { margin: -6px 0 14px; font-size: 0.78rem; }
   .myh-card-foot { margin: 14px 0 0; font-size: 0.73rem; line-height: 1.45; }
-  .myh-collapse, .myh-link {
+  .myh-link {
     border: none; background: none; padding: 0; cursor: pointer;
     font-size: 0.78rem; font-weight: 600; color: var(--accent-hi);
   }
-  .myh-collapse:hover, .myh-link:hover { text-decoration: underline; }
+  .myh-link:hover { text-decoration: underline; }
 
   .myh-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; }
   .myh-banner--info { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
@@ -439,20 +439,6 @@
   .monthcols-label--partial { font-style: italic; }
   .monthcols-median { position: absolute; left: 0; right: 0; height: 1px; background: var(--text-muted); opacity: 0.45; z-index: 1; }
   .monthcols-note { margin: 0; font-size: 0.72rem; line-height: 1.45; }
-
-  /* --- V4 janela do dia --- */
-  .daywin { display: flex; flex-direction: column; gap: 8px; }
-  .daywin-summary { margin: 0 0 6px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
-  .daywin-summary strong { color: var(--text); font-variant-numeric: tabular-nums; }
-  .daywin-axis { position: relative; height: 14px; margin-left: 46px; margin-right: 62px; }
-  .daywin-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 0.62rem; color: var(--text-muted); }
-  .daywin-rows { position: relative; display: flex; flex-direction: column; gap: 3px; max-height: 320px; overflow-y: auto; }
-  .daywin-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-muted); opacity: 0.3; margin-left: 46px; z-index: 1; }
-  .daywin-row { display: flex; align-items: center; gap: 8px; }
-  .daywin-date { width: 38px; flex-shrink: 0; font-size: 0.68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-  .daywin-track { position: relative; flex: 1 1 auto; min-width: 0; height: 13px; border-radius: 4px; background: var(--surface-2); }
-  .daywin-span { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hi) 100%); min-width: 3px; }
-  .daywin-hours { width: 54px; flex-shrink: 0; text-align: right; font-size: 0.68rem; color: var(--text); font-variant-numeric: tabular-nums; }
 
   /* --- V5 barras por pacote --- */
   .pacotebars { display: flex; flex-direction: column; gap: 13px; }

@@ -3,9 +3,7 @@ import {
   aggregateByPacote,
   billingSplit,
   dailyTotals,
-  dayWindows,
   distinctDaysWorked,
-  median,
   totalHours,
   weekdayProfile,
   type MyHoursEntry,
@@ -109,51 +107,6 @@ describe("dailyTotals", () => {
   });
 });
 
-describe("dayWindows", () => {
-  it("usa a primeira entrada e a última saída do dia", () => {
-    const result = dayWindows([
-      entry({ date: "2026-08-03", start: "09:00", end: "11:00", hours: 2 }),
-      entry({ date: "2026-08-03", start: "13:00", end: "16:00", hours: 3 }),
-    ]);
-    expect(result).toHaveLength(1);
-    expect(result[0].startMin).toBe(9 * 60);
-    expect(result[0].endMin).toBe(16 * 60);
-    expect(result[0].spanHours).toBe(7);
-    expect(result[0].loggedHours).toBe(5);
-  });
-
-  it("a diferença entre janela e apontado é o que o card mostra", () => {
-    // caso real medido: 08:47-16:05 de janela com 6h apontadas
-    const result = dayWindows([
-      entry({ date: "2026-08-04", start: "08:47", end: "12:00", hours: 3 }),
-      entry({ date: "2026-08-04", start: "13:00", end: "16:05", hours: 3 }),
-    ]);
-    expect(result[0].spanHours).toBeCloseTo(7.3, 1);
-    expect(result[0].loggedHours).toBe(6);
-  });
-
-  it("ignora lançamento sem horário válido", () => {
-    const result = dayWindows([
-      entry({ date: "2026-08-03", start: null, end: null }),
-      entry({ date: "2026-08-04", start: "09:00", end: "10:00", hours: 1 }),
-    ]);
-    expect(result.map((r) => r.date)).toEqual(["2026-08-04"]);
-  });
-
-  it("dia sem nenhum horário válido não entra (nunca infere de pTime)", () => {
-    expect(dayWindows([entry({ start: null, end: "12:00" })])).toEqual([]);
-  });
-
-  it("ordena cronologicamente", () => {
-    const result = dayWindows([
-      entry({ date: "2026-08-05" }),
-      entry({ date: "2026-08-03" }),
-      entry({ date: "2026-08-04" }),
-    ]);
-    expect(result.map((r) => r.date)).toEqual(["2026-08-03", "2026-08-04", "2026-08-05"]);
-  });
-});
-
 describe("billingSplit", () => {
   it("separa as três classes", () => {
     const split = billingSplit([
@@ -233,10 +186,4 @@ describe("weekdayProfile", () => {
     expect(profile.counts[0]).toBe(2);
     expect(profile.averages[0]).toBe(5);
   });
-});
-
-describe("median", () => {
-  it("ímpar", () => expect(median([3, 1, 2])).toBe(2));
-  it("par interpola", () => expect(median([1, 2, 3, 4])).toBe(2.5));
-  it("vazio", () => expect(median([])).toBeNull());
 });

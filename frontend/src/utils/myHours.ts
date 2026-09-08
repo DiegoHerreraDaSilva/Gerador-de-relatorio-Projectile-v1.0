@@ -140,57 +140,6 @@ export function dailyTotals(entries: MyHoursEntry[]): Map<string, number> {
   return totals;
 }
 
-export type DayWindow = {
-  date: string;
-  startMin: number; // minutos desde a meia-noite
-  endMin: number;
-  spanHours: number;
-  loggedHours: number;
-};
-
-function toMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":");
-  return Number(h) * 60 + Number(m);
-}
-
-/** Janela entrada->saída por dia, a partir de `start`/`end` dos lançamentos.
- *
- * Só considera lançamentos com AMBAS as pontas válidas (o backend anula as
- * duas quando o span é negativo). Dia sem nenhum lançamento válido não entra
- * — nunca inferir horário a partir do total de horas. */
-export function dayWindows(entries: MyHoursEntry[]): DayWindow[] {
-  const byDay = new Map<string, { min: number; max: number; logged: number }>();
-  for (const e of entries) {
-    if (!e.start || !e.end) continue;
-    const from = toMinutes(e.start);
-    const to = toMinutes(e.end);
-    const current = byDay.get(e.date);
-    if (!current) {
-      byDay.set(e.date, { min: from, max: to, logged: e.hours });
-    } else {
-      current.min = Math.min(current.min, from);
-      current.max = Math.max(current.max, to);
-      current.logged += e.hours;
-    }
-  }
-  return Array.from(byDay.entries())
-    .map(([date, w]) => ({
-      date,
-      startMin: w.min,
-      endMin: w.max,
-      spanHours: round2((w.max - w.min) / 60),
-      loggedHours: round2(w.logged),
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
-
-export function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
-
 export type BillingSplit = {
   externo: number;
   interno: number;

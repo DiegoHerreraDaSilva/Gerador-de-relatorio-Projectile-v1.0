@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { AlertTriangle, CalendarX2, Check, RefreshCw, X } from "lucide-react";
 import { useMyHoursStore, type MyHoursPeriod } from "../store/useMyHoursStore";
 import { SortableTh } from "./SortableTh";
@@ -6,7 +6,6 @@ import { useSortableRows } from "../hooks/useSortableRows";
 import { BulletBar } from "./MyHours/BulletBar";
 import { CalendarHeat } from "./MyHours/CalendarHeat";
 import { MonthlyColumns } from "./MyHours/MonthlyColumns";
-import { DayWindows } from "./MyHours/DayWindows";
 import { PacoteBars } from "./MyHours/PacoteBars";
 import { PeriodSegmented } from "./MyHours/PeriodSegmented";
 import { MyHoursSkeleton } from "./MyHours/MyHoursSkeleton";
@@ -15,7 +14,6 @@ import {
   aggregateByPacote,
   billingSplit,
   dailyTotals,
-  dayWindows,
   distinctDaysWorked,
   totalHours,
   weekdayProfile,
@@ -42,7 +40,6 @@ function weekdayOf(iso: string): string {
 
 export function MyHoursDashboard() {
   const s = useMyHoursStore();
-  const [showWindows, setShowWindows] = useState(true);
 
   useEffect(() => {
     s.load();
@@ -50,13 +47,6 @@ export function MyHoursDashboard() {
   }, []);
 
   const isCurrentMonth = s.period === "current_month";
-  const longPeriod = s.period === "last_6" || s.period === "last_12";
-
-  // em 6/12 meses a lista de faixas passa de 120 dias e empurra a tabela pra
-  // fora da tela; recolhida por padrão, expansível por quem quiser
-  useEffect(() => {
-    setShowWindows(!longPeriod);
-  }, [longPeriod]);
 
   // KPIs sempre sobre o período INTEIRO — o cross-filter não os toca
   const total = totalHours(s.entries);
@@ -64,7 +54,6 @@ export function MyHoursDashboard() {
   const avgPerDay = daysWorked > 0 ? total / daysWorked : null;
   const perDay = useMemo(() => dailyTotals(s.entries), [s.entries]);
   const pacotes = useMemo(() => aggregateByPacote(s.entries), [s.entries]);
-  const windows = useMemo(() => dayWindows(s.entries), [s.entries]);
   const billing = useMemo(() => billingSplit(s.entries), [s.entries]);
   const weekday = useMemo(() => weekdayProfile(s.entries), [s.entries]);
 
@@ -375,23 +364,7 @@ export function MyHoursDashboard() {
             </p>
           </section>
 
-          {/* R5 — janela do dia */}
-          <section className="myh-card myh-card--viz myh-col-12">
-            <div className="myh-card-head">
-              <h3 className="myh-card-title">Janela do dia</h3>
-              <button
-                type="button"
-                className="myh-collapse"
-                aria-expanded={showWindows}
-                onClick={() => setShowWindows((v) => !v)}
-              >
-                {showWindows ? "Recolher" : "Expandir"}
-              </button>
-            </div>
-            {showWindows && <DayWindows windows={windows} />}
-          </section>
-
-          {/* R6 — tabela */}
+          {/* R5 — tabela */}
           <section className="myh-card myh-col-12">
             <div className="myh-card-head">
               <h3 className="myh-card-title">Lançamentos</h3>
@@ -477,7 +450,7 @@ export function MyHoursDashboard() {
             </div>
           </section>
 
-          {/* R7 — limites dos dados */}
+          {/* R6 — limites dos dados */}
           <details className="myh-card myh-col-12 myh-limits">
             <summary>Limites destes dados</summary>
             <ul>
