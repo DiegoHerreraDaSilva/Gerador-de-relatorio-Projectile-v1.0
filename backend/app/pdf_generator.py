@@ -167,7 +167,7 @@ def generate_report_pdf(
     )
     activity_style = ParagraphStyle("activity", fontName="Helvetica", fontSize=9, leading=13, textColor=colors.black)
     group_hours_style = ParagraphStyle(
-        "groupHours", fontName="Helvetica-Bold", fontSize=10, alignment=2, textColor=_ACCENT_DARK
+        "groupHours", fontName="Helvetica-Bold", fontSize=10, alignment=1, textColor=_ACCENT_DARK
     )
     total_label_style = ParagraphStyle("totalLabel", fontName="Helvetica-Bold", fontSize=11, textColor=colors.white)
     total_value_style = ParagraphStyle(
@@ -220,17 +220,22 @@ def generate_report_pdf(
         # foi exatamente esse o bug reportado). Sem repeatRows — a barra do
         # nome do grupo NÃO repete quando ele quebra entre páginas, as
         # atividades continuam direto (pedido explícito do usuário).
-        table_data = [[Paragraph(group.name, group_title_style), Paragraph(_fmt_hours(group_hours), group_hours_style)]]
-        for desc in descriptions:
-            table_data.append([Paragraph(f"• {desc}", activity_style), ""])
+        #
+        # Total de horas fica na coluna 1, mesclada verticalmente ao lado de
+        # TODAS as atividades (não na barra do nome) — mesma posição do
+        # `.xlsx` (ver `generator._build_group_rows`, mescla "C{first_row}:
+        # C{last_row}"), centralizada.
+        table_data = [[Paragraph(group.name, group_title_style), ""]]
+        for idx, desc in enumerate(descriptions):
+            hours_cell = Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == 0 else ""
+            table_data.append([Paragraph(f"• {desc}", activity_style), hours_cell])
 
         style_commands = [
-            ("BACKGROUND", (0, 0), (0, 0), _ACCENT_DARK),
-            ("BACKGROUND", (1, 0), (1, 0), colors.white),
+            ("SPAN", (0, 0), (1, 0)),
+            ("BACKGROUND", (0, 0), (1, 0), _ACCENT_DARK),
             ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
-            ("VALIGN", (0, 1), (-1, -1), "TOP"),
+            ("VALIGN", (0, 1), (0, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (0, 0), 8),
-            ("RIGHTPADDING", (1, 0), (1, 0), 8),
             ("LEFTPADDING", (0, 1), (0, -1), 8),
             ("TOPPADDING", (0, 0), (-1, 0), 5),
             ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
@@ -238,10 +243,16 @@ def generate_report_pdf(
             ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
             ("BOX", (0, 0), (-1, -1), 0.5, _BORDER),
         ]
-        for row_idx in range(1, len(table_data)):
-            style_commands.append(("SPAN", (0, row_idx), (1, row_idx)))
-            if row_idx < len(table_data) - 1:
-                style_commands.append(("LINEBELOW", (0, row_idx), (-1, row_idx), 0.4, _BORDER))
+        if len(table_data) > 1:
+            style_commands.append(("SPAN", (1, 1), (1, len(table_data) - 1)))
+            style_commands.append(("VALIGN", (1, 1), (1, -1), "MIDDLE"))
+            style_commands.append(("ALIGN", (1, 1), (1, -1), "CENTER"))
+            # linha vertical separando a descrição da coluna de horas — só nas
+            # linhas de atividade, a barra do nome (linha 0) já é uma cor
+            # sólida sem divisão.
+            style_commands.append(("LINEAFTER", (0, 1), (0, -1), 0.5, _BORDER))
+        for row_idx in range(1, len(table_data) - 1):
+            style_commands.append(("LINEBELOW", (0, row_idx), (0, row_idx), 0.4, _BORDER))
 
         group_table = Table(table_data, colWidths=[content_width * 0.72, content_width * 0.28])
         group_table.setStyle(TableStyle(style_commands))

@@ -474,9 +474,22 @@ def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> t
 
     for i, row in enumerate(rows, start=1):
         obs_value = html.unescape(str(row.get("observacao") or "")).strip()
-        if not obs_value:
-            continue
         hs_float = round(float(row.get("horas") or 0), 3)
+        if not obs_value:
+            # mesmo critério de `group_hours` — hora sem Observação preenchida
+            # não pode desaparecer da soma sem deixar rastro pro usuário.
+            if hs_float > 0:
+                row_date = row.get("data")
+                date_label = row_date.strftime("%d/%m/%Y") if hasattr(row_date, "strftime") else str(row_date or "data desconhecida")
+                pacote_label = html.unescape(str(row.get("pacote") or "")).strip() or "Sem pacote"
+                issues.append(RowIssue(
+                    row=i, reason="descricao_vazia",
+                    message=(
+                        f"Lançamento {i}: descrição vazia (Observação não preenchida) — {hs_float} h "
+                        f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
+                    ),
+                ))
+            continue
         if hs_float <= 0:
             continue
 
@@ -684,7 +697,24 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
         # "relat&#243;rio" em vez de "relatório") — provavelmente de como a
         # interface deles salva o texto. Decodifica antes de usar.
         obs_value = html.unescape(str(row.get("observacao") or "")).strip()
+        hs_float = round(float(row.get("horas") or 0), 3)
         if not obs_value:
+            # hora sem Observação preenchida: descartar em silêncio esconderia
+            # apontamento de verdade do usuário sem nenhum rastro — mesmo
+            # critério do export .xlsx (`parser.py` `_classify_incomplete_row`),
+            # só reportado aqui apenas quando há hora de fato (>0) pra não
+            # gerar aviso por linha vazia/zerada sem apontamento nenhum.
+            if hs_float > 0:
+                row_date = row.get("data")
+                date_label = row_date.strftime("%d/%m/%Y") if hasattr(row_date, "strftime") else str(row_date or "data desconhecida")
+                pacote_label = html.unescape(str(row.get("pacote") or "")).strip() or "Sem pacote"
+                issues.append(RowIssue(
+                    row=i, reason="descricao_vazia",
+                    message=(
+                        f"Lançamento {i}: descrição vazia (Observação não preenchida) — {hs_float} h "
+                        f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
+                    ),
+                ))
             continue
         separator_match = re.search(r"[-_]", obs_value)
         if separator_match:
@@ -704,7 +734,6 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
             ))
             continue
 
-        hs_float = round(float(row.get("horas") or 0), 3)
         if hs_float <= 0:
             continue
 

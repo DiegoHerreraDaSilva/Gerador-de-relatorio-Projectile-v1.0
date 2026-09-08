@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.projectile_db import group_hours
+from backend.app.projectile_db import group_hours, group_hours_by_project
 
 
 def test_group_hours_normal_rows():
@@ -85,3 +85,57 @@ def test_group_hours_zero_or_negative_hours_rows_are_dropped():
     group = packages[0].groups[0]
     assert len(group.activities) == 1
     assert group.activities[0].description == "Atividade valida"
+
+
+def test_group_hours_with_positive_hours_and_no_observacao_reports_issue():
+    """Hora sem Observação preenchida não pode só desaparecer da soma sem
+    aviso — era exatamente isso que acontecia antes (`continue` silencioso em
+    `group_hours`), diferente do export `.xlsx` que sempre reporta esse caso
+    (`parser.py` `_classify_incomplete_row`)."""
+    rows = [
+        {"observacao": "ENG - Atividade normal", "horas": 2.0, "pacote": "Proj A"},
+        {"observacao": "", "horas": 5.0, "pacote": "Proj B", "data": "2026-07-12"},
+        {"observacao": None, "horas": 1.5, "pacote": "Proj A"},
+    ]
+
+    packages, issues = group_hours(rows, split_by_package=False)
+
+    group = packages[0].groups[0]
+    assert len(group.activities) == 1  # só a linha com Observação preenchida vira atividade
+    assert len(issues) == 2
+    assert all(issue.reason == "descricao_vazia" for issue in issues)
+    assert "5.0 h" in issues[0].message
+    assert "2026-07-12" in issues[0].message
+    assert 'pacote "Proj B"' in issues[0].message
+    assert "1.5 h" in issues[1].message
+    assert 'pacote "Proj A"' in issues[1].message
+
+
+def test_group_hours_zero_hours_and_no_observacao_is_silent():
+    """Linha zerada E sem Observação não é apontamento real perdido — não
+    deve virar aviso (diferente do caso com hora > 0 acima)."""
+    rows = [{"observacao": "", "horas": 0.0, "pacote": "Proj A"}]
+
+    packages, issues = group_hours(rows, split_by_package=False)
+
+    assert issues == []
+    assert packages == []
+
+
+def test_group_hours_by_project_with_positive_hours_and_no_observacao_reports_issue():
+    """Mesmo bug de `group_hours` existia em `group_hours_by_project` (usado
+    no modo "1 relatório por projeto" da importação por cliente) — hora sem
+    Observação preenchida desaparecia da soma sem nenhum aviso."""
+    rows = [
+        {"observacao": "Atividade normal", "horas": 2.0, "pacote": "Proj A", "project_id": "1"},
+        {"observacao": "", "horas": 5.0, "pacote": "Proj B", "project_id": "1", "data": "2026-07-12"},
+    ]
+
+    packages, issues = group_hours_by_project(rows, project_names={"1": "Projeto Um"})
+
+    assert len(packages[0].groups[0].activities) == 1
+    assert len(issues) == 1
+    assert issues[0].reason == "descricao_vazia"
+    assert "5.0 h" in issues[0].message
+    assert "2026-07-12" in issues[0].message
+    assert 'pacote "Proj B"' in issues[0].message
