@@ -40,9 +40,32 @@ class TestLocalHolidaysForFiliale:
         assert datetime.date(2026, 4, 8) in santo_andre
         assert datetime.date(2026, 4, 8) not in outra_filial
 
-    def test_sem_filial_so_tem_o_estadual(self):
+    def test_sem_filial_tem_o_estadual_mais_a_ponte(self):
+        # 9 de julho de 2026 é quinta -- emenda com a sexta (10/07). Não usa
+        # igualdade estrita de conjunto porque feriado NACIONAL em terça/
+        # quinta também gera ponte (ver TestBridgeDays) -- aqui só confirma
+        # que o estadual e a ponte dele estão presentes.
         holidays = local_holidays_for_filiale(2026, None)
-        assert holidays == {datetime.date(2026, 7, 9)}
+        assert {datetime.date(2026, 7, 9), datetime.date(2026, 7, 10)} <= holidays
+
+
+class TestBridgeDays:
+    def test_feriado_na_quinta_emenda_com_a_sexta(self):
+        # 9 de julho de 2026 é quinta
+        holidays = local_holidays_for_filiale(2026, None)
+        assert datetime.date(2026, 7, 10) in holidays
+
+    def test_feriado_nacional_na_terca_emenda_com_a_segunda(self):
+        # Tiradentes (21/04) em 2026 cai numa terça -- emenda com 20/04
+        holidays = local_holidays_for_filiale(2026, None)
+        assert datetime.date(2026, 4, 21).weekday() == 1
+        assert datetime.date(2026, 4, 20) in holidays
+
+    def test_feriado_na_quarta_nao_gera_ponte(self):
+        # 8 de abril de 2026 (municipal de Santo André) é quarta -- sem ponte
+        holidays = local_holidays_for_filiale(2026, "Santo André - São Paulo")
+        assert datetime.date(2026, 4, 7) not in holidays
+        assert datetime.date(2026, 4, 9) not in holidays
 
 
 class TestBusinessDaysBetweenComExtraHolidays:

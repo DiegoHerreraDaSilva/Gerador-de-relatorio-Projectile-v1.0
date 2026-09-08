@@ -553,7 +553,7 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
             "note": (
                 "seg–sex, feriados nacionais, estadual de São Paulo"
                 + (", municipal de Santo André" if is_santo_andre_filiale(filiale) else "")
-                + "; ponte facultativa não está considerada"
+                + " + ponte (feriado em terça/quinta emenda com segunda/sexta)"
             ),
         },
         "reference": reference,

@@ -456,7 +456,7 @@ export function MyHoursDashboard() {
               </li>
               <li>
                 <strong>Dias úteis considerados</strong>: {s.businessDays.note}. Feriado
-                municipal de outras cidades e ponte facultativa não entram.
+                municipal de outras cidades não entra.
               </li>
               <li>
                 <strong>Jornada de referência</strong>: {s.reference.label.toLowerCase()}

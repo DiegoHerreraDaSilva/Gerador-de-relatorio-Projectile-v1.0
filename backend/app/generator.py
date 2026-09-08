@@ -243,16 +243,36 @@ def is_santo_andre_filiale(filiale: str | None) -> bool:
     return bool(filiale) and "santo andre" in _strip_accents(filiale).lower()
 
 
+def _bridge_days(holidays: set[datetime.date]) -> set[datetime.date]:
+    """"Ponte"/emenda de feriado — prática comum da empresa (não uma regra de
+    calendário oficial): feriado numa terça-feira emenda com a segunda-feira
+    anterior, feriado numa quinta-feira emenda com a sexta-feira seguinte,
+    formando um feriado prolongado de 4 dias. Recebe o conjunto de feriados
+    JÁ combinado (nacional + estadual/municipal) pra não perder ponte de
+    feriado nacional que caia numa terça/quinta (ex: Corpus Christi é sempre
+    quinta)."""
+    bridges: set[datetime.date] = set()
+    for day in holidays:
+        if day.weekday() == 1:  # terça
+            bridges.add(day - datetime.timedelta(days=1))
+        elif day.weekday() == 3:  # quinta
+            bridges.add(day + datetime.timedelta(days=1))
+    return bridges
+
+
 def local_holidays_for_filiale(year: int, filiale: str | None) -> set[datetime.date]:
     """Feriado estadual (SP, sempre) + municipal (Santo André, só se a filial
-    do funcionário for de lá) — usado exclusivamente pelo Dashboard de horas
-    pessoal (`/my-hours`), nunca por `count_business_days`/geração de
-    relatório: aplicar esses feriados globalmente mudaria a classificação de
-    atraso de envio (`email_ingest.py`) pra funcionários de OUTRAS filiais,
-    que não os têm."""
+    do funcionário for de lá) + ponte de qualquer um desses (ou de feriado
+    nacional) que caia numa terça/quinta — usado exclusivamente pelo
+    Dashboard de horas pessoal (`/my-hours`), nunca por
+    `count_business_days`/geração de relatório: aplicar esses feriados
+    globalmente mudaria a classificação de atraso de envio
+    (`email_ingest.py`) pra funcionários de OUTRAS filiais, que não os têm."""
     holidays = set(_sao_paulo_state_holidays(year))
     if is_santo_andre_filiale(filiale):
         holidays |= _santo_andre_municipal_holidays(year)
+    all_holidays = _national_holidays(year) | holidays
+    holidays |= _bridge_days(all_holidays)
     return holidays
 
 

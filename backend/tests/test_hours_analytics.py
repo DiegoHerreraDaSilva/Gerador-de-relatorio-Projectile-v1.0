@@ -261,19 +261,22 @@ class TestDayMatchedComparison:
         ) is None
 
     def test_extra_holidays_for_year_pula_o_feriado_ao_montar_janela_anterior(self):
-        # 10/07/2026 é sexta-feira: o dia útil imediatamente anterior é
-        # 09/07 (quinta) -- sem o feriado extra, a janela anterior de 1 dia
-        # útil é 09/07; com o estadual de SP (9 de julho), pula pro dia
-        # útil anterior a esse, 08/07 (quarta)
-        today = datetime.date(2026, 7, 11)
-        totals = _daily({"2026-07-10": 6.0, "2026-07-09": 5.0, "2026-07-08": 4.0})
-        sem_extra = day_matched_comparison(totals, datetime.date(2026, 7, 10), datetime.date(2026, 7, 10), today)
+        # 09/04/2026 é quinta-feira: o dia útil imediatamente anterior é
+        # 08/04 (quarta) -- sem o feriado extra, a janela anterior de 1 dia
+        # útil é 08/04; com o municipal de Santo André (8 de abril, sem
+        # ponte -- cai numa quarta), pula pro dia útil anterior a esse,
+        # 07/04 (terça). Usa o municipal (não o estadual de julho) porque o
+        # estadual agora TEM ponte (9/07 é quinta), o que mudaria o próprio
+        # dia-alvo do teste.
+        today = datetime.date(2026, 4, 10)
+        totals = _daily({"2026-04-09": 6.0, "2026-04-08": 5.0, "2026-04-07": 4.0})
+        sem_extra = day_matched_comparison(totals, datetime.date(2026, 4, 9), datetime.date(2026, 4, 9), today)
         com_extra = day_matched_comparison(
-            totals, datetime.date(2026, 7, 10), datetime.date(2026, 7, 10), today,
-            extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "São Paulo"),
+            totals, datetime.date(2026, 4, 9), datetime.date(2026, 4, 9), today,
+            extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "Santo André - São Paulo"),
         )
-        assert sem_extra["hours"] == 5.0   # comparou com 09/07
-        assert com_extra["hours"] == 4.0   # pulou 09/07 (feriado), comparou com 08/07
+        assert sem_extra["hours"] == 5.0   # comparou com 08/04
+        assert com_extra["hours"] == 4.0   # pulou 08/04 (feriado), comparou com 07/04
 
 
 class TestMonthlySeries:
@@ -309,7 +312,8 @@ class TestMonthlySeries:
 
     def test_extra_holidays_for_year_desconta_o_feriado_estadual_de_julho(self):
         # 9 de julho de 2026 é quinta-feira -- sem o feriado extra, julho tem
-        # 23 dias úteis; com o estadual de SP, cai pra 22
+        # 23 dias úteis; com o estadual de SP (9/07) MAIS a ponte que ele
+        # gera (10/07, sexta), cai pra 21
         without = monthly_series(_intern_history(), TODAY)
         with_extra = monthly_series(
             _intern_history(), TODAY,
@@ -317,7 +321,7 @@ class TestMonthlySeries:
         )
         julho_sem = next(m for m in without if m["month"] == "2026-07")
         julho_com = next(m for m in with_extra if m["month"] == "2026-07")
-        assert julho_sem["business_days"] == julho_com["business_days"] + 1
+        assert julho_sem["business_days"] == julho_com["business_days"] + 2
 
     def test_extra_holidays_for_year_desconta_o_municipal_so_pra_santo_andre(self):
         # 8 de abril de 2026 é quarta-feira, dentro da janela de 13 meses
