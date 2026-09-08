@@ -99,7 +99,7 @@ export function ValidationBanner() {
         {hasRecoverable && groupOptions.length > 0 && (
           <div className="issue-recover-bulk">
             <select
-              className="issue-recover-select"
+              className="pane-package-select issue-recover-select"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               disabled={collapsed}
@@ -111,7 +111,7 @@ export function ValidationBanner() {
             </select>
             <button
               type="button"
-              className="btn-primary"
+              className="primary issue-recover-btn"
               disabled={!target || checkedCount === 0}
               onClick={handleAddSelected}
             >
@@ -126,7 +126,9 @@ export function ValidationBanner() {
           const recoverable = isRecoverable(issue);
           return (
             <li key={issue.row}>
-              {recoverable ? (
+              <span className="issue-row">Linha {issue.row}</span>
+              <span className="issue-detail">{renderIssueDetail(issue.reason, issue.message)}</span>
+              {recoverable && (
                 <input
                   type="checkbox"
                   className="issue-checkbox"
@@ -134,11 +136,7 @@ export function ValidationBanner() {
                   onChange={() => toggleChecked(issue.row)}
                   title="Selecionar pra adicionar como atividade"
                 />
-              ) : (
-                <span className="issue-checkbox-placeholder" />
               )}
-              <span className="issue-row">Linha {issue.row}</span>
-              <span className="issue-detail">{renderIssueDetail(issue.reason, issue.message)}</span>
             </li>
           );
         })}

@@ -1732,17 +1732,12 @@
   .validation-banner-title { font-size: 0.88rem; font-weight: 600; color: var(--warn); }
   .validation-banner.collapsed .validation-list { display: none; }
   /* dropdown de pacote/grupo + botão de adicionar em lote, no título do
-     card — junto do resto do header, entre o texto e o "Recolher". */
+     card — mesmo estilo de select/botão já usados no resto da tela
+     (.pane-package-select, button.primary), só ajustando largura/padding
+     pra caber inline no cabeçalho em vez de ocupar a linha toda. */
   .issue-recover-bulk { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-  .issue-recover-select {
-    font-size: 0.82rem;
-    padding: 4px 8px;
-    border-radius: 6px;
-    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
-    background: var(--surface);
-    color: var(--text);
-    max-width: 280px;
-  }
+  .pane-package-select.issue-recover-select { width: 260px; }
+  .primary.issue-recover-btn { padding: 7px 16px; font-size: 0.82rem; white-space: nowrap; }
   .validation-list {
     list-style: none;
     margin: 12px 0 0;
@@ -1762,8 +1757,14 @@
     align-items: baseline;
     gap: 8px;
   }
-  .validation-list .issue-checkbox { flex: 0 0 auto; cursor: pointer; accent-color: var(--accent); }
-  .validation-list .issue-checkbox-placeholder { flex: 0 0 auto; width: 13px; }
+  .validation-list .issue-checkbox {
+    flex: 0 0 auto;
+    margin-left: auto;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
   .validation-list .issue-row {
     flex: 0 0 auto;
     font-weight: 700;
