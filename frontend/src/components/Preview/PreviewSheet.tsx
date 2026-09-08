@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useReportStore } from "../../store/useReportStore";
 import { computeGroupTotals, computeGrandTotalFor } from "../../utils/calc";
-import { fmtNum, parseLocaleNumber } from "../../utils/fmt";
+import { fmtNum } from "../../utils/fmt";
 import { drawGroupsChart } from "../../utils/chart";
 import { ExtraHoursInput } from "../ExtraHoursInput";
+import { PerformanceInput } from "../PerformanceInput";
 
 type Props = { paneId: string; packageId: string };
 
@@ -22,6 +23,8 @@ export function PreviewSheet({ paneId, packageId }: Props) {
   const removeGroup = useReportStore((s) => s.removeGroup);
   const removeActivities = useReportStore((s) => s.removeActivities);
   const moveActivitiesToGroup = useReportStore((s) => s.moveActivitiesToGroup);
+  const mergeActivitiesIntoActivity = useReportStore((s) => s.mergeActivitiesIntoActivity);
+  const moveActivitiesToPosition = useReportStore((s) => s.moveActivitiesToPosition);
   const moveGroupToPackage = useReportStore((s) => s.moveGroupToPackage);
   const draggedActivities = useReportStore((s) => s.draggedActivities);
   const setDraggedActivities = useReportStore((s) => s.setDraggedActivities);
@@ -280,6 +283,61 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                           if ((e.target as HTMLElement).closest(".pv-remove-activity")) return;
                           if (selectedByPane.size) clearSelected(paneId);
                         }}
+                        onDragEnter={(e) => {
+                          if (!draggedActivities) return;
+                          const isSelf = draggedActivities.items.some((it) => it.activityId === activity.id);
+                          if (isSelf) return;
+                          e.stopPropagation();
+                        }}
+                        onDragLeave={(e) => {
+                          e.currentTarget.classList.remove("drop-target-activity", "drop-before", "drop-after");
+                          delete e.currentTarget.dataset.dropZone;
+                        }}
+                        onDragOver={(e) => {
+                          // Três zonas na mesma linha: soltar perto do topo/base
+                          // REORDENA (insere antes/depois, sem mesclar nada);
+                          // soltar no meio MESCLA (soma horas, mantém o nome
+                          // desta atividade) — mais específico que soltar em
+                          // qualquer parte vazia do grupo, que continua casando
+                          // por descrição igual (ver onDrop do preview-group-row).
+                          if (!draggedActivities) return;
+                          const isSelf = draggedActivities.items.some((it) => it.activityId === activity.id);
+                          if (isSelf) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const ratio = (e.clientY - rect.top) / rect.height;
+                          const zone = ratio < 0.3 ? "before" : ratio > 0.7 ? "after" : "merge";
+                          e.currentTarget.classList.toggle("drop-before", zone === "before");
+                          e.currentTarget.classList.toggle("drop-after", zone === "after");
+                          e.currentTarget.classList.toggle("drop-target-activity", zone === "merge");
+                          e.currentTarget.dataset.dropZone = zone;
+                        }}
+                        onDrop={(e) => {
+                          if (!draggedActivities) return;
+                          const isSelf = draggedActivities.items.some((it) => it.activityId === activity.id);
+                          if (isSelf) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const zone = e.currentTarget.dataset.dropZone ?? "merge";
+                          e.currentTarget.classList.remove("drop-target-activity", "drop-before", "drop-after");
+                          delete e.currentTarget.dataset.dropZone;
+                          if (zone === "merge") {
+                            mergeActivitiesIntoActivity(
+                              draggedActivities.fromPackageId,
+                              draggedActivities.items,
+                              packageId,
+                              group.id,
+                              activity.id
+                            );
+                          } else if (zone === "before") {
+                            moveActivitiesToPosition(draggedActivities.fromPackageId, draggedActivities.items, packageId, group.id, activity.id);
+                          } else {
+                            const next = group.activities[aIdx + 1];
+                            moveActivitiesToPosition(draggedActivities.fromPackageId, draggedActivities.items, packageId, group.id, next ? next.id : null);
+                          }
+                          setDraggedActivities(null);
+                        }}
                       >
                         <span className="pv-idx">{aIdx + 1}</span>
                         <input
@@ -348,12 +406,11 @@ export function PreviewSheet({ paneId, packageId }: Props) {
               <div className="preview-side-values">
                 <span className="bruto">{bruto ? fmtNum(bruto) : ""}</span>
                 <span className="perf">
-                  <input
+                  <PerformanceInput
                     className="pv-input pv-perf"
-                    type="text"
                     value={group.performance}
                     onFocus={() => pushUndo()}
-                    onChange={(e) => updatePerformance(group.id, parseLocaleNumber(e.target.value) || 0, packageId)}
+                    onCommit={(v) => updatePerformance(group.id, v, packageId)}
                   />
                 </span>
               </div>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useReportStore } from "../store/useReportStore";
 
 const ISSUE_HIGHLIGHT_PHRASES: Record<string, string[]> = {
@@ -34,10 +35,39 @@ function renderIssueDetail(reason: string, message: string) {
 
 export function ValidationBanner() {
   const issues = useReportStore((s) => s.currentIssues);
+  const setIssues = useReportStore((s) => s.setIssues);
   const collapsed = useReportStore((s) => s.validationCollapsed);
   const setCollapsed = useReportStore((s) => s.setValidationCollapsed);
+  const packages = useReportStore((s) => s.packages);
+  const addActivityFromIssue = useReportStore((s) => s.addActivityFromIssue);
+
+  // qual issue está com o seletor de grupo aberto (índice no array `issues`,
+  // não um id — a lista não tem chave estável própria, mas o índice serve
+  // bem aqui porque o array só encolhe, nunca reordena, entre um clique e o
+  // próximo render).
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // valor combinado "packageId::groupId" do <select> — string única porque
+  // um <select> nativo não carrega dois ids ao mesmo tempo.
+  const [target, setTarget] = useState("");
 
   if (!issues.length) return null;
+
+  const groupOptions = packages.flatMap((pkg) =>
+    pkg.groups.map((g) => ({
+      value: `${pkg.id}::${g.id}`,
+      label: `${pkg.projectCode || pkg.projectName || "Pacote"} — ${g.name}`,
+    }))
+  );
+
+  function handleAdd(idx: number) {
+    const issue = issues[idx];
+    const [packageId, groupId] = target.split("::");
+    if (!packageId || !groupId) return;
+    addActivityFromIssue(groupId, packageId, issue.raw_description ?? "", issue.raw_hours ?? null);
+    setIssues(issues.filter((_, i) => i !== idx));
+    setExpandedIdx(null);
+    setTarget("");
+  }
 
   return (
     <div className={`validation-banner ${collapsed ? "collapsed" : ""} visible`}>
@@ -46,12 +76,42 @@ export function ValidationBanner() {
         <button type="button" className="btn-toggle" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "▸ Expandir" : "▾ Recolher"}</button>
       </div>
       <ul className="validation-list">
-        {issues.map((issue, idx) => (
-          <li key={idx}>
-            <span className="issue-row">Linha {issue.row}</span>
-            <span className="issue-detail">{renderIssueDetail(issue.reason, issue.message)}</span>
-          </li>
-        ))}
+        {issues.map((issue, idx) => {
+          const recoverable = issue.raw_hours !== null || issue.raw_description !== null;
+          return (
+            <li key={idx}>
+              <div className="issue-line">
+                <span className="issue-row">Linha {issue.row}</span>
+                <span className="issue-detail">{renderIssueDetail(issue.reason, issue.message)}</span>
+                {recoverable && groupOptions.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-toggle issue-recover-toggle"
+                    onClick={() => {
+                      setExpandedIdx(expandedIdx === idx ? null : idx);
+                      setTarget("");
+                    }}
+                  >
+                    {expandedIdx === idx ? "Cancelar" : "+ Adicionar como atividade"}
+                  </button>
+                )}
+              </div>
+              {expandedIdx === idx && (
+                <div className="issue-recover-form">
+                  <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                    <option value="">Escolher grupo...</option>
+                    {groupOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn-primary" disabled={!target} onClick={() => handleAdd(idx)}>
+                    Adicionar
+                  </button>
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

@@ -488,6 +488,7 @@ def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> t
                         f"Lançamento {i}: descrição vazia (Observação não preenchida) — {hs_float} h "
                         f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
                     ),
+                    raw_hours=hs_float,
                 ))
             continue
         if hs_float <= 0:
@@ -495,7 +496,12 @@ def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> t
 
         project_id = str(row.get("project_id") or "").strip()
         if not project_id:
-            issues.append(RowIssue(row=i, reason="projeto_desconhecido", message=f'Lançamento {i}: sem projeto associado ("{obs_value}").'))
+            issues.append(RowIssue(
+                row=i, reason="projeto_desconhecido",
+                message=f'Lançamento {i}: sem projeto associado ("{obs_value}").',
+                raw_hours=hs_float,
+                raw_description=obs_value,
+            ))
             continue
 
         package_name = project_names.get(project_id) or project_id
@@ -714,6 +720,7 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
                         f"Lançamento {i}: descrição vazia (Observação não preenchida) — {hs_float} h "
                         f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
                     ),
+                    raw_hours=hs_float,
                 ))
             continue
         separator_match = re.search(r"[-_]", obs_value)
@@ -731,6 +738,8 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
             issues.append(RowIssue(
                 row=i, reason="descricao_vazia",
                 message=f'Lançamento {i}: {"prefixo vazio" if not prefix else "descrição vazia"} em "{obs_value}".',
+                raw_hours=hs_float if hs_float > 0 else None,
+                raw_description=description or prefix or None,
             ))
             continue
 

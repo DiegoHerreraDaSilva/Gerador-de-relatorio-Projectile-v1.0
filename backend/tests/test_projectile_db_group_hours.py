@@ -109,6 +109,22 @@ def test_group_hours_with_positive_hours_and_no_observacao_reports_issue():
     assert 'pacote "Proj B"' in issues[0].message
     assert "1.5 h" in issues[1].message
     assert 'pacote "Proj A"' in issues[1].message
+    # raw_hours carrega o valor já correto -- dá pra recuperar como atividade
+    # direto da tela sem digitar a hora de novo (ver ValidationBanner)
+    assert issues[0].raw_hours == pytest.approx(5.0, abs=1e-3)
+    assert issues[0].raw_description is None  # não tem texto nenhum pra aproveitar
+    assert issues[1].raw_hours == pytest.approx(1.5, abs=1e-3)
+
+
+def test_group_hours_descricao_vazia_apos_separador_carrega_raw_hours_e_metade_valida():
+    rows = [{"observacao": "ENG - ", "horas": 4.0, "pacote": "Proj A"}]
+
+    packages, issues = group_hours(rows, split_by_package=False)
+
+    assert len(issues) == 1
+    assert issues[0].reason == "descricao_vazia"
+    assert issues[0].raw_hours == pytest.approx(4.0, abs=1e-3)
+    assert issues[0].raw_description == "ENG"
 
 
 def test_group_hours_zero_hours_and_no_observacao_is_silent():
@@ -139,3 +155,15 @@ def test_group_hours_by_project_with_positive_hours_and_no_observacao_reports_is
     assert "5.0 h" in issues[0].message
     assert "2026-07-12" in issues[0].message
     assert 'pacote "Proj B"' in issues[0].message
+    assert issues[0].raw_hours == pytest.approx(5.0, abs=1e-3)
+
+
+def test_group_hours_by_project_sem_projeto_associado_carrega_raw_hours_e_raw_description():
+    rows = [{"observacao": "Atividade sem projeto", "horas": 3.0, "pacote": "Proj A", "project_id": ""}]
+
+    packages, issues = group_hours_by_project(rows, project_names={})
+
+    assert len(issues) == 1
+    assert issues[0].reason == "projeto_desconhecido"
+    assert issues[0].raw_hours == pytest.approx(3.0, abs=1e-3)
+    assert issues[0].raw_description == "Atividade sem projeto"

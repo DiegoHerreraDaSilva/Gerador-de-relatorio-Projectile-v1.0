@@ -92,6 +92,38 @@ def test_parse_projectile_export_row_without_separator_raises_issue_not_crash(tm
     # a linha válida continua sendo processada normalmente
     assert len(packages) == 1
     assert packages[0].groups[0].activities[0].hours == pytest.approx(2.0, abs=1e-3)
+    # a linha descartada carrega o bruto (Hs válido + texto inteiro) — dá pra
+    # recuperar como atividade direto da tela (ver ValidationBanner)
+    assert issues[0].raw_hours == pytest.approx(3.0, abs=1e-3)
+    assert issues[0].raw_description == "SemSeparadorNenhum"
+
+
+def test_parse_projectile_export_descricao_vazia_carrega_raw_hours_e_a_metade_valida(tmp_path):
+    wb = _build_export([["01/07/2026", "08:00", 4.0, "ENG - ", "Projeto W", ""]])
+    path = str(tmp_path / "descricao_vazia.xlsx")
+    wb.save(path)
+
+    packages, issues = parse_projectile_export(path, split_by_package=False)
+
+    assert len(issues) == 1
+    assert issues[0].reason == "descricao_vazia"
+    assert issues[0].raw_hours == pytest.approx(4.0, abs=1e-3)
+    # só o prefixo "ENG" sobrou de válido (a descrição ficou vazia) -- é a
+    # única metade aproveitável pra pré-preencher a atividade recuperada
+    assert issues[0].raw_description == "ENG"
+
+
+def test_parse_projectile_export_hs_invalido_carrega_raw_description_mas_nao_raw_hours(tmp_path):
+    wb = _build_export([["01/07/2026", "08:00", "abc", "ENG - Atividade válida", "Projeto V", ""]])
+    path = str(tmp_path / "hs_invalido.xlsx")
+    wb.save(path)
+
+    packages, issues = parse_projectile_export(path, split_by_package=False)
+
+    assert len(issues) == 1
+    assert issues[0].reason == "hs_invalido"
+    assert issues[0].raw_hours is None  # Hs é inválido por definição aqui
+    assert issues[0].raw_description == "ENG - Atividade válida"
 
 
 def test_parse_projectile_export_decimal_comma_in_hs(tmp_path):

@@ -40,6 +40,11 @@ export type RowIssue = {
   row: number;
   reason: string;
   message: string;
+  // valor bruto da linha descartada, quando confiável (ver backend
+  // `RowIssue`/`ValidationBanner`) — permite oferecer "Adicionar como
+  // atividade" sem o usuário precisar redigitar o que já se sabe.
+  raw_hours: number | null;
+  raw_description: string | null;
 };
 
 export type ReportHeader = {

@@ -1747,9 +1747,10 @@
     border-radius: 6px;
     background: color-mix(in srgb, var(--warn) 6%, transparent);
     display: flex;
-    align-items: baseline;
-    gap: 8px;
+    flex-direction: column;
+    gap: 6px;
   }
+  .validation-list .issue-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .validation-list .issue-row {
     flex: 0 0 auto;
     font-weight: 700;
@@ -1761,6 +1762,26 @@
   }
   .validation-list .issue-detail { color: var(--text); }
   .validation-list .issue-highlight { font-weight: 700; color: var(--warn); }
+  .validation-list .issue-recover-toggle {
+    margin-left: auto;
+    font-size: 0.76rem;
+    padding: 2px 8px;
+  }
+  .validation-list .issue-recover-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 4px;
+  }
+  .validation-list .issue-recover-form select {
+    font-size: 0.8rem;
+    padding: 3px 6px;
+    max-width: 320px;
+  }
+  .validation-list .issue-recover-form .btn-primary {
+    font-size: 0.78rem;
+    padding: 3px 10px;
+  }
 
   input[type=text], input[type=number] {
     width: 100%;
@@ -2262,6 +2283,17 @@
   .preview-group.drop-target {
     box-shadow: 0 0 0 2px var(--accent) inset, 0 0 12px 0 var(--accent-glow);
   }
+  /* soltar em CIMA de uma atividade específica (soma nela, mantém o nome
+     dela) — anel mais fechado que o do grupo (drop-target acima), pra ficar
+     claro que o alvo é essa atividade, não "o grupo em geral". */
+  .preview-activity.drop-target-activity {
+    box-shadow: 0 0 0 2px var(--accent-hi) inset, 0 0 10px 0 var(--accent-glow);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  /* soltar perto do topo/base de uma atividade REORDENA em vez de mesclar —
+     uma linha fina no lugar onde a atividade arrastada vai entrar. */
+  .preview-activity.drop-before { box-shadow: inset 0 2px 0 0 var(--accent-hi); }
+  .preview-activity.drop-after { box-shadow: inset 0 -2px 0 0 var(--accent-hi); }
   /* handle pra arrastar o GRUPO inteiro (pro outro painel, no split view) —
      separado do input de nome do grupo, que é texto editável e brigaria com
      o drag nativo se o header inteiro fosse arrastável */

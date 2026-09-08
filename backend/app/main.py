@@ -358,7 +358,16 @@ def _build_parse_response(packages, issues) -> dict:
             }
             for pkg in packages
         ],
-        "issues": [{"row": i.row, "reason": i.reason, "message": i.message} for i in issues],
+        "issues": [
+            {
+                "row": i.row,
+                "reason": i.reason,
+                "message": i.message,
+                "raw_hours": i.raw_hours,
+                "raw_description": i.raw_description,
+            }
+            for i in issues
+        ],
     }
 
 

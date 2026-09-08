@@ -35,6 +35,13 @@ class RowIssue:
     row: int
     reason: str
     message: str
+    # valor bruto da linha, quando confiável, pra permitir "recuperar" a
+    # linha ignorada como atividade direto da tela (ver ValidationBanner) —
+    # `None` quando esse lado específico não é confiável (ex: Hs inválido
+    # não tem `raw_hours`, mas pode ter `raw_description` se a Observação
+    # em si era válida).
+    raw_hours: float | None = None
+    raw_description: str | None = None
 
 
 # variantes de travessão/hífen que aparecem em exports reais no lugar do hífen ASCII
@@ -174,7 +181,7 @@ class _PackageAccumulator:
 
 
 def _classify_incomplete_row(
-    row_number: int, hs_value, obs_filled: bool, hs_filled: bool, dados_filled: bool
+    row_number: int, hs_value, obs_value: str, obs_filled: bool, hs_filled: bool, dados_filled: bool
 ) -> RowIssue | None:
     """Decide se uma linha com Hs/Observação parcialmente preenchidos é um
     apontamento incompleto de verdade (devolve um RowIssue) ou deve ser
@@ -190,11 +197,12 @@ def _classify_incomplete_row(
     apontamento real esquecido pela metade.
     """
     is_real_partial = False
+    raw_hours: float | None = None
     if obs_filled and not hs_filled:
         is_real_partial = True
     elif hs_filled and not obs_filled:
         try:
-            _parse_hs_value(hs_value)
+            raw_hours = round(_parse_hs_value(hs_value), 3)
             is_real_partial = dados_filled
         except ValueError:
             is_real_partial = False
@@ -206,6 +214,8 @@ def _classify_incomplete_row(
         row=row_number,
         reason="dados_incompletos",
         message=f"Linha {row_number}: apontamento incompleto, falta preencher \"{falta}\".",
+        raw_hours=raw_hours,
+        raw_description=obs_value if obs_filled else None,
     )
 
 
@@ -285,10 +295,19 @@ def parse_projectile_export(
 
         if not obs_filled or not hs_filled:
             dados_filled = bool(row[dados_col - 1].value) if dados_col else True
-            issue = _classify_incomplete_row(row_number, hs_value, obs_filled, hs_filled, dados_filled)
+            issue = _classify_incomplete_row(row_number, hs_value, obs_stripped, obs_filled, hs_filled, dados_filled)
             if issue:
                 issues.append(issue)
             continue
+
+        # Hs ainda não foi validado nesta altura (só acontece mais abaixo) —
+        # tenta aqui, best-effort, só pra ter `raw_hours` pronto caso a linha
+        # seja descartada por causa da Observação (separador/descrição
+        # vazia), não do próprio Hs.
+        try:
+            raw_hours_guess: float | None = round(_parse_hs_value(hs_value), 3)
+        except ValueError:
+            raw_hours_guess = None
 
         obs_value = obs_stripped
         separator_match = re.search(r"[-_]", obs_value)
@@ -297,6 +316,8 @@ def parse_projectile_export(
                 row=row_number,
                 reason="sem_separador",
                 message=f"Linha {row_number}: Observação \"{obs_value}\" sem \"-\" ou \"_\" separando prefixo e descrição.",
+                raw_hours=raw_hours_guess,
+                raw_description=obs_value,
             ))
             continue
         sep_index = separator_match.start()
@@ -312,6 +333,10 @@ def parse_projectile_export(
                 row=row_number,
                 reason="descricao_vazia",
                 message=f"Linha {row_number}: {vazio} em \"{obs_value}\".",
+                raw_hours=raw_hours_guess,
+                # a metade que sobrou (a que NÃO estiver vazia) é o único
+                # texto aproveitável — a outra virou "" no split acima.
+                raw_description=description or prefix or None,
             ))
             continue
 
@@ -322,6 +347,7 @@ def parse_projectile_export(
                 row=row_number,
                 reason="hs_invalido",
                 message=f"Linha {row_number}: valor de Hs \"{hs_value}\" não é um número válido.",
+                raw_description=obs_value,
             ))
             continue
 
