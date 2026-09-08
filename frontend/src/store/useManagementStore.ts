@@ -70,15 +70,20 @@ interface ManagementState {
   refreshing: boolean;
   _inFlight: boolean;
   _pending: boolean;
-  // captura as opções de Cliente/Projeto só na 1ª busca (sem filtro nenhum
-  // aplicado ainda, então é o conjunto mais completo possível) e nunca mais
-  // sobrescreve — aplicar um filtro não deve fazer os outros itens da lista
-  // sumirem dos dropdowns, só mudar o que entra nas somas da tela.
-  _optionsCaptured: boolean;
+  // Cliente/Projeto/Pacote não podem se autocolapsar: marcar um Cliente não
+  // pode fazer os OUTROS clientes sumirem do próprio dropdown de Cliente,
+  // senão não dava pra trocar de filtro. Por isso `availableProjects` etc.
+  // só são regravados quando o RECORTE (Período+Competência) muda — não a
+  // cada vez que Cliente/Projeto/Pacote/Centro de Custo mudam. Esta chave
+  // guarda qual recorte gerou a captura atual; muda o recorte, muda a chave,
+  // recaptura. `null` = ainda não capturou nada.
+  _optionsScopeKey: string | null;
 
-  // filtros — Competência é só de exibição (não refaz a busca, os 12 meses já
-  // estão carregados); Centro de Custo/Cliente/Projeto mudam o resultado
-  // vindo do banco, então mudá-los força um novo fetch.
+  // filtros — Centro de Custo/Cliente/Projeto/Pacote mudam o resultado vindo
+  // do banco sem trocar o RECORTE de tempo, então nunca disparam recaptura
+  // das opções (ver `_optionsScopeKey`). Período e Competência mudam o
+  // recorte em si — sem eles, o dropdown de Projeto mostrava projeto de
+  // ano/mês nenhum apontamento no período selecionado.
   period: string;
   selectedMonths: string[];
   costCenters: string[];
@@ -110,17 +115,27 @@ export function round2(n: number): number {
 }
 
 function buildQuery(
-  state: Pick<ManagementState, "period" | "costCenters" | "clients" | "projects" | "packages">,
+  state: Pick<
+    ManagementState,
+    "period" | "selectedMonths" | "costCenters" | "clients" | "projects" | "packages"
+  >,
   bypassBackendCache: boolean
 ): string {
   const params = new URLSearchParams({ months: "12" });
   if (state.period !== ROLLING_PERIOD) params.set("year", state.period);
+  state.selectedMonths.forEach((m) => params.append("selected_months", m));
   state.costCenters.forEach((c) => params.append("cost_centers", c));
   state.clients.forEach((c) => params.append("clients", c));
   state.projects.forEach((p) => params.append("projects", p));
   state.packages.forEach((p) => params.append("packages", p));
   if (bypassBackendCache) params.set("force_refresh", "true");
   return params.toString();
+}
+
+/** Chave do recorte atual (Período+Competência) — muda só quando um dos
+ * dois muda, nunca por causa de Cliente/Projeto/Pacote/Centro de Custo. */
+function optionsScopeKey(period: string, selectedMonths: string[]): string {
+  return `${period}::${[...selectedMonths].sort().join(",")}`;
 }
 
 export const useManagementStore = create<ManagementState>((set, get) => ({
@@ -137,7 +152,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   refreshing: false,
   _inFlight: false,
   _pending: false,
-  _optionsCaptured: false,
+  _optionsScopeKey: null,
   period: ROLLING_PERIOD,
   selectedMonths: [],
   costCenters: ALL_COST_CENTERS,
@@ -161,29 +176,31 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
       const res = await fetch(`/management/kpis?${query}`);
       if (!res.ok) throw new Error(`Erro ${res.status}`);
       const data: KpisResponse = await res.json();
+      const scopeKey = optionsScopeKey(get().period, get().selectedMonths);
       set({
         rows: data.months,
         nonbillableBreakdown: data.nonbillable_breakdown,
         projectSendStatus: data.project_send_status,
         // Pacote de Trabalho é filtrado pelos outros filtros (Cliente/Projeto/
         // Centro de Custo) — atualiza a cada busca, ao contrário de
-        // Cliente/Projeto abaixo (que travam na 1ª busca pra não sumir opção
+        // Cliente/Projeto abaixo (que travam por recorte pra não sumir opção
         // do próprio dropdown que os filtra). Pacote(s) já selecionado(s) que
         // saíram do novo recorte também saem da seleção, senão o filtro
         // continuaria aplicado escondido, sem bater com nada.
         availablePackages: data.available_packages,
         packages: get().packages.filter((p) => data.available_packages.includes(p)),
-        // só grava as opções na 1ª vez (ver `_optionsCaptured`) — buscas
-        // seguintes (com filtro aplicado) trazem um recorte menor, que não
-        // deve substituir a lista cheia já mostrada nos dropdowns.
-        ...(get()._optionsCaptured
+        // só regrava as opções quando o RECORTE (Período+Competência) muda
+        // (ver `_optionsScopeKey`) — uma busca disparada só por Cliente/
+        // Projeto/Pacote/Centro de Custo mudando, com o MESMO recorte,
+        // preserva a lista cheia já mostrada nos dropdowns.
+        ...(scopeKey === get()._optionsScopeKey
           ? {}
           : {
               availableProjects: data.available_projects,
               availableClients: data.available_clients,
               projectCodes: data.project_codes,
               projectClients: data.project_clients,
-              _optionsCaptured: true,
+              _optionsScopeKey: scopeKey,
             }),
         loaded: true,
         error: "",
@@ -209,7 +226,14 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   },
 
   setError: (message) => set({ error: message }),
-  setSelectedMonths: (months) => set({ selectedMonths: months }),
+  setSelectedMonths: (months) => {
+    // Competência é RECORTE (não só exibição): sem refazer a busca, o
+    // dropdown de Projeto continuaria mostrando projeto sem apontamento no
+    // mês escolhido. `_get_cached_rows` já cacheia por intervalo de datas no
+    // backend, então isso não paga o custo de uma busca fria no banco.
+    set({ selectedMonths: months });
+    get().load(true);
+  },
   setCostCenters: (costCenters) => {
     set({ costCenters });
     get().load(true);

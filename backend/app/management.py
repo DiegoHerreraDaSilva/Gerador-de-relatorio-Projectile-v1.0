@@ -418,6 +418,7 @@ def compute_monthly_kpis(
     clients: list[str] | None = None,
     projects: list[str] | None = None,
     packages: list[str] | None = None,
+    selected_months: list[str] | None = None,
     force_refresh: bool = False,
 ) -> dict:
     data = _load_data()
@@ -449,6 +450,15 @@ def compute_monthly_kpis(
     allowed_project_ids = set(project_ids) if project_ids is not None else None
     allowed_packages = set(packages) if packages else None
     cost_center_keywords = [cc.casefold() for cc in active_cost_centers]
+    # Competência (mês) — recorte de TEMPO, não de dimensão como
+    # Cliente/Projeto/Pacote: as opções de filtro (available_projects/
+    # available_clients/available_packages/project_codes) precisam refletir
+    # só o que teve apontamento no(s) mês(es) escolhido(s), senão o dropdown
+    # de Projeto mostra projeto sem hora nenhuma no período selecionado.
+    # `buckets`/`package_buckets`/`project_month_hours` continuam SEM esse
+    # filtro (o frontend já recorta os 12 meses carregados por Competência
+    # na tela, ver `ManagementPanel.tsx` `displayRows`).
+    allowed_months = set(selected_months) if selected_months else None
 
     # a busca cara já vem com TODO o CAD+CAE do período, cacheada por
     # intervalo de datas — Centro de Custo/Cliente/Projeto são recortes
@@ -488,21 +498,24 @@ def compute_monthly_kpis(
         if allowed_project_ids is not None and project_id not in allowed_project_ids:
             continue
         row_package = html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
-        available_packages.add(row_package)
-        if allowed_packages is not None and row_package not in allowed_packages:
-            continue
         row_date = row.get("data")
         month_key = row_date.strftime("%Y-%m") if hasattr(row_date, "strftime") else str(row_date)[:7]
+        in_selected_months = allowed_months is None or month_key in allowed_months
+        if in_selected_months:
+            available_packages.add(row_package)
+        if allowed_packages is not None and row_package not in allowed_packages:
+            continue
         hours = round(float(row.get("horas") or 0), 3)
         if project_id:
-            available_project_ids.add(project_id)
+            if in_selected_months:
+                available_project_ids.add(project_id)
+                if project_id not in project_codes_by_id:
+                    code = extract_project_code(row.get("pacote"))
+                    if code:
+                        project_codes_by_id[project_id] = code
             pm_key = (month_key, project_id)
             project_month_hours[pm_key] = project_month_hours.get(pm_key, 0.0) + hours
             project_month_pacotes.setdefault(pm_key, set()).add(row_package)
-            if project_id not in project_codes_by_id:
-                code = extract_project_code(row.get("pacote"))
-                if code:
-                    project_codes_by_id[project_id] = code
         bucket = buckets.setdefault(month_key, {"worked_hours": 0.0, "nonbillable_hours": 0.0})
         bucket["worked_hours"] += hours
         if row.get("external") == "0":

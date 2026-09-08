@@ -657,6 +657,7 @@ async def management_kpis_endpoint(
     clients: list[str] = Query(default=[]),
     projects: list[str] = Query(default=[]),
     packages: list[str] = Query(default=[]),
+    selected_months: list[str] = Query(default=[]),
     force_refresh: bool = False,
     _user: dict = Depends(require_manager),
 ):
@@ -668,6 +669,7 @@ async def management_kpis_endpoint(
             clients=clients or None,
             projects=projects or None,
             packages=packages or None,
+            selected_months=selected_months or None,
             force_refresh=force_refresh,
         )
     except ProjectileDbError as e:
