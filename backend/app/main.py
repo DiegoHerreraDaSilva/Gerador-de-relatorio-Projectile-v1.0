@@ -11,6 +11,17 @@ import zipfile
 from datetime import date, timedelta
 from typing import Literal
 
+from dotenv import load_dotenv
+
+# precisa rodar ANTES de qualquer `from .xxx import` — módulos como
+# `management.py` leem variável de ambiente (MANAGEMENT_PANEL_LOGINS) direto
+# no nível do módulo, na hora do import; chamar load_dotenv() depois desses
+# imports (como estava antes) carregava o .env tarde demais e o valor lido
+# já tinha caído no fallback, fazendo qualquer edição no .env parecer não
+# ter efeito nenhum sem reiniciar o processo (e mesmo reiniciando, continuava
+# quebrado por causa da ordem).
+load_dotenv()
+
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -33,8 +44,6 @@ class NoCacheStaticFiles(StaticFiles):
         else:
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         return response
-
-from dotenv import load_dotenv
 
 import calendar
 
@@ -103,8 +112,6 @@ from .projectile_db import (
     group_hours,
     group_hours_by_project,
 )
-
-load_dotenv()
 
 app = FastAPI(
     title="Automação de Relatório de Horas",
