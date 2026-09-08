@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import datetime
 import statistics
-from typing import Iterable, Literal, Sequence
+from typing import Callable, Iterable, Literal, Sequence
 
 from .generator import _national_holidays, business_days_between
 
@@ -257,7 +257,10 @@ def percentile(sorted_values: Sequence[float], fraction: float) -> float:
 
 
 def monthly_series(
-    daily_totals: dict[datetime.date, float], today: datetime.date, months: int = 13
+    daily_totals: dict[datetime.date, float],
+    today: datetime.date,
+    months: int = 13,
+    extra_holidays_for_year: Callable[[int], set[datetime.date]] | None = None,
 ) -> list[dict]:
     """Uma entrada por mês (os `months-1` fechados mais o corrente), sempre
     ignorando o período selecionado na tela.
@@ -265,7 +268,10 @@ def monthly_series(
     Ignorar o seletor é decisão de desenho: com "Mês atual" selecionado, uma
     tendência restrita ao período mostraria uma coluna só. E o mês corrente vem
     marcado `partial=True` porque comparar 4 dias contra meses fechados é o
-    erro de leitura mais fácil de cometer nessa tela."""
+    erro de leitura mais fácil de cometer nessa tela.
+
+    `extra_holidays_for_year` (opcional) resolve feriado estadual/municipal
+    por ano — a série cobre 13 meses, então pode cruzar a virada do ano."""
     result: list[dict] = []
     year, month = today.year, today.month
     cursor = [(year, month)]
@@ -278,7 +284,8 @@ def monthly_series(
     for y, m in reversed(cursor):
         first = datetime.date(y, m, 1)
         last = datetime.date(y + (m == 12), (m % 12) + 1, 1) - datetime.timedelta(days=1)
-        business = business_days_between(first, last)
+        extra = extra_holidays_for_year(y) if extra_holidays_for_year else None
+        business = business_days_between(first, last, extra_holidays=extra)
         closed = [d for d in business if d < today]
         in_month = {d: h for d, h in daily_totals.items() if first <= d <= last}
         days_worked = sum(1 for h in in_month.values() if h > 0)
@@ -303,6 +310,7 @@ def day_matched_comparison(
     start: datetime.date,
     end: datetime.date,
     today: datetime.date,
+    extra_holidays_for_year: Callable[[int], set[datetime.date]] | None = None,
 ) -> dict | None:
     """Compara o período com a janela anterior de MESMO número de dias úteis
     encerrados, não com o mês anterior fechado.
@@ -311,17 +319,21 @@ def day_matched_comparison(
     queda de ~80% — exatamente o falso alarme que o print original produzia.
     Aqui a comparação é dia útil contra dia útil.
 
+    `extra_holidays_for_year` (opcional) — mesmo papel de `monthly_series`.
+
     Devolve `None` quando não há dia útil encerrado no período ou quando a
     janela anterior não tem apontamento nenhum (dividir por zero produziria
     "-100%" pra quem só não trabalhava ainda)."""
-    closed = [d for d in business_days_between(start, end) if d < today]
+    extra_start = extra_holidays_for_year(start.year) if extra_holidays_for_year else None
+    closed = [d for d in business_days_between(start, end, extra_holidays=extra_start) if d < today]
     if not closed:
         return None
 
     previous: list[datetime.date] = []
     day = start - datetime.timedelta(days=1)
     while len(previous) < len(closed):
-        if day.weekday() < 5 and day not in _national_holidays(day.year):
+        extra = extra_holidays_for_year(day.year) if extra_holidays_for_year else set()
+        if day.weekday() < 5 and day not in _national_holidays(day.year) and day not in extra:
             previous.append(day)
         day -= datetime.timedelta(days=1)
         if (start - day).days > 400:  # guarda contra loop infinito

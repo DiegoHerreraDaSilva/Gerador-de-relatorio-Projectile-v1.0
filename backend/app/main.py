@@ -58,6 +58,8 @@ from .generator import (
     ReportHeader,
     business_days_between,
     count_business_days,
+    is_santo_andre_filiale,
+    local_holidays_for_filiale,
     national_holidays_between,
     parse_month_label,
     generate_report,
@@ -460,6 +462,13 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
     start_date, end_date = _my_hours_date_range(period)
     today = date.today()
     employee_id, employee_name = _user.get("employee_id"), _user["name"]
+    filiale = _user.get("filiale")
+
+    # feriado estadual (SP, sempre) + municipal (Santo André, se for a
+    # filial da pessoa) — só neste dashboard pessoal, nunca em
+    # count_business_days/geração de relatório (ver docstring da função).
+    def extra_holidays_for_year(year: int) -> set[date]:
+        return local_holidays_for_filiale(year, filiale)
 
     try:
         rows = fetch_my_hours(
@@ -510,11 +519,16 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
             "billing_class": _BILLING_CLASS.get(str(r.get("external") or ""), "nao_classificado"),
         })
 
-    period_business = business_days_between(start_date, end_date)
+    # o recorte pode cruzar a virada do ano (last_12 em janeiro, por exemplo)
+    # — resolve o feriado extra por ano em vez de um conjunto único.
+    extra_period = extra_holidays_for_year(start_date.year) | extra_holidays_for_year(end_date.year)
+    period_business = business_days_between(start_date, end_date, extra_holidays=extra_period)
     closed_business = [d for d in period_business if d < today]
     month_start = date(today.year, today.month, 1)
     month_end = date(today.year + (today.month == 12), (today.month % 12) + 1, 1) - timedelta(days=1)
-    month_business = business_days_between(month_start, month_end)
+    month_business = business_days_between(
+        month_start, month_end, extra_holidays=extra_holidays_for_year(today.year)
+    )
 
     reference = resolve_reference(contracts, daily_totals, today)
 
@@ -531,11 +545,15 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
             "closed_count": len(closed_business),
             "month_total": len(month_business),
             "month_remaining": sum(1 for d in month_business if d >= today),
-            "holidays": [d.isoformat() for d in national_holidays_between(start_date, end_date)],
+            "holidays": [
+                d.isoformat()
+                for d in national_holidays_between(start_date, end_date, extra_holidays=extra_period)
+            ],
             "source": "national_hardcoded",
             "note": (
-                "seg–sex, feriados nacionais; feriado municipal e ponte "
-                "facultativa não estão considerados"
+                "seg–sex, feriados nacionais, estadual de São Paulo"
+                + (", municipal de Santo André" if is_santo_andre_filiale(filiale) else "")
+                + "; ponte facultativa não está considerada"
             ),
         },
         "reference": reference,
@@ -546,8 +564,10 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
         },
         "gap_days": [d.isoformat() for d in gap_days(closed_business, daily_totals)],
         "outlier_days": sorted(d.isoformat() for d in outlier_days(daily_totals)),
-        "monthly_series": monthly_series(daily_totals, today),
-        "comparison": day_matched_comparison(daily_totals, start_date, end_date, today),
+        "monthly_series": monthly_series(daily_totals, today, extra_holidays_for_year=extra_holidays_for_year),
+        "comparison": day_matched_comparison(
+            daily_totals, start_date, end_date, today, extra_holidays_for_year=extra_holidays_for_year
+        ),
         "daily_stats": daily_stats(daily_totals, today),
     }
 

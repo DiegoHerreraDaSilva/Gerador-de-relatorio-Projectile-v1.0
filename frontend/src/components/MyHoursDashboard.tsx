@@ -444,8 +444,8 @@ export function MyHoursDashboard() {
                 mostra o fato, nunca a causa.
               </li>
               <li>
-                <strong>Feriado municipal e ponte facultativa</strong> não entram no
-                cálculo de dias úteis — {s.businessDays.note}.
+                <strong>Dias úteis considerados</strong>: {s.businessDays.note}. Feriado
+                municipal de outras cidades e ponte facultativa não entram.
               </li>
               <li>
                 <strong>Jornada de referência</strong>: {s.reference.label.toLowerCase()}

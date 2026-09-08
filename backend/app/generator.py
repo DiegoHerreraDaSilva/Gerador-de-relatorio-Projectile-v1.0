@@ -221,12 +221,55 @@ def _national_holidays(year: int) -> set[datetime.date]:
     return holidays
 
 
-def business_days_between(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+def _sao_paulo_state_holidays(year: int) -> set[datetime.date]:
+    """Feriado estadual de São Paulo — 9 de julho, Revolução Constitucionalista
+    de 1932 (Lei Estadual nº 9.497/1997). Aplicado a todo o Dashboard de horas
+    pessoal (não à geração de relatório nem a `count_business_days`, ver
+    `local_holidays_for_filiale`): toda filial observada no Projectile (São
+    Paulo, São Bernardo do Campo, Santo André) fica dentro do estado de SP."""
+    return {datetime.date(year, 7, 9)}
+
+
+def _santo_andre_municipal_holidays(year: int) -> set[datetime.date]:
+    """Feriado municipal de Santo André — aniversário da cidade, 8 de abril
+    (fundação em 1553, Lei Municipal nº 4.148/1973). Só entra pra quem tem
+    `temployee.pFiliale` de Santo André, ver `local_holidays_for_filiale`."""
+    return {datetime.date(year, 4, 8)}
+
+
+def is_santo_andre_filiale(filiale: str | None) -> bool:
+    """Sem acento/caixa porque o valor real de `temployee.pFiliale` no
+    Projectile vem como texto livre (medido: "Santo André - São Paulo")."""
+    return bool(filiale) and "santo andre" in _strip_accents(filiale).lower()
+
+
+def local_holidays_for_filiale(year: int, filiale: str | None) -> set[datetime.date]:
+    """Feriado estadual (SP, sempre) + municipal (Santo André, só se a filial
+    do funcionário for de lá) — usado exclusivamente pelo Dashboard de horas
+    pessoal (`/my-hours`), nunca por `count_business_days`/geração de
+    relatório: aplicar esses feriados globalmente mudaria a classificação de
+    atraso de envio (`email_ingest.py`) pra funcionários de OUTRAS filiais,
+    que não os têm."""
+    holidays = set(_sao_paulo_state_holidays(year))
+    if is_santo_andre_filiale(filiale):
+        holidays |= _santo_andre_municipal_holidays(year)
+    return holidays
+
+
+def business_days_between(
+    start: datetime.date, end: datetime.date, extra_holidays: set[datetime.date] | None = None
+) -> list[datetime.date]:
     """Dias úteis (seg-sex, sem feriado nacional) de `start` até `end`, ambos
     INCLUSIVE — diferente de `count_business_days`, que exclui o `start` (ver
     o docstring dela). Devolve a lista, não a contagem, porque o Dashboard de
     horas precisa saber QUAIS dias são úteis pra achar os que ficaram sem
     apontamento, não só quantos são.
+
+    `extra_holidays` (opcional) soma feriados estadual/municipal por cima dos
+    nacionais — usado só pelo Dashboard de horas pessoal via
+    `local_holidays_for_filiale`; sem esse argumento o comportamento é
+    idêntico a antes (só feriado nacional), preservando `count_business_days`
+    e todo outro chamador existente.
 
     O intervalo pode cruzar anos, então o conjunto de feriados é recalculado
     por ano conforme o cursor avança."""
@@ -235,22 +278,26 @@ def business_days_between(start: datetime.date, end: datetime.date) -> list[date
     day = start
     while day <= end:
         holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
-        if day.weekday() < 5 and day not in holidays:
+        is_holiday = day in holidays or (extra_holidays is not None and day in extra_holidays)
+        if day.weekday() < 5 and not is_holiday:
             days.append(day)
         day += datetime.timedelta(days=1)
     return days
 
 
-def national_holidays_between(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+def national_holidays_between(
+    start: datetime.date, end: datetime.date, extra_holidays: set[datetime.date] | None = None
+) -> list[datetime.date]:
     """Feriados nacionais no intervalo (inclusive), ordenados — usado pra
     marcar a célula do dia no calendário do dashboard como feriado em vez de
-    "dia útil sem apontamento"."""
+    "dia útil sem apontamento". `extra_holidays` funciona igual ao de
+    `business_days_between` (opcional, estadual/municipal)."""
     holidays_by_year: dict[int, set[datetime.date]] = {}
     found: list[datetime.date] = []
     day = start
     while day <= end:
         holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
-        if day in holidays:
+        if day in holidays or (extra_holidays is not None and day in extra_holidays):
             found.append(day)
         day += datetime.timedelta(days=1)
     return found

@@ -95,7 +95,7 @@ def verify_projectile_login(login: str, password: str) -> dict:
             cur.execute(
                 """
                 SELECT au.rId, au.rName, au.rLogin, au.rEmail, au.rPassword, au.rSalt,
-                       te.pEmployee AS employee_id, te.pFirstName, te.pName
+                       te.pEmployee AS employee_id, te.pFirstName, te.pName, te.pFiliale
                 FROM auser au
                 LEFT JOIN temployee te ON te.pLogin = au.rLogin
                 WHERE au.rLogin = %s
@@ -127,6 +127,10 @@ def verify_projectile_login(login: str, password: str) -> dict:
     return {
         "id": row["rId"], "name": display_name, "login": row["rLogin"],
         "email": row.get("rEmail") or "", "employee_id": row.get("employee_id"),
+        # usada só pelo Dashboard de horas pessoal, pra decidir se o feriado
+        # municipal de Santo André entra no cálculo de dias úteis dessa
+        # pessoa (ver `generator.local_holidays_for_filiale`).
+        "filiale": html.unescape(row.get("pFiliale") or "").strip() or None,
     }
 
 
