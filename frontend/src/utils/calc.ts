@@ -35,3 +35,18 @@ export function findEmptyActivityDescription(pkg: WorkPackage): { groupName: str
   }
   return null;
 }
+
+/** Mensagem de erro pronta pra mostrar (ou `null` se todos os pacotes
+ * estiverem OK) — checa `findEmptyActivityDescription` em todos os
+ * `packages`, não só um. `verbo` entra no final da frase ("gerar"/
+ * "enviar"), já que é a mesma validação usada tanto por
+ * GenerateFooter.tsx quanto por SendReportModal.tsx antes de cada ação. */
+export function findEmptyActivityDescriptionMessage(packages: WorkPackage[], verbo: string): string | null {
+  for (const pkg of packages) {
+    const empty = findEmptyActivityDescription(pkg);
+    if (empty) {
+      return `Preencha a descrição de todas as atividades (grupo "${empty.groupName}" em "${pkg.projectName}") antes de ${verbo}.`;
+    }
+  }
+  return null;
+}

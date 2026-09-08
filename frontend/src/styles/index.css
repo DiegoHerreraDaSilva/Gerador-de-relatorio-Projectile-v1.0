@@ -1808,6 +1808,7 @@
      (.pane-package-select, button.primary), só ajustando largura/padding
      pra caber inline no cabeçalho em vez de ocupar a linha toda. */
   .issue-recover-bulk { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .issue-recover-error { margin: 10px 0 0; color: var(--bad); font-size: 0.82rem; }
   .pane-package-select.issue-recover-select { width: 260px; }
   .primary.issue-recover-btn { padding: 7px 16px; font-size: 0.82rem; white-space: nowrap; }
   .validation-list {

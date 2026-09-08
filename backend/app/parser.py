@@ -300,14 +300,14 @@ def parse_projectile_export(
                 issues.append(issue)
             continue
 
-        # Hs ainda não foi validado nesta altura (só acontece mais abaixo) —
-        # tenta aqui, best-effort, só pra ter `raw_hours` pronto caso a linha
-        # seja descartada por causa da Observação (separador/descrição
-        # vazia), não do próprio Hs.
+        # parseado uma única vez aqui — usado tanto como `raw_hours` nos
+        # issues de sem_separador/descricao_vazia abaixo (a linha é
+        # descartada por causa da Observação, não do Hs) quanto como
+        # `hs_float` no caminho de sucesso mais adiante, sem repetir o parse.
         try:
-            raw_hours_guess: float | None = round(_parse_hs_value(hs_value), 3)
+            hs_parsed: float | None = round(_parse_hs_value(hs_value), 3)
         except ValueError:
-            raw_hours_guess = None
+            hs_parsed = None
 
         obs_value = obs_stripped
         separator_match = re.search(r"[-_]", obs_value)
@@ -316,7 +316,7 @@ def parse_projectile_export(
                 row=row_number,
                 reason="sem_separador",
                 message=f"Linha {row_number}: Observação \"{obs_value}\" sem \"-\" ou \"_\" separando prefixo e descrição.",
-                raw_hours=raw_hours_guess,
+                raw_hours=hs_parsed,
                 raw_description=obs_value,
             ))
             continue
@@ -333,16 +333,14 @@ def parse_projectile_export(
                 row=row_number,
                 reason="descricao_vazia",
                 message=f"Linha {row_number}: {vazio} em \"{obs_value}\".",
-                raw_hours=raw_hours_guess,
+                raw_hours=hs_parsed,
                 # a metade que sobrou (a que NÃO estiver vazia) é o único
                 # texto aproveitável — a outra virou "" no split acima.
                 raw_description=description or prefix or None,
             ))
             continue
 
-        try:
-            hs_float = round(_parse_hs_value(hs_value), 3)
-        except ValueError:
+        if hs_parsed is None:
             issues.append(RowIssue(
                 row=row_number,
                 reason="hs_invalido",
@@ -350,6 +348,7 @@ def parse_projectile_export(
                 raw_description=obs_value,
             ))
             continue
+        hs_float = hs_parsed
 
         if split_by_package:
             pacote_value = row[pacote_col - 1].value if pacote_col else None

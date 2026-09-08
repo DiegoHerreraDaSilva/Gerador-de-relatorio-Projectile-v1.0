@@ -37,6 +37,47 @@ function scheduleAutosave() {
   debounceTimer = setTimeout(() => useReportTabsStore.getState().persist(), AUTOSAVE_DEBOUNCE_MS);
 }
 
+/** Remove o `undoStack` de um bundle serializado antes de gravar em disco
+ * (ver `persist`) — parse/stringify de volta é mais simples e menos
+ * propenso a erro do que tentar remover a chave via regex na string. Se o
+ * bundle vier malformado por algum motivo, devolve como veio (melhor
+ * persistir um pouco mais de dado do que perder a guia inteira). */
+function stripUndoStackForDisk(bundleStr: string): string {
+  try {
+    const parsed = JSON.parse(bundleStr);
+    parsed.undoStack = [];
+    return JSON.stringify(parsed);
+  } catch {
+    return bundleStr;
+  }
+}
+
+/** Checa se um bundle salvo tem o formato mínimo esperado antes de aplicá-lo
+ * direto no estado ao vivo (`applyTabBundle` não valida nada, assume que o
+ * bundle é bem formado) — um bundle salvo por uma versão futura/diferente
+ * do app, ou corrompido por edição externa do localStorage, não pode virar
+ * `packages`/`header` undefined na tela: isso quebraria o primeiro render
+ * (App.tsx faz `packages.length`) sem o usuário ter como se recuperar
+ * sozinho, já que `hydrate()` roda de novo a cada F5. */
+function isValidBundle(bundleStr: unknown): bundleStr is string {
+  if (typeof bundleStr !== "string") return false;
+  try {
+    const parsed = JSON.parse(bundleStr) as Record<string, unknown>;
+    return (
+      !!parsed &&
+      typeof parsed === "object" &&
+      Array.isArray(parsed.packages) &&
+      typeof parsed.header === "object" &&
+      parsed.header !== null &&
+      Array.isArray(parsed.undoStack) &&
+      typeof parsed.selectedByPane === "object" &&
+      parsed.selectedByPane !== null
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Troca o conteúdo carregado em `useReportStore` sem passar pelo ciclo
  * normal de autosave/auto-rename (evita reagir à própria troca como se
  * fosse uma edição do usuário). */
@@ -117,9 +158,19 @@ export const useReportTabsStore = create<ReportTabsState>()(
       const s = get();
       try {
         const bundles = { ...s.bundles, [s.activeTabId]: serializeTabBundle(useReportStore.getState()) };
+        // o undoStack NÃO vai pro disco: cada entrada já é uma cópia inteira
+        // do relatório daquele momento (até 50 por guia) — gravar isso a
+        // cada autosave inflava o payload em até ~50x sem necessidade (um
+        // relatório de ~18KB virava quase 1MB por guia). Desfazer não
+        // precisa sobreviver a um F5, só ao ciclo de edição atual; o que
+        // fica em `s.bundles` (usado ao trocar de guia dentro da mesma
+        // sessão) continua com o histórico completo, intocado aqui.
+        const bundlesForDisk = Object.fromEntries(
+          Object.entries(bundles).map(([id, bundleStr]) => [id, stripUndoStackForDisk(bundleStr)])
+        );
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ version: 1, activeTabId: s.activeTabId, tabs: s.tabs, bundles })
+          JSON.stringify({ version: 1, activeTabId: s.activeTabId, tabs: s.tabs, bundles: bundlesForDisk })
         );
         set({ bundles });
       } catch {
@@ -176,13 +227,17 @@ function hydrate() {
     if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0 || typeof parsed.bundles !== "object" || !parsed.bundles) {
       return;
     }
-    const tabs = parsed.tabs as ReportTabMeta[];
-    const bundles = parsed.bundles as Record<string, string>;
+    const rawBundles = parsed.bundles as Record<string, unknown>;
+    // descarta guia por guia se o bundle dela não bater com o formato
+    // mínimo esperado — uma guia corrompida não pode derrubar as outras,
+    // que continuam válidas.
+    const tabs = (parsed.tabs as ReportTabMeta[]).filter((t) => isValidBundle(rawBundles[t.id]));
+    if (tabs.length === 0) return;
+    const bundles = Object.fromEntries(tabs.map((t) => [t.id, rawBundles[t.id] as string]));
     const activeTabId =
       typeof parsed.activeTabId === "string" && tabs.some((t) => t.id === parsed.activeTabId)
         ? parsed.activeTabId
         : tabs[0].id;
-    if (!bundles[activeTabId]) return;
     useReportTabsStore.setState({ tabs, activeTabId, bundles });
     loadBundleIntoLiveStore(bundles[activeTabId]);
   } catch {

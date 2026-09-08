@@ -113,6 +113,47 @@ def test_parse_projectile_export_descricao_vazia_carrega_raw_hours_e_a_metade_va
     assert issues[0].raw_description == "ENG"
 
 
+def test_parse_projectile_export_obs_preenchida_hs_vazio_carrega_raw_description(tmp_path):
+    wb = _build_export([["01/07/2026", "08:00", "", "ENG - Atividade sem hora lançada", "Projeto X", ""]])
+    path = str(tmp_path / "sem_hs.xlsx")
+    wb.save(path)
+
+    packages, issues = parse_projectile_export(path, split_by_package=False)
+
+    assert len(issues) == 1
+    assert issues[0].reason == "dados_incompletos"
+    assert issues[0].raw_hours is None  # falta o Hs -- não tem número pra recuperar
+    assert issues[0].raw_description == "ENG - Atividade sem hora lançada"
+
+
+def test_parse_projectile_export_hs_preenchido_obs_vazia_dados_preenchido_carrega_raw_hours(tmp_path):
+    wb = _build_export([["01/07/2026", "08:00", 3.0, "", "Projeto X", ""]])
+    path = str(tmp_path / "sem_obs.xlsx")
+    wb.save(path)
+
+    packages, issues = parse_projectile_export(path, split_by_package=False)
+
+    assert len(issues) == 1
+    assert issues[0].reason == "dados_incompletos"
+    assert issues[0].raw_hours == pytest.approx(3.0, abs=1e-3)
+    assert issues[0].raw_description is None  # falta a Observação -- não tem texto pra recuperar
+
+
+def test_parse_projectile_export_subtotal_solto_nao_gera_issue(tmp_path):
+    # linha de subtotal que o Projectile insere sozinho: só "Hs" preenchido,
+    # nem "Dados" nem "Observação" -- não é um apontamento incompleto de
+    # verdade (ver docstring de _classify_incomplete_row), não deve gerar
+    # aviso nenhum.
+    wb = _build_export([["", "", "98,63", "", "", ""]])
+    path = str(tmp_path / "subtotal.xlsx")
+    wb.save(path)
+
+    packages, issues = parse_projectile_export(path, split_by_package=False)
+
+    assert issues == []
+    assert len(packages) == 0
+
+
 def test_parse_projectile_export_hs_invalido_carrega_raw_description_mas_nao_raw_hours(tmp_path):
     wb = _build_export([["01/07/2026", "08:00", "abc", "ENG - Atividade válida", "Projeto V", ""]])
     path = str(tmp_path / "hs_invalido.xlsx")

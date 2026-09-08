@@ -231,11 +231,18 @@ export interface StoreState {
   // vem fixa (extra: false, mesmo tratamento visual de atividade importada,
   // sem input editável) porque já é um valor confiável lido do Projectile,
   // não um número digitado à mão.
+  // devolve `false` (sem adicionar nada) quando o grupo/pacote alvo não
+  // existe mais no momento do clique — ex: usuário escolheu um grupo,
+  // trocou de guia (ver ReportTabsBar/useReportTabsStore) ou removeu esse
+  // grupo antes de confirmar. ValidationBanner usa o retorno pra só tirar
+  // as linhas da lista de avisos quando a recuperação de fato aconteceu,
+  // em vez de fazer a hora desaparecer em silêncio como se tivesse dado
+  // certo.
   addActivitiesFromIssues: (
     groupId: string,
     packageId: string,
     items: Array<{ description: string; hours: number }>
-  ) => void;
+  ) => boolean;
   removeActivities: (packageId: string, items: Array<{ groupId: string; activityId: string }>) => void;
   updateGroupName: (groupId: string, name: string, packageId?: string) => void;
   updatePerformance: (groupId: string, perf: number, packageId?: string) => void;
@@ -287,6 +294,34 @@ export interface StoreState {
   toggleSelected: (paneId: string, key: string) => void;
   setSelected: (paneId: string, set: Set<string>) => void;
   clearSelected: (paneId: string) => void;
+}
+
+/** Remove de `pkg` as atividades apontadas por `items` (que podem vir de
+ * vários grupos de origem diferentes) e devolve as removidas, na ordem em
+ * que apareciam nos grupos de origem — não na ordem de `items`, que reflete
+ * a ordem de seleção do usuário. Usado por moveActivitiesToGroup/
+ * mergeActivitiesIntoActivity/moveActivitiesToPosition: as três precisam
+ * de "tirar estas atividades de onde estão, mantendo o resto do grupo",
+ * só o que fazem com o resultado depois é que muda (mesclar por descrição,
+ * somar num alvo, ou reinserir noutra posição). */
+function extractActivitiesFromGroups(
+  pkg: WorkPackage,
+  items: Array<{ groupId: string; activityId: string }>
+): Activity[] {
+  const byGroup = new Map<string, string[]>();
+  items.forEach(({ groupId, activityId }) => {
+    if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+    byGroup.get(groupId)!.push(activityId);
+  });
+  const extracted: Activity[] = [];
+  byGroup.forEach((aIds, gId) => {
+    const gr = pkg.groups.find((g) => g.id === gId);
+    if (!gr) return;
+    const keep: Activity[] = [];
+    gr.activities.forEach((a) => (aIds.includes(a.id) ? extracted.push(a) : keep.push(a)));
+    gr.activities = keep;
+  });
+  return extracted;
 }
 
 // helpers for merge logic
@@ -469,7 +504,8 @@ export const useReportStore = create<StoreState>()(
         g.activities.push({ id: genId(), description: "", hours: null, extra: true });
         s.hasGeneratedOnce = false;
       }),
-    addActivitiesFromIssues: (groupId, packageId, items) =>
+    addActivitiesFromIssues: (groupId, packageId, items) => {
+      let added = false;
       set((s) => {
         const pkg = s.packages.find((p) => p.id === packageId);
         const g = pkg?.groups.find((gr) => gr.id === groupId);
@@ -480,7 +516,10 @@ export const useReportStore = create<StoreState>()(
           g.activities.push({ id: genId(), description, hours, extra: false });
         });
         s.hasGeneratedOnce = false;
-      }),
+        added = true;
+      });
+      return added;
+    },
     removeActivities: (packageId, items) =>
       set((s) => {
         const pkg = s.packages.find((p) => p.id === packageId);
@@ -596,22 +635,7 @@ export const useReportStore = create<StoreState>()(
         if (!fromPkg) return;
         const snap = snapshotState(s);
         s.undoStack.push(snap); if (s.undoStack.length > 50) s.undoStack.shift();
-        const removed: Activity[] = [];
-        const byGroup = new Map<string, string[]>();
-        filtered.forEach(({ groupId, activityId }) => {
-          if (!byGroup.has(groupId)) byGroup.set(groupId, []);
-          byGroup.get(groupId)!.push(activityId);
-        });
-        byGroup.forEach((aIds, gId) => {
-          const gr = fromPkg.groups.find((g) => g.id === gId);
-          if (!gr) return;
-          const keep: Activity[] = [];
-          gr.activities.forEach((a) => {
-            if (aIds.includes(a.id)) removed.push(a);
-            else keep.push(a);
-          });
-          gr.activities = keep;
-        });
+        const removed = extractActivitiesFromGroups(fromPkg, filtered);
         removed.forEach((a) => mergeActivityIntoGroup(toGroup, a));
         s.hasGeneratedOnce = false;
       }),
@@ -630,22 +654,7 @@ export const useReportStore = create<StoreState>()(
         if (!fromPkg) return;
         const snap = snapshotState(s);
         s.undoStack.push(snap); if (s.undoStack.length > 50) s.undoStack.shift();
-        const removed: Activity[] = [];
-        const byGroup = new Map<string, string[]>();
-        filtered.forEach(({ groupId, activityId }) => {
-          if (!byGroup.has(groupId)) byGroup.set(groupId, []);
-          byGroup.get(groupId)!.push(activityId);
-        });
-        byGroup.forEach((aIds, gId) => {
-          const gr = fromPkg.groups.find((g) => g.id === gId);
-          if (!gr) return;
-          const keep: Activity[] = [];
-          gr.activities.forEach((a) => {
-            if (aIds.includes(a.id)) removed.push(a);
-            else keep.push(a);
-          });
-          gr.activities = keep;
-        });
+        const removed = extractActivitiesFromGroups(fromPkg, filtered);
         // sempre soma no destino, nunca casa por descrição — diferente de
         // mergeActivityIntoGroup: o nome que sobra é sempre o da atividade
         // que ficou parada (o destino), nunca o da arrastada.
@@ -666,25 +675,10 @@ export const useReportStore = create<StoreState>()(
         // remove das origens (pode incluir o próprio `toGroup`, se for
         // reordenar dentro do mesmo grupo — `fromPkg.groups.find` devolve a
         // MESMA referência que `toGroup` nesse caso, então a mutação de
-        // `gr.activities` abaixo já atualiza `toGroup.activities` também)
-        const byGroup = new Map<string, string[]>();
-        items.forEach(({ groupId, activityId }) => {
-          if (!byGroup.has(groupId)) byGroup.set(groupId, []);
-          byGroup.get(groupId)!.push(activityId);
-        });
-        // ordem final dos arrastados: pela ordem em que apareciam nos
-        // grupos de origem, não pela ordem de seleção do usuário em `items`.
-        const orderedMoved: Activity[] = [];
-        byGroup.forEach((aIds, gId) => {
-          const gr = fromPkg.groups.find((g) => g.id === gId);
-          if (!gr) return;
-          const keep: Activity[] = [];
-          gr.activities.forEach((a) => {
-            if (aIds.includes(a.id)) orderedMoved.push(a);
-            else keep.push(a);
-          });
-          gr.activities = keep;
-        });
+        // `gr.activities` dentro do helper já atualiza `toGroup.activities`
+        // também). A ordem devolvida já é a que `moveActivitiesToPosition`
+        // precisa: pela posição original nos grupos de origem.
+        const orderedMoved = extractActivitiesFromGroups(fromPkg, items);
         if (!orderedMoved.length) return;
 
         // procurado DEPOIS da remoção acima: se `beforeActivityId` era uma

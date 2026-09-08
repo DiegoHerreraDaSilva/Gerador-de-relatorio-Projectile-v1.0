@@ -460,6 +460,26 @@ def fetch_project_hours(
         raise ProjectileDbError(f"Falha ao consultar horas dos projetos no Projectile: {e}") from e
 
 
+def _missing_observacao_issue(row_index: int, hs_float: float, row: dict) -> RowIssue | None:
+    """Hora sem Observação preenchida não pode desaparecer da soma em
+    silêncio — mesmo critério em `group_hours` e `group_hours_by_project`,
+    só reportado quando há hora de fato (>0) pra não gerar aviso por linha
+    vazia/zerada sem apontamento nenhum."""
+    if hs_float <= 0:
+        return None
+    row_date = row.get("data")
+    date_label = row_date.strftime("%d/%m/%Y") if hasattr(row_date, "strftime") else str(row_date or "data desconhecida")
+    pacote_label = html.unescape(str(row.get("pacote") or "")).strip() or "Sem pacote"
+    return RowIssue(
+        row=row_index, reason="descricao_vazia",
+        message=(
+            f"Lançamento {row_index}: descrição vazia (Observação não preenchida) — {hs_float} h "
+            f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
+        ),
+        raw_hours=hs_float,
+    )
+
+
 def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> tuple[list["WorkPackage"], list[RowIssue]]:
     """Agrupa as linhas de `fetch_project_hours` em um `WorkPackage` por
     PROJETO (não por pacote de trabalho) — usado no modo "1 relatório por
@@ -476,20 +496,9 @@ def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> t
         obs_value = html.unescape(str(row.get("observacao") or "")).strip()
         hs_float = round(float(row.get("horas") or 0), 3)
         if not obs_value:
-            # mesmo critério de `group_hours` — hora sem Observação preenchida
-            # não pode desaparecer da soma sem deixar rastro pro usuário.
-            if hs_float > 0:
-                row_date = row.get("data")
-                date_label = row_date.strftime("%d/%m/%Y") if hasattr(row_date, "strftime") else str(row_date or "data desconhecida")
-                pacote_label = html.unescape(str(row.get("pacote") or "")).strip() or "Sem pacote"
-                issues.append(RowIssue(
-                    row=i, reason="descricao_vazia",
-                    message=(
-                        f"Lançamento {i}: descrição vazia (Observação não preenchida) — {hs_float} h "
-                        f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
-                    ),
-                    raw_hours=hs_float,
-                ))
+            issue = _missing_observacao_issue(i, hs_float, row)
+            if issue:
+                issues.append(issue)
             continue
         if hs_float <= 0:
             continue
@@ -705,23 +714,12 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
         obs_value = html.unescape(str(row.get("observacao") or "")).strip()
         hs_float = round(float(row.get("horas") or 0), 3)
         if not obs_value:
-            # hora sem Observação preenchida: descartar em silêncio esconderia
-            # apontamento de verdade do usuário sem nenhum rastro — mesmo
-            # critério do export .xlsx (`parser.py` `_classify_incomplete_row`),
-            # só reportado aqui apenas quando há hora de fato (>0) pra não
-            # gerar aviso por linha vazia/zerada sem apontamento nenhum.
-            if hs_float > 0:
-                row_date = row.get("data")
-                date_label = row_date.strftime("%d/%m/%Y") if hasattr(row_date, "strftime") else str(row_date or "data desconhecida")
-                pacote_label = html.unescape(str(row.get("pacote") or "")).strip() or "Sem pacote"
-                issues.append(RowIssue(
-                    row=i, reason="descricao_vazia",
-                    message=(
-                        f"Lançamento {i}: descrição vazia (Observação não preenchida) — {hs_float} h "
-                        f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
-                    ),
-                    raw_hours=hs_float,
-                ))
+            # descartar em silêncio esconderia apontamento de verdade do
+            # usuário sem nenhum rastro — mesmo critério do export .xlsx
+            # (`parser.py` `_classify_incomplete_row`).
+            issue = _missing_observacao_issue(i, hs_float, row)
+            if issue:
+                issues.append(issue)
             continue
         separator_match = re.search(r"[-_]", obs_value)
         if separator_match:

@@ -14,6 +14,7 @@ import { GenerateFooter } from "./components/GenerateFooter";
 import { Chat } from "./components/Chat";
 import { ReportTabsBar } from "./components/ReportTabsBar";
 import { useReportStore } from "./store/useReportStore";
+import { useReportTabsStore } from "./store/useReportTabsStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { fmtNum } from "./utils/fmt";
 
@@ -28,6 +29,7 @@ export default function App() {
   const isSplit = useReportStore((s) => s.isSplit);
   const authStatus = useAuthStore((s) => s.status);
   const checkSession = useAuthStore((s) => s.checkSession);
+  const activeTabId = useReportTabsStore((s) => s.activeTabId);
 
   const hasPackages = packages.length > 0;
   const activePkg = packages.find((p) => p.id === activeId);
@@ -130,7 +132,12 @@ export default function App() {
         </div>
       )}
 
-      <ValidationBanner />
+      {/* key força remontagem ao trocar de guia — sem isso, checkbox/grupo
+          marcados em "Adicionar como atividade" (estado local do componente)
+          sobreviviam à troca e podiam apontar pra pacote/grupo de OUTRA
+          guia, fazendo a hora recuperável sumir da lista sem ser adicionada
+          em lugar nenhum. */}
+      <ValidationBanner key={activeTabId} />
 
       <FileUpload />
 

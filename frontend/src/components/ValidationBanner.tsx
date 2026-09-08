@@ -56,6 +56,7 @@ export function ValidationBanner() {
   // encolhendo a cada lote adicionado.
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [target, setTarget] = useState("");
+  const [addError, setAddError] = useState("");
 
   if (!issues.length) return null;
 
@@ -80,11 +81,21 @@ export function ValidationBanner() {
     if (!packageId || !groupId) return;
     const selected = issues.filter((i) => checked.has(i.row) && isRecoverable(i));
     if (!selected.length) return;
-    addActivitiesFromIssues(
+    const added = addActivitiesFromIssues(
       groupId,
       packageId,
       selected.map((i) => ({ description: i.raw_description ?? "", hours: i.raw_hours as number }))
     );
+    if (!added) {
+      // grupo/pacote escolhido não existe mais (ex: removido, ou o dropdown
+      // ainda guardava a seleção de outra guia) — não tira nada da lista de
+      // avisos, senão a hora recuperável some da tela como se tivesse dado
+      // certo.
+      setAddError("O grupo escolhido não existe mais. Escolha outro e tente de novo.");
+      setTarget("");
+      return;
+    }
+    setAddError("");
     setIssues(issues.filter((i) => !checked.has(i.row) || !isRecoverable(i)));
     setChecked(new Set());
   }
@@ -121,6 +132,7 @@ export function ValidationBanner() {
         )}
         <button type="button" className="btn-toggle" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "▸ Expandir" : "▾ Recolher"}</button>
       </div>
+      {addError && <p className="issue-recover-error">{addError}</p>}
       <ul className="validation-list">
         {issues.map((issue) => {
           const recoverable = isRecoverable(issue);

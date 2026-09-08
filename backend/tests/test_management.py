@@ -74,6 +74,29 @@ def _find_status(result, project_id, month="2026-08"):
     raise AssertionError(f"nenhuma linha de project_send_status pra {project_id}/{month}")
 
 
+def test_selected_months_recorta_available_mas_nao_os_buckets(monkeypatch, tmp_path):
+    """`selected_months` (Competência no Painel de Gerência) só recorta as
+    opções de filtro (available_projects/available_packages/project_codes)
+    — os buckets de horas por mês (usados nos KPIs/gráfico) continuam com
+    TODOS os meses, porque essa parte já é recortada depois, no frontend
+    (ver `ManagementPanel.tsx` `displayRows`)."""
+    data_file = tmp_path / "management_kpi.json"
+    row_agosto = _row("P1", "Pacote A", 10.0, day=15)
+    row_julho = {**_row("P2", "Pacote B", 5.0, day=15), "data": date(2026, 7, 15)}
+    _patch_projectile(monkeypatch, [row_agosto, row_julho])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, selected_months=["2026-08"], force_refresh=True)
+
+    assert result["available_packages"] == ["Pacote A"]
+    assert result["available_projects"] == ["Projeto P1"]
+
+    months_by_key = {m["month"]: m for m in result["months"]}
+    assert months_by_key["2026-08"]["worked_hours"] == 10.0
+    assert months_by_key["2026-07"]["worked_hours"] == 5.0
+
+
 def test_one_of_two_pacotes_sent_is_partial(monkeypatch, tmp_path):
     data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])

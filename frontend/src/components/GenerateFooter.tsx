@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
-import { computeGrandTotalFor, findEmptyActivityDescription } from "../utils/calc";
+import { computeGrandTotalFor, findEmptyActivityDescriptionMessage } from "../utils/calc";
 import { fmtNum } from "../utils/fmt";
 import { computeDefaultFileName, computeDefaultFileNameFor } from "../utils/fileName";
 import { drawGroupsChart } from "../utils/chart";
@@ -44,12 +44,10 @@ export function GenerateFooter() {
       setStatus("Preencha o nome de quem assina (Schwaben e cliente) antes de gerar.");
       return;
     }
-    for (const pkg of packages) {
-      const empty = findEmptyActivityDescription(pkg);
-      if (empty) {
-        setStatus(`Preencha a descrição de todas as atividades (grupo "${empty.groupName}" em "${pkg.projectName}") antes de gerar.`);
-        return;
-      }
+    const emptyDescMessage = findEmptyActivityDescriptionMessage(packages, "gerar");
+    if (emptyDescMessage) {
+      setStatus(emptyDescMessage);
+      return;
     }
 
     const payload = {
