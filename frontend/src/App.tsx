@@ -116,11 +116,15 @@ export default function App() {
               type="button"
               className="btn-secondary"
               onClick={() => {
-                setShowImportCard(true);
-                window.scrollTo({ top: 0, behavior: "smooth" });
+                if (showImportCard) {
+                  setShowImportCard(false);
+                } else {
+                  setShowImportCard(true);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
               }}
             >
-              Trocar arquivo
+              {showImportCard ? "Cancelar" : "Trocar arquivo"}
             </button>
           </div>
         </div>
