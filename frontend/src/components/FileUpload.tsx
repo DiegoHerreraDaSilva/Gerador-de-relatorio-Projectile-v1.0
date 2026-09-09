@@ -243,12 +243,7 @@ export function FileUpload() {
   };
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [source, setSource] = useState<"file" | "db">("file");
   const [searching, setSearching] = useState(false);
-  const [byClient, setByClient] = useState(false);
-  const [selectedClient, setSelectedClient] = useState("");
-  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
-  const [clientReportMode, setClientReportMode] = useState<"pacote" | "projeto">("pacote");
   const isManager = useAuthStore((s) => s.user?.isManager);
   const reportMode = useReportStore((s) => s.reportMode);
   const showImportCard = useReportStore((s) => s.showImportCard);
@@ -256,6 +251,21 @@ export function FileUpload() {
   const setHeaderField = useReportStore((s) => s.setHeaderField);
   const setPackages = useReportStore((s) => s.setPackages);
   const setIssues = useReportStore((s) => s.setIssues);
+  // seleção deste card (fonte/cliente/projetos/modo) vive na store, não em
+  // useState local — cada guia (ver useReportTabsStore) precisa manter a
+  // própria busca configurada ao voltar pra ela, em vez de perder tudo só
+  // porque trocar de guia desmonta e remonta este componente (ver
+  // key={activeTabId} em App.tsx).
+  const source = useReportStore((s) => s.importSource);
+  const setSource = useReportStore((s) => s.setImportSource);
+  const byClient = useReportStore((s) => s.importByClient);
+  const setByClient = useReportStore((s) => s.setImportByClient);
+  const selectedClient = useReportStore((s) => s.importSelectedClient);
+  const setSelectedClient = useReportStore((s) => s.setImportSelectedClient);
+  const selectedProjectIds = useReportStore((s) => s.importSelectedProjectIds);
+  const setSelectedProjectIds = useReportStore((s) => s.setImportSelectedProjectIds);
+  const clientReportMode = useReportStore((s) => s.importClientReportMode);
+  const setClientReportMode = useReportStore((s) => s.setImportClientReportMode);
 
   const { month: searchMonth, year: searchYear } = parseMonthLabel(monthLabel);
   const setSearchMonth = (month: string) => setHeaderField("monthLabel", `${month}/${searchYear}`);

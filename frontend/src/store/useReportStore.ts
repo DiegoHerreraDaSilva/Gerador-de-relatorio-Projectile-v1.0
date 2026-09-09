@@ -106,6 +106,11 @@ type TabBundle = {
   undoStack: string[];
   hasGeneratedOnce: boolean;
   showImportCard: boolean;
+  importSource: "file" | "db";
+  importByClient: boolean;
+  importSelectedClient: string;
+  importSelectedProjectIds: Set<string>;
+  importClientReportMode: "pacote" | "projeto";
   isSplit: boolean;
   paneBPackageId: string | null;
   validationCollapsed: boolean;
@@ -124,6 +129,11 @@ export function serializeTabBundle(state: StoreState): string {
     undoStack: state.undoStack,
     hasGeneratedOnce: state.hasGeneratedOnce,
     showImportCard: state.showImportCard,
+    importSource: state.importSource,
+    importByClient: state.importByClient,
+    importSelectedClient: state.importSelectedClient,
+    importSelectedProjectIds: state.importSelectedProjectIds,
+    importClientReportMode: state.importClientReportMode,
     isSplit: state.isSplit,
     paneBPackageId: state.paneBPackageId,
     validationCollapsed: state.validationCollapsed,
@@ -144,6 +154,11 @@ export function applyTabBundle(bundleStr: string, state: StoreState) {
   state.undoStack = parsed.undoStack;
   state.hasGeneratedOnce = parsed.hasGeneratedOnce;
   state.showImportCard = parsed.showImportCard;
+  state.importSource = parsed.importSource;
+  state.importByClient = parsed.importByClient;
+  state.importSelectedClient = parsed.importSelectedClient;
+  state.importSelectedProjectIds = parsed.importSelectedProjectIds;
+  state.importClientReportMode = parsed.importClientReportMode;
   state.isSplit = parsed.isSplit;
   state.paneBPackageId = parsed.paneBPackageId;
   state.validationCollapsed = parsed.validationCollapsed;
@@ -165,6 +180,11 @@ export function blankTabBundle(): string {
     undoStack: [],
     hasGeneratedOnce: false,
     showImportCard: true,
+    importSource: "file",
+    importByClient: false,
+    importSelectedClient: "",
+    importSelectedProjectIds: new Set(),
+    importClientReportMode: "pacote",
     isSplit: false,
     paneBPackageId: null,
     validationCollapsed: false,
@@ -184,6 +204,17 @@ export interface StoreState {
   // sucesso; "Trocar arquivo" liga de novo via `setShowImportCard(true)` sem
   // descartar o relatório atual (o usuário pode desistir da troca).
   showImportCard: boolean;
+  // seleção feita dentro do card acima ("Fonte dos dados", "Por cliente",
+  // cliente/projetos escolhidos, "Por pacote"/"Por projeto") — mesmo motivo
+  // do `showImportCard`: precisa viver na store (não em useState local de
+  // FileUpload.tsx) pra cada guia manter a própria busca configurada ao
+  // voltar pra ela, em vez de perder tudo porque o componente foi
+  // desmontado e remontado (ver `key={activeTabId}` em App.tsx).
+  importSource: "file" | "db";
+  importByClient: boolean;
+  importSelectedClient: string;
+  importSelectedProjectIds: Set<string>;
+  importClientReportMode: "pacote" | "projeto";
   activePackageId: string | null;
   reportMode: "single" | "multi";
   currentIssues: RowIssue[];
@@ -204,6 +235,11 @@ export interface StoreState {
   // actions
   setPackages: (pkgs: WorkPackage[], activeId?: string | null) => void;
   setShowImportCard: (v: boolean) => void;
+  setImportSource: (v: "file" | "db") => void;
+  setImportByClient: (v: boolean) => void;
+  setImportSelectedClient: (v: string) => void;
+  setImportSelectedProjectIds: (v: Set<string>) => void;
+  setImportClientReportMode: (v: "pacote" | "projeto") => void;
   setActivePackageId: (id: string) => void;
   setReportMode: (mode: "single" | "multi") => void;
   setIssues: (issues: RowIssue[]) => void;
@@ -352,6 +388,11 @@ export const useReportStore = create<StoreState>()(
   immer((set, get) => ({
     packages: [],
     showImportCard: true,
+    importSource: "file",
+    importByClient: false,
+    importSelectedClient: "",
+    importSelectedProjectIds: new Set(),
+    importClientReportMode: "pacote",
     activePackageId: null,
     reportMode: "single",
     currentIssues: [],
@@ -456,6 +497,26 @@ export const useReportStore = create<StoreState>()(
     setShowImportCard: (v) =>
       set((s) => {
         s.showImportCard = v;
+      }),
+    setImportSource: (v) =>
+      set((s) => {
+        s.importSource = v;
+      }),
+    setImportByClient: (v) =>
+      set((s) => {
+        s.importByClient = v;
+      }),
+    setImportSelectedClient: (v) =>
+      set((s) => {
+        s.importSelectedClient = v;
+      }),
+    setImportSelectedProjectIds: (v) =>
+      set((s) => {
+        s.importSelectedProjectIds = v;
+      }),
+    setImportClientReportMode: (v) =>
+      set((s) => {
+        s.importClientReportMode = v;
       }),
     resetParsedState: () =>
       set((s) => {

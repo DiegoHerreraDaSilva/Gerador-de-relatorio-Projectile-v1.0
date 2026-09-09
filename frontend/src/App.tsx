@@ -139,7 +139,11 @@ export default function App() {
           em lugar nenhum. */}
       <ValidationBanner key={activeTabId} />
 
-      <FileUpload />
+      {/* key força remontagem ao trocar de guia — sem isso, a seleção de
+          fonte/cliente/projetos/modo (estado local do componente) ficava
+          compartilhada entre guias, já que trocar de guia só troca o
+          conteúdo do useReportStore, sem desmontar o componente. */}
+      <FileUpload key={activeTabId} />
 
       <div id="step2" className={hasPackages ? "visible" : ""} style={{ display: hasPackages ? "block" : "none" }}>
         <PackageTabs />
