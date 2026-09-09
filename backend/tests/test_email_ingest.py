@@ -19,7 +19,9 @@ from openpyxl import Workbook
 
 from backend.app.email_ingest import (
     EmailIngestError,
+    _build_sender_filter,
     _dedupe_by_stem,
+    _parse_sender_emails,
     compute_business_days_elapsed,
     match_project,
     read_pacote_scope,
@@ -354,3 +356,52 @@ def test_compute_business_days_elapsed_weekend_only_span():
 def test_compute_business_days_elapsed_invalid_label_raises():
     with pytest.raises(EmailIngestError):
         compute_business_days_elapsed("não é uma competência válida", datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# ALBERTO_EMAIL com 1+ e-mails (ver fetch_new_messages)
+# ---------------------------------------------------------------------------
+
+def test_parse_sender_emails_single_email():
+    assert _parse_sender_emails("alberto@empresa.com") == ["alberto@empresa.com"]
+
+
+def test_parse_sender_emails_multiple_trims_whitespace():
+    assert _parse_sender_emails("alberto@empresa.com, outra@empresa.com ,  terceira@empresa.com") == [
+        "alberto@empresa.com",
+        "outra@empresa.com",
+        "terceira@empresa.com",
+    ]
+
+
+def test_parse_sender_emails_drops_empty_entries():
+    """Vírgula sobrando no fim ou dupla vírgula não vira e-mail vazio na lista."""
+    assert _parse_sender_emails("alberto@empresa.com,,outra@empresa.com,") == [
+        "alberto@empresa.com",
+        "outra@empresa.com",
+    ]
+
+
+def test_build_sender_filter_single_email_has_no_parentheses():
+    assert _build_sender_filter(["alberto@empresa.com"]) == "from/emailAddress/address eq 'alberto@empresa.com'"
+
+
+def test_build_sender_filter_multiple_emails_combined_with_or_and_parenthesized():
+    """Os parênteses são obrigatórios: sem eles, o "and hasAttachments eq
+    true" que o chamador (fetch_new_messages) concatena depois se aplicaria
+    só ao último e-mail, não ao "or" inteiro."""
+    result = _build_sender_filter(["a@empresa.com", "b@empresa.com"])
+    assert result == "(from/emailAddress/address eq 'a@empresa.com' or from/emailAddress/address eq 'b@empresa.com')"
+
+
+def test_fetch_new_messages_raises_when_alberto_email_has_no_valid_address(monkeypatch):
+    """ALBERTO_EMAIL definida mas só com vírgulas/espaços (erro de digitação
+    no .env) não pode virar um filtro vazio silencioso — deve falhar cedo,
+    antes de chamar o Graph."""
+    from backend.app import email_ingest
+
+    monkeypatch.setenv("GRAPH_MAILBOX", "caixa@empresa.com")
+    monkeypatch.setenv("ALBERTO_EMAIL", " , , ")
+
+    with pytest.raises(EmailIngestError, match="ALBERTO_EMAIL"):
+        email_ingest.fetch_new_messages()

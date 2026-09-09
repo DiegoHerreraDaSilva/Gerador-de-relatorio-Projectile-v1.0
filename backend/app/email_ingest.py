@@ -146,8 +146,29 @@ def _graph_post(url: str, json_body: dict) -> None:
         raise EmailIngestError(f"Falha ao enviar e-mail pelo Microsoft Graph{detail}") from e
 
 
+def _parse_sender_emails(raw: str) -> list[str]:
+    """`ALBERTO_EMAIL` aceita 1 ou mais endereços separados por vírgula (ex:
+    mais de uma pessoa manda relatório pela mesma automação) — espaços em
+    volta de cada um são ignorados, e entradas vazias (vírgula dupla, vírgula
+    sobrando no fim) são descartadas."""
+    return [email.strip() for email in raw.split(",") if email.strip()]
+
+
+def _build_sender_filter(emails: list[str]) -> str:
+    """Combina 1+ e-mails numa cláusula OData pra usar dentro de `$filter`.
+    Com mais de um, precisa dos parênteses ao redor do `or`: OData aplica
+    `and` com precedência maior que `or`, então sem eles o filtro combinado
+    com "and hasAttachments eq true" (ver `fetch_new_messages`) ficaria
+    "sender1 or (sender2 and hasAttachments)" em vez de "(sender1 or
+    sender2) and hasAttachments"."""
+    clauses = [f"from/emailAddress/address eq '{email}'" for email in emails]
+    combined = " or ".join(clauses)
+    return f"({combined})" if len(clauses) > 1 else combined
+
+
 def fetch_new_messages() -> list[dict]:
-    """Mensagens do Alberto na caixa `GRAPH_MAILBOX` com anexo, ainda não
+    """Mensagens do Alberto (ou de qualquer um dos e-mails em `ALBERTO_EMAIL`,
+    ver `_parse_sender_emails`) na caixa `GRAPH_MAILBOX` com anexo, ainda não
     processadas (ver `management.is_message_processed`). Filtra no próprio
     Graph (`$filter`) pra não baixar corpo/metadado de mensagens irrelevantes.
 
@@ -160,10 +181,15 @@ def fetch_new_messages() -> list[dict]:
     header `ConsistencyLevel: eventual` (que muda semântica de contagem e
     paginação sem necessidade real neste caso)."""
     mailbox = _require_env("GRAPH_MAILBOX")
-    sender = _require_env("ALBERTO_EMAIL")
+    senders = _parse_sender_emails(_require_env("ALBERTO_EMAIL"))
+    if not senders:
+        raise EmailIngestError(
+            "ALBERTO_EMAIL está definida mas não contém nenhum e-mail válido "
+            "(veja .env.example)."
+        )
     url = f"{GRAPH_BASE}/users/{mailbox}/messages"
     params = {
-        "$filter": f"from/emailAddress/address eq '{sender}' and hasAttachments eq true",
+        "$filter": f"{_build_sender_filter(senders)} and hasAttachments eq true",
         "$select": "id,subject,receivedDateTime,from,internetMessageHeaders",
         "$top": "50",
     }
