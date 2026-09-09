@@ -64,6 +64,16 @@ S_ACTIVITY_C_FORMULA = 30
 S_CALC_E = 6
 S_TOTAL_LABEL = 10
 S_TOTAL_VALUE = 14
+# reaproveitados do template original pro Bruto/Performance visível — ver
+# `include_performance` em `_build_group_rows`/`_build_totals_row`. Removidos
+# em 60dd61d quando essa informação deixou de aparecer por padrão no
+# relatório final; os índices continuam válidos porque `xl/styles.xml` do
+# template nunca mudou (ver `git show 60dd61d^:backend/app/generator.py`).
+S_LABEL = 17
+S_ACTIVITY_HOURS = 17
+S_ACTIVITY_PERF = 20
+S_SUM_E = 21
+S_RATIO_F = 18
 
 
 @dataclass
@@ -371,13 +381,16 @@ def _add_cells(rows_by_number: dict[int, list[str]], row_number: int, cells: lis
 
 
 def _build_group_rows(
-    rows_by_number: dict[int, list[str]], groups: list[GroupInput]
-) -> tuple[list[str], list[str], dict[int, float], int]:
+    rows_by_number: dict[int, list[str]], groups: list[GroupInput], include_performance: bool = False
+) -> tuple[list[str], list[str], list[str], dict[int, float], int]:
     """Escreve em `rows_by_number` o cabeçalho + atividades de cada grupo, a
     partir de GROUP_START_ROW. Retorna (merges, total_hours_cells,
-    row_heights, next_row):
+    total_bruto_cells, row_heights, next_row):
     - total_hours_cells: célula C da primeira atividade de cada grupo (a
       fórmula "Total de horas" soma exatamente essas, na mesma ordem);
+    - total_bruto_cells: célula E da primeira atividade de cada grupo (só
+      populada quando `include_performance=True` — usada pra somar o Bruto
+      total do relatório em `_build_totals_row`);
     - row_heights: linha -> altura (linhas de atividade ganham
       ACTIVITY_ROW_HEIGHT, multiplicado pelo nº de linhas estimado que a
       descrição vai quebrar — ver `_estimate_wrapped_lines` — senão uma
@@ -387,6 +400,7 @@ def _build_group_rows(
     """
     merges: list[str] = []
     total_hours_cells: list[str] = []
+    total_bruto_cells: list[str] = []
     row_heights: dict[int, float] = {}
 
     def mark_activity_row(row_number: int, description: str) -> None:
@@ -414,12 +428,13 @@ def _build_group_rows(
                 _inline_str_cell(f"B{header_row}", S_GROUP_NAME, group.name),
                 _empty_cell(f"C{header_row}", S_GROUP_C),
                 _empty_cell(f"D{header_row}", S_FILLER),
-                # Bruto/Performance não aparecem no relatório final pro cliente —
-                # colunas E/F ficam em branco (ver HIDDEN_HELPER_COL abaixo).
-                # S_FILLER (sem borda/preenchimento) em vez do estilo original
-                # do template — que tinha borda e deixava uma caixinha vazia visível.
-                _empty_cell(f"E{header_row}", S_FILLER),
-                _empty_cell(f"F{header_row}", S_FILLER),
+                # Bruto/Performance só aparecem quando o usuário marca "Incluir
+                # performance" ao gerar (ver GeneratePayload.include_performance)
+                # — por padrão colunas E/F ficam em branco (S_FILLER, sem
+                # borda/preenchimento, em vez do estilo original do template,
+                # que tinha borda e deixava uma caixinha vazia visível).
+                _inline_str_cell(f"E{header_row}", S_LABEL, "Bruto") if include_performance else _empty_cell(f"E{header_row}", S_FILLER),
+                _inline_str_cell(f"F{header_row}", S_LABEL, "Performance") if include_performance else _empty_cell(f"F{header_row}", S_FILLER),
                 _empty_cell(f"G{header_row}", S_FILLER),
             ],
         )
@@ -437,17 +452,19 @@ def _build_group_rows(
                     _inline_str_cell(f"B{first_row}", S_ACTIVITY_DESC, real_activities[0].description),
                     _formula_cell(f"C{first_row}", S_ACTIVITY_C_FORMULA, f"{HIDDEN_HELPER_COL}{calc_row}"),
                     _empty_cell(f"D{first_row}", S_FILLER),
-                    # Bruto/Performance não aparecem no relatório final pro cliente —
-                    # o valor calculado (bruto * performance) vai pra
+                    # o valor final (bruto * performance) sempre vai pra
                     # HIDDEN_HELPER_COL{calc_row} (coluna oculta de verdade, ver
-                    # `_hide_helper_column`). S_FILLER em vez dos estilos originais
-                    # (tinham borda/preenchimento verde).
-                    _empty_cell(f"E{first_row}", S_FILLER),
-                    _empty_cell(f"F{first_row}", S_FILLER),
+                    # `_hide_helper_column`) — E/F aqui são só EXIBIÇÃO do bruto e
+                    # da performance quando o usuário pede, não fazem parte do
+                    # cálculo (C{first_row} não referencia essas células).
+                    _number_cell(f"E{first_row}", S_ACTIVITY_HOURS, bruto_total) if include_performance else _empty_cell(f"E{first_row}", S_FILLER),
+                    _number_cell(f"F{first_row}", S_ACTIVITY_PERF, group.performance) if include_performance else _empty_cell(f"F{first_row}", S_FILLER),
                     _empty_cell(f"G{first_row}", S_FILLER),
                 ],
             )
             mark_activity_row(first_row, real_activities[0].description)
+            if include_performance:
+                total_bruto_cells.append(f"E{first_row}")
 
             calc_desc = other_descriptions[0] if other_descriptions else None
             add_cells(
@@ -504,7 +521,7 @@ def _build_group_rows(
 
         row = last_row + 2  # uma linha em branco entre grupos
 
-    return merges, total_hours_cells, row_heights, row
+    return merges, total_hours_cells, total_bruto_cells, row_heights, row
 
 
 def _build_totals_row(
@@ -512,13 +529,18 @@ def _build_totals_row(
     next_row: int,
     month_label: str,
     total_hours_cells: list[str],
+    total_bruto_cells: list[str],
     pacote_scope: str | None = None,
+    include_performance: bool = False,
 ) -> int:
     """Escreve a linha "Total de horas {mês}:" (soma das células C de cada
-    grupo) e, logo abaixo, uma linha em branco no lugar do antigo resumo
-    Bruto/Performance (não aparece mais no relatório final) — mas com uma
-    marca oculta em HIDDEN_HELPER_COL: vazia significa "este relatório cobre
-    o projeto inteiro", um texto significa "cobre só o pacote de trabalho
+    grupo) e, logo abaixo, a linha de resumo Bruto/Performance (E = soma do
+    Bruto de cada grupo, F = razão total/bruto — a mesma "performance geral"
+    que `PreviewSheet.tsx` calcula como `totalHoras / totalBruto`), quando
+    `include_performance=True`; senão essas duas células ficam em branco,
+    como sempre. A marca oculta em HIDDEN_HELPER_COL continua sendo escrita
+    sempre, independente do flag: vazia significa "este relatório cobre o
+    projeto inteiro", um texto significa "cobre só o pacote de trabalho
     identificado por esse texto" (usado por email_ingest.read_project_identity
     pra decidir status "enviado"/"parcial" por projeto, ver management.py).
     Retorna bruto_row — a última linha de dados usada pelo relatório (==
@@ -531,30 +553,37 @@ def _build_totals_row(
         [
             _inline_str_cell(f"B{total_row}", S_TOTAL_LABEL, f"Total de horas {month_label}:"),
             _formula_cell(f"C{total_row}", S_TOTAL_VALUE, total_value.lstrip("=")),
-            _empty_cell(f"E{total_row}", S_FILLER),
-            _empty_cell(f"F{total_row}", S_FILLER),
+            _inline_str_cell(f"E{total_row}", S_LABEL, "Bruto") if include_performance else _empty_cell(f"E{total_row}", S_FILLER),
+            _inline_str_cell(f"F{total_row}", S_LABEL, "Performance") if include_performance else _empty_cell(f"F{total_row}", S_FILLER),
         ],
     )
 
     bruto_row = total_row + 1
-    _add_cells(
-        rows_by_number,
-        bruto_row,
-        [
-            _empty_cell(f"E{bruto_row}", S_FILLER),
-            _empty_cell(f"F{bruto_row}", S_FILLER),
-            _inline_str_cell(f"{HIDDEN_HELPER_COL}{bruto_row}", S_FILLER, pacote_scope or ""),
-        ],
-    )
+    bruto_cells = [
+        _formula_cell(f"E{bruto_row}", S_SUM_E, f"SUM({','.join(total_bruto_cells)})")
+        if include_performance and total_bruto_cells
+        else _empty_cell(f"E{bruto_row}", S_FILLER),
+        _formula_cell(f"F{bruto_row}", S_RATIO_F, f"C{total_row}/E{bruto_row}")
+        if include_performance and total_bruto_cells
+        else _empty_cell(f"F{bruto_row}", S_FILLER),
+        _inline_str_cell(f"{HIDDEN_HELPER_COL}{bruto_row}", S_FILLER, pacote_scope or ""),
+    ]
+    _add_cells(rows_by_number, bruto_row, bruto_cells)
     return bruto_row
 
 
-def _build_groups_xml(groups: list[GroupInput], month_label: str, pacote_scope: str | None = None):
+def _build_groups_xml(
+    groups: list[GroupInput], month_label: str, pacote_scope: str | None = None, include_performance: bool = False
+):
     """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
     rows_by_number: dict[int, list[str]] = {}
 
-    merges, total_hours_cells, row_heights, next_row = _build_group_rows(rows_by_number, groups)
-    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells, pacote_scope)
+    merges, total_hours_cells, total_bruto_cells, row_heights, next_row = _build_group_rows(
+        rows_by_number, groups, include_performance
+    )
+    bruto_row = _build_totals_row(
+        rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells, pacote_scope, include_performance
+    )
 
     rows = [
         _row(number, cells, height=row_heights.get(number, DEFAULT_ROW_HEIGHT))
@@ -675,6 +704,7 @@ def generate_report(
     chart_image_bar_b64: str | None = None,
     chart_image_pie_b64: str | None = None,
     pacote_scope: str | None = None,
+    include_performance: bool = False,
 ) -> str:
     with zipfile.ZipFile(TEMPLATE_PATH) as zin:
         names = zin.namelist()
@@ -699,7 +729,9 @@ def generate_report(
     sheet_xml = _replace_header_cell(sheet_xml, "K13", S_FILLER, "")
     sheet_xml = _hide_helper_column(sheet_xml)
 
-    data_rows, group_merges, last_data_row = _build_groups_xml(groups, header.month_label, pacote_scope)
+    data_rows, group_merges, last_data_row = _build_groups_xml(
+        groups, header.month_label, pacote_scope, include_performance
+    )
 
     start = sheet_xml.index(f'<row r="{GROUP_START_ROW}"')
     end = sheet_xml.index("</sheetData>")

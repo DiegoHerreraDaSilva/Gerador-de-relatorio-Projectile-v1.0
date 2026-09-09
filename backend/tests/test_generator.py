@@ -11,6 +11,7 @@ import re
 
 import pytest
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 
 from backend.app.generator import ActivityInput, GroupInput, HIDDEN_HELPER_COL
 
@@ -150,3 +151,69 @@ def test_pacote_scope_marker_carries_pacote_text(tmp_path):
     label_cell = _find_total_label_cell(ws)
     marker_cell = ws[f"{HIDDEN_HELPER_COL}{label_cell.row + 1}"]
     assert marker_cell.value == pacote_text
+
+
+def test_include_performance_false_keeps_bruto_performance_columns_empty(report_path):
+    """Sem marcar "Incluir performance" (default), as colunas E/F continuam
+    em branco — comportamento de hoje, não pode regredir com a opção nova."""
+    wb = load_workbook(report_path, data_only=False)
+    ws = wb.active
+
+    for row_number in range(15, 30):
+        for col in ("E", "F"):
+            cell = ws[f"{col}{row_number}"]
+            value = cell.value if not isinstance(cell, MergedCell) else None
+            assert value is None, f"{col}{row_number} deveria estar vazia, veio {value!r}"
+
+
+def test_include_performance_true_shows_bruto_and_performance_per_group(tmp_path):
+    """Com a opção marcada, cada grupo mostra "Bruto"/"Performance" no
+    cabeçalho e os valores correspondentes na 1ª linha de atividade — mesma
+    informação que `.preview-side-box` já mostra no preview por grupo."""
+    groups = [
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)]),
+        GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
+    ]
+    path = make_report(tmp_path, groups=groups, include_performance=True)
+    wb = load_workbook(path, data_only=False)
+    ws = wb.active
+
+    header_cells = [c for row in ws.iter_rows(min_row=15, max_row=30) for c in row if c.value in ("Grupo A", "Grupo B")]
+    by_name = {c.value: c.row for c in header_cells}
+
+    row_a = by_name["Grupo A"]
+    assert ws[f"E{row_a}"].value == "Bruto"
+    assert ws[f"F{row_a}"].value == "Performance"
+    assert ws[f"E{row_a + 1}"].value == 10.0
+    assert ws[f"F{row_a + 1}"].value == 1.1
+
+    row_b = by_name["Grupo B"]
+    assert ws[f"E{row_b}"].value == "Bruto"
+    assert ws[f"F{row_b}"].value == "Performance"
+    assert ws[f"E{row_b + 1}"].value == 8.0
+    assert ws[f"F{row_b + 1}"].value == 0.9
+
+
+def test_include_performance_true_shows_grand_total_bruto_and_performance(tmp_path):
+    """A linha abaixo do total mostra o Bruto somado (SUM das células E de
+    cada grupo) e a Performance geral, como a razão total líquido / bruto
+    total — a mesma conta que `PreviewSheet.tsx` já faz (`totalHoras /
+    totalBruto`) pra mostrar no preview."""
+    groups = [
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)]),
+        GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
+    ]
+    path = make_report(tmp_path, groups=groups, include_performance=True)
+    wb = load_workbook(path, data_only=False)
+    ws = wb.active
+
+    label_cell = _find_total_label_cell(ws)
+    assert ws[f"E{label_cell.row}"].value == "Bruto"
+    assert ws[f"F{label_cell.row}"].value == "Performance"
+
+    bruto_row = label_cell.row + 1
+    bruto_formula = ws[f"E{bruto_row}"].value
+    assert isinstance(bruto_formula, str) and bruto_formula.startswith("=SUM(")
+
+    perf_formula = ws[f"F{bruto_row}"].value
+    assert perf_formula == f"=C{label_cell.row}/E{bruto_row}"

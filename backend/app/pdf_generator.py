@@ -76,6 +76,37 @@ def _group_display(group: GroupInput) -> tuple[list[str], float]:
     return descriptions, group_hours
 
 
+def _bruto_performance_cell(bruto: float, performance: float, label_style: ParagraphStyle, value_style: ParagraphStyle) -> Table:
+    """Mini-tabela "Bruto | Performance" (cabeçalho pequeno + valores embaixo)
+    — mesma informação, na mesma disposição, da caixa `.preview-side-box` do
+    preview (ver `PreviewSheet.tsx`). Usada tanto por grupo quanto na linha de
+    total, só aparece quando `include_performance=True`."""
+    table = Table(
+        [
+            [Paragraph("Bruto", label_style), Paragraph("Performance", label_style)],
+            [Paragraph(_fmt_hours(bruto), value_style), Paragraph(_fmt_number(round(performance, 3)).replace(".", ","), value_style)],
+        ],
+        colWidths=["50%", "50%"],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                # linha branca semi-transparente — o fundo aqui é sempre escuro
+                # (barra do grupo/faixa de total), _BORDER (cinza claro) não
+                # teria contraste nenhum.
+                ("LINEAFTER", (0, 0), (0, -1), 0.4, colors.Color(1, 1, 1, alpha=0.4)),
+            ]
+        )
+    )
+    return table
+
+
 def _signature_table(header: ReportHeader) -> Table:
     style = ParagraphStyle("sig", fontName="Helvetica-Bold", fontSize=9, alignment=1, textColor=colors.black)
     company_style = ParagraphStyle("sigCompany", fontName="Helvetica", fontSize=8, alignment=1, textColor=_TEXT_MUTED)
@@ -148,6 +179,7 @@ def generate_report_pdf(
     chart_image_bar_b64: str | None = None,
     chart_image_pie_b64: str | None = None,
     pacote_scope: str | None = None,
+    include_performance: bool = False,
 ) -> None:
     doc = SimpleDocTemplate(
         output_path,
@@ -173,6 +205,12 @@ def generate_report_pdf(
     total_value_style = ParagraphStyle(
         "totalValue", fontName="Helvetica-Bold", fontSize=13, alignment=2, textColor=colors.white
     )
+    # Bruto/Performance (ver `_bruto_performance_cell`) — só usados quando
+    # `include_performance=True`; mesmo espírito visual de `.preview-side-header`/
+    # `.preview-side-values` do preview: rótulo pequeno e discreto, valor um
+    # pouco mais forte, sobre o fundo escuro do cabeçalho de grupo/total.
+    bp_label_style = ParagraphStyle("bpLabel", fontName="Helvetica", fontSize=6.5, alignment=1, textColor=colors.white)
+    bp_value_style = ParagraphStyle("bpValue", fontName="Helvetica-Bold", fontSize=8.5, alignment=1, textColor=colors.white)
 
     story: list = []
 
@@ -207,10 +245,19 @@ def generate_report_pdf(
     story.append(Spacer(1, 8 * mm))
 
     grand_total = 0.0
+    grand_bruto = 0.0
     content_width = A4[0] - 2 * _MARGIN_H
+    last_col = 2 if include_performance else 1
+    col_widths = (
+        [content_width * 0.52, content_width * 0.20, content_width * 0.28]
+        if include_performance
+        else [content_width * 0.72, content_width * 0.28]
+    )
     for group in groups:
         descriptions, group_hours = _group_display(group)
         grand_total += group_hours
+        bruto_total = round(sum(a.hours for a in group.activities if a.hours is not None), 3)
+        grand_bruto += bruto_total
 
         # Cabeçalho do grupo + atividades numa ÚNICA Table (não duas
         # flowables presas por KeepTogether): assim o reportlab pode quebrar
@@ -221,18 +268,27 @@ def generate_report_pdf(
         # nome do grupo NÃO repete quando ele quebra entre páginas, as
         # atividades continuam direto (pedido explícito do usuário).
         #
-        # Total de horas fica na coluna 1, mesclada verticalmente ao lado de
-        # TODAS as atividades (não na barra do nome) — mesma posição do
+        # Total de horas fica na ÚLTIMA coluna, mesclada verticalmente ao lado
+        # de TODAS as atividades (não na barra do nome) — mesma posição do
         # `.xlsx` (ver `generator._build_group_rows`, mescla "C{first_row}:
-        # C{last_row}"), centralizada.
-        table_data = [[Paragraph(group.name, group_title_style), ""]]
+        # C{last_row}"), centralizada. Quando `include_performance`, uma
+        # coluna extra entre a descrição e a hora mostra Bruto/Performance
+        # (ver `_bruto_performance_cell`), mesma informação que
+        # `generator.py` grava nas colunas E/F do `.xlsx`.
+        header_row = [Paragraph(group.name, group_title_style), ""]
+        if include_performance:
+            header_row.append("")
+        table_data = [header_row]
         for idx, desc in enumerate(descriptions):
-            hours_cell = Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == 0 else ""
-            table_data.append([Paragraph(f"• {desc}", activity_style), hours_cell])
+            row = [Paragraph(f"• {desc}", activity_style)]
+            if include_performance:
+                row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style, bp_value_style) if idx == 0 else "")
+            row.append(Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == 0 else "")
+            table_data.append(row)
 
         style_commands = [
-            ("SPAN", (0, 0), (1, 0)),
-            ("BACKGROUND", (0, 0), (1, 0), _ACCENT_DARK),
+            ("SPAN", (0, 0), (last_col, 0)),
+            ("BACKGROUND", (0, 0), (last_col, 0), _ACCENT_DARK),
             ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
             ("VALIGN", (0, 1), (0, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (0, 0), 8),
@@ -244,37 +300,42 @@ def generate_report_pdf(
             ("BOX", (0, 0), (-1, -1), 0.5, _BORDER),
         ]
         if len(table_data) > 1:
-            style_commands.append(("SPAN", (1, 1), (1, len(table_data) - 1)))
-            style_commands.append(("VALIGN", (1, 1), (1, -1), "MIDDLE"))
-            style_commands.append(("ALIGN", (1, 1), (1, -1), "CENTER"))
+            style_commands.append(("SPAN", (last_col, 1), (last_col, len(table_data) - 1)))
+            style_commands.append(("VALIGN", (last_col, 1), (last_col, -1), "MIDDLE"))
+            style_commands.append(("ALIGN", (last_col, 1), (last_col, -1), "CENTER"))
             # linha vertical separando a descrição da coluna de horas — só nas
             # linhas de atividade, a barra do nome (linha 0) já é uma cor
             # sólida sem divisão.
             style_commands.append(("LINEAFTER", (0, 1), (0, -1), 0.5, _BORDER))
+            if include_performance:
+                style_commands.append(("SPAN", (1, 1), (1, len(table_data) - 1)))
+                style_commands.append(("VALIGN", (1, 1), (1, -1), "MIDDLE"))
+                style_commands.append(("LINEAFTER", (1, 1), (1, -1), 0.5, _BORDER))
         for row_idx in range(1, len(table_data) - 1):
             style_commands.append(("LINEBELOW", (0, row_idx), (0, row_idx), 0.4, _BORDER))
 
-        group_table = Table(table_data, colWidths=[content_width * 0.72, content_width * 0.28])
+        group_table = Table(table_data, colWidths=col_widths)
         group_table.setStyle(TableStyle(style_commands))
         story.append(group_table)
         story.append(Spacer(1, 5 * mm))
 
-    total_row = Table(
-        [[Paragraph(f"Total de horas {header.month_label}:", total_label_style), Paragraph(_fmt_hours(grand_total), total_value_style)]],
-        colWidths=[content_width * 0.72, content_width * 0.28],
-    )
-    total_row.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), _ACCENT),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (0, 0), 8),
-                ("RIGHTPADDING", (1, 0), (1, 0), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ]
-        )
-    )
+    total_row_cells = [Paragraph(f"Total de horas {header.month_label}:", total_label_style)]
+    if include_performance:
+        total_performance = grand_total / grand_bruto if grand_bruto > 0 else 0.0
+        total_row_cells.append(_bruto_performance_cell(grand_bruto, total_performance, bp_label_style, bp_value_style))
+    total_row_cells.append(Paragraph(_fmt_hours(grand_total), total_value_style))
+    total_row = Table([total_row_cells], colWidths=col_widths)
+    total_style_commands = [
+        ("BACKGROUND", (0, 0), (-1, -1), _ACCENT),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (0, 0), 8),
+        ("RIGHTPADDING", (last_col, 0), (last_col, 0), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]
+    if include_performance:
+        total_style_commands.append(("ALIGN", (1, 0), (1, 0), "CENTER"))
+    total_row.setStyle(TableStyle(total_style_commands))
     story.append(total_row)
     story.append(Spacer(1, 6 * mm))
 

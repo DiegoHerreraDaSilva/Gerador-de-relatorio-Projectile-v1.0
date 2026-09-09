@@ -111,6 +111,7 @@ type TabBundle = {
   importSelectedClient: string;
   importSelectedProjectIds: Set<string>;
   importClientReportMode: "pacote" | "projeto";
+  includePerformanceInExport: boolean;
   isSplit: boolean;
   paneBPackageId: string | null;
   validationCollapsed: boolean;
@@ -134,6 +135,7 @@ export function serializeTabBundle(state: StoreState): string {
     importSelectedClient: state.importSelectedClient,
     importSelectedProjectIds: state.importSelectedProjectIds,
     importClientReportMode: state.importClientReportMode,
+    includePerformanceInExport: state.includePerformanceInExport,
     isSplit: state.isSplit,
     paneBPackageId: state.paneBPackageId,
     validationCollapsed: state.validationCollapsed,
@@ -159,6 +161,7 @@ export function applyTabBundle(bundleStr: string, state: StoreState) {
   state.importSelectedClient = parsed.importSelectedClient;
   state.importSelectedProjectIds = parsed.importSelectedProjectIds;
   state.importClientReportMode = parsed.importClientReportMode;
+  state.includePerformanceInExport = parsed.includePerformanceInExport;
   state.isSplit = parsed.isSplit;
   state.paneBPackageId = parsed.paneBPackageId;
   state.validationCollapsed = parsed.validationCollapsed;
@@ -185,6 +188,7 @@ export function blankTabBundle(): string {
     importSelectedClient: "",
     importSelectedProjectIds: new Set(),
     importClientReportMode: "pacote",
+    includePerformanceInExport: false,
     isSplit: false,
     paneBPackageId: null,
     validationCollapsed: false,
@@ -215,6 +219,9 @@ export interface StoreState {
   importSelectedClient: string;
   importSelectedProjectIds: Set<string>;
   importClientReportMode: "pacote" | "projeto";
+  // checkbox "Incluir performance" no rodapé de Gerar Relatório — por guia,
+  // mesmo motivo dos campos de import acima.
+  includePerformanceInExport: boolean;
   activePackageId: string | null;
   reportMode: "single" | "multi";
   currentIssues: RowIssue[];
@@ -240,6 +247,7 @@ export interface StoreState {
   setImportSelectedClient: (v: string) => void;
   setImportSelectedProjectIds: (v: Set<string>) => void;
   setImportClientReportMode: (v: "pacote" | "projeto") => void;
+  setIncludePerformanceInExport: (v: boolean) => void;
   setActivePackageId: (id: string) => void;
   setReportMode: (mode: "single" | "multi") => void;
   setIssues: (issues: RowIssue[]) => void;
@@ -393,6 +401,7 @@ export const useReportStore = create<StoreState>()(
     importSelectedClient: "",
     importSelectedProjectIds: new Set(),
     importClientReportMode: "pacote",
+    includePerformanceInExport: false,
     activePackageId: null,
     reportMode: "single",
     currentIssues: [],
@@ -517,6 +526,10 @@ export const useReportStore = create<StoreState>()(
     setImportClientReportMode: (v) =>
       set((s) => {
         s.importClientReportMode = v;
+      }),
+    setIncludePerformanceInExport: (v) =>
+      set((s) => {
+        s.includePerformanceInExport = v;
       }),
     resetParsedState: () =>
       set((s) => {

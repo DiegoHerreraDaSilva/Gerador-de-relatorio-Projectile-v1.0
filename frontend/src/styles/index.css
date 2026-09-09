@@ -2004,8 +2004,17 @@
   .generate-footer-send { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
   .generate-total { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 9px; }
   .generate-total strong { color: var(--text); font-size: 1.1rem; }
+  /* wrapper próprio pra nome do arquivo + checkbox nunca se separarem: o par
+     pode quebrar de linha em relação ao resto do rodapé (`.generate-footer-main`
+     já tem flex-wrap), mas sempre fica lado a lado entre si. */
+  .filename-with-performance { display: flex; align-items: flex-end; gap: 12px; flex-wrap: nowrap; }
   .filename-field { width: 100%; max-width: 380px; }
   .filename-field label { margin: 0 0 4px; text-align: left; font-size: 0.78rem; }
+  .include-performance-checkbox {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.82rem; color: var(--text-muted);
+    margin-bottom: 9px; white-space: nowrap; flex: 0 0 auto;
+  }
   .generate-footer button.primary {
     padding: 14px 32px;
     font-size: 1rem;

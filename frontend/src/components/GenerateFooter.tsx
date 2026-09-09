@@ -22,6 +22,8 @@ export function GenerateFooter() {
   const fileNameEdited = useReportStore((s) => s.fileNameEdited);
   const setFileName = useReportStore((s) => s.setFileName);
   const setHasGeneratedOnce = useReportStore((s) => s.setHasGeneratedOnce);
+  const includePerformance = useReportStore((s) => s.includePerformanceInExport);
+  const setIncludePerformance = useReportStore((s) => s.setIncludePerformanceInExport);
   const [status, setStatus] = useState("");
   const [showSendModal, setShowSendModal] = useState(false);
   const [formats, setFormats] = useState<Set<ReportFormat>>(() => new Set(["xlsx"]));
@@ -73,6 +75,7 @@ export function GenerateFooter() {
         pacote_scope: pkg.pacoteScope,
       })),
       formats: Array.from(formats),
+      include_performance: includePerformance,
     };
 
     setStatus("Gerando...");
@@ -132,9 +135,15 @@ export function GenerateFooter() {
           <button className="primary" onClick={handleGenerate}>
             Gerar relatório final
           </button>
-          <div className="filename-field">
-            <label>{isZipOutput ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
-            <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
+          <div className="filename-with-performance">
+            <div className="filename-field">
+              <label>{isZipOutput ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
+              <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
+            </div>
+            <label className="include-performance-checkbox" title="Inclui no arquivo o Bruto e a Performance de cada grupo, e o total geral — mesma informação que já aparece no preview.">
+              <input type="checkbox" checked={includePerformance} onChange={(e) => setIncludePerformance(e.target.checked)} />
+              <span>Incluir performance</span>
+            </label>
           </div>
         </div>
         <button type="button" className="primary generate-footer-send" onClick={() => setShowSendModal(true)}>

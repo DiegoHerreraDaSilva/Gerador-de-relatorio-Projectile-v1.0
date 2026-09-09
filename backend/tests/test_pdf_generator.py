@@ -102,3 +102,38 @@ def test_pdf_empty_group_gets_placeholder_not_dropped(tmp_path):
     text = "\n".join(page.extract_text() for page in reader.pages)
     assert "Grupo Vazio" in text
     assert "sem atividades apontadas" in text
+
+
+def test_pdf_include_performance_false_omits_bruto_and_performance(tmp_path):
+    """Sem marcar "Incluir performance" (default), o PDF não mostra "Bruto"
+    nem "Performance" em lugar nenhum — comportamento de hoje."""
+    groups = [GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)])]
+    pdf_path = make_report_pdf(tmp_path, groups=groups)
+    reader = PdfReader(pdf_path)
+    text = "\n".join(page.extract_text() for page in reader.pages)
+    assert "Bruto" not in text
+    assert "Performance" not in text
+
+
+def test_pdf_include_performance_true_shows_bruto_and_performance(tmp_path):
+    """Com a opção marcada, o PDF mostra "Bruto"/"Performance" por grupo e no
+    total geral — mesma informação, mesmos números, que `.preview-side-box`
+    já mostra no preview (ver teste equivalente em `test_generator.py`)."""
+    groups = [
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)]),
+        GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
+    ]
+    pdf_path = make_report_pdf(tmp_path, groups=groups, include_performance=True)
+    reader = PdfReader(pdf_path)
+    text = "\n".join(page.extract_text() for page in reader.pages)
+
+    assert text.count("Bruto") == 3  # 2 grupos + total geral
+    assert text.count("Performance") == 3
+    # Bruto por grupo (10h e 8h) e performance por grupo (1,1 e 0,9)
+    assert "10 h" in text
+    assert "8 h" in text
+    assert "1,1" in text
+    assert "0,9" in text
+    # Bruto total (18h) e performance geral ponderada (18,2/18 ≈ 1,011)
+    assert "18 h" in text
+    assert "1,011" in text

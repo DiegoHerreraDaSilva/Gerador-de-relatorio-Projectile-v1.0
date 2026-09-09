@@ -844,6 +844,13 @@ class ReportPackagePayload(BaseModel):
 class GeneratePayload(BaseModel):
     packages: list[ReportPackagePayload] = Field(min_length=1)
     formats: list[Literal["xlsx", "pdf"]] = Field(default=["xlsx"], min_length=1)
+    # checkbox "Incluir performance" no rodapé de Gerar Relatório — inclui no
+    # arquivo o Bruto/Performance por grupo e o total geral (ver
+    # generator._build_group_rows/_build_totals_row e
+    # pdf_generator.generate_report_pdf), mesma informação que já aparece só
+    # no preview (PreviewSheet.tsx). Não se aplica ao /send-report (envio por
+    # e-mail) — fora do pedido original, sempre False lá.
+    include_performance: bool = False
 
 
 def _report_groups(pkg_payload: ReportPackagePayload) -> tuple[ReportHeader, list[GroupInput]]:
@@ -859,7 +866,12 @@ def _report_groups(pkg_payload: ReportPackagePayload) -> tuple[ReportHeader, lis
     return header, groups
 
 
-def _build_report(pkg_payload: ReportPackagePayload, output_path: str, fmt: Literal["xlsx", "pdf"] = "xlsx") -> ReportHeader:
+def _build_report(
+    pkg_payload: ReportPackagePayload,
+    output_path: str,
+    fmt: Literal["xlsx", "pdf"] = "xlsx",
+    include_performance: bool = False,
+) -> ReportHeader:
     header, groups = _report_groups(pkg_payload)
     if fmt == "pdf":
         generate_report_pdf(
@@ -869,6 +881,7 @@ def _build_report(pkg_payload: ReportPackagePayload, output_path: str, fmt: Lite
             chart_image_bar_b64=pkg_payload.chart_image_bar,
             chart_image_pie_b64=pkg_payload.chart_image_pie,
             pacote_scope=pkg_payload.pacote_scope,
+            include_performance=include_performance,
         )
     else:
         generate_report(
@@ -878,6 +891,7 @@ def _build_report(pkg_payload: ReportPackagePayload, output_path: str, fmt: Lite
             chart_image_bar_b64=pkg_payload.chart_image_bar,
             chart_image_pie_b64=pkg_payload.chart_image_pie,
             pacote_scope=pkg_payload.pacote_scope,
+            include_performance=include_performance,
         )
     return header
 
@@ -928,7 +942,7 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
         fmt = formats[0]
         output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
         try:
-            header = _build_report(payload.packages[0], output_path, fmt)
+            header = _build_report(payload.packages[0], output_path, fmt, payload.include_performance)
         except NonFiniteValueError as e:
             # Um valor individualmente válido (finito, >= 0) ainda pode virar
             # infinito ao ser somado com outro (ex: duas horas enormes que juntas
@@ -960,7 +974,7 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
                 for fmt in formats:
                     tmp_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
                     try:
-                        header = _build_report(pkg_payload, tmp_path, fmt)
+                        header = _build_report(pkg_payload, tmp_path, fmt, payload.include_performance)
                         download_name = _sanitized_file_name(pkg_payload.file_name, header, fmt)
                         final_name = _dedupe_name(download_name, used_arcnames)
                         used_arcnames.add(final_name)
