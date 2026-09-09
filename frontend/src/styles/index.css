@@ -2017,10 +2017,10 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    height: 46px;
+    height: 36px; /* mesma altura do input de "Nome do arquivo" ao lado */
     margin: 0;
     box-sizing: border-box;
-    padding: 8px 16px;
+    padding: 0 16px;
     border-radius: 9px;
     border: 1px solid var(--border);
     background: var(--surface);
