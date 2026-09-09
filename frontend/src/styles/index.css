@@ -2010,10 +2010,40 @@
   .filename-with-performance { display: flex; align-items: flex-end; gap: 12px; flex-wrap: nowrap; }
   .filename-field { width: 100%; max-width: 380px; }
   .filename-field label { margin: 0 0 4px; text-align: left; font-size: 0.78rem; }
+  /* mesmo cartão visual de .format-checkbox (Excel/PDF, ao lado deste no
+     rodapé) — altura/borda/raio iguais, pra formar um conjunto coerente em
+     vez de um checkbox nativo pequeno perdido no meio dos outros controles. */
   .include-performance-checkbox {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 0.82rem; color: var(--text-muted);
-    margin-bottom: 9px; white-space: nowrap; flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 46px;
+    margin: 0;
+    box-sizing: border-box;
+    padding: 8px 16px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex: 0 0 auto;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  }
+  .include-performance-checkbox:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+  .include-performance-checkbox:has(input:checked) {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    color: var(--accent);
+  }
+  .include-performance-checkbox input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    accent-color: var(--accent);
+    cursor: pointer;
   }
   .generate-footer button.primary {
     padding: 14px 32px;
