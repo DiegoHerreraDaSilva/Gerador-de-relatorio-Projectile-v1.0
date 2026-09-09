@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Database, FileSpreadsheet, Upload } from "lucide-react";
 import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
+import { useReportTabsStore } from "../store/useReportTabsStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 import type { ParseResponse } from "../api/types";
@@ -253,9 +254,7 @@ export function FileUpload() {
   const setIssues = useReportStore((s) => s.setIssues);
   // seleção deste card (fonte/cliente/projetos/modo) vive na store, não em
   // useState local — cada guia (ver useReportTabsStore) precisa manter a
-  // própria busca configurada ao voltar pra ela, em vez de perder tudo só
-  // porque trocar de guia desmonta e remonta este componente (ver
-  // key={activeTabId} em App.tsx).
+  // própria busca configurada ao voltar pra ela.
   const source = useReportStore((s) => s.importSource);
   const setSource = useReportStore((s) => s.setImportSource);
   const byClient = useReportStore((s) => s.importByClient);
@@ -266,6 +265,25 @@ export function FileUpload() {
   const setSelectedProjectIds = useReportStore((s) => s.setImportSelectedProjectIds);
   const clientReportMode = useReportStore((s) => s.importClientReportMode);
   const setClientReportMode = useReportStore((s) => s.setImportClientReportMode);
+  const activeTabId = useReportTabsStore((s) => s.activeTabId);
+
+  // reseta o que é puramente transitório desta tela (arquivo ainda não
+  // enviado, resultado da última busca) ao trocar de guia — um arquivo
+  // escolhido mas não analisado, ou a mensagem de status da guia anterior,
+  // não fazem sentido continuar aparecendo numa guia diferente. Feito via
+  // efeito (não via `key={activeTabId}` em App.tsx) porque forçar
+  // desmontagem/remontagem do componente inteiro depende do React
+  // reconciliar de forma consistente duas stores Zustand independentes
+  // mudando no mesmo clique (useReportTabsStore.activeTabId e
+  // useReportStore) — visto ao vivo causando tanto o componente antigo
+  // nunca desmontar quanto instâncias "fantasmas" acumulando na tela.
+  useEffect(() => {
+    setSelectedFile(null);
+    setDragging(false);
+    setSearching(false);
+    setStatus("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   const { month: searchMonth, year: searchYear } = parseMonthLabel(monthLabel);
   const setSearchMonth = (month: string) => setHeaderField("monthLabel", `${month}/${searchYear}`);

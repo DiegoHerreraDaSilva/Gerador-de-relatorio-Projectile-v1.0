@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useReportStore } from "../store/useReportStore";
+import { useReportTabsStore } from "../store/useReportTabsStore";
 import type { RowIssue } from "../api/types";
 
 const ISSUE_HIGHLIGHT_PHRASES: Record<string, string[]> = {
@@ -49,6 +50,7 @@ export function ValidationBanner() {
   const setCollapsed = useReportStore((s) => s.setValidationCollapsed);
   const packages = useReportStore((s) => s.packages);
   const addActivitiesFromIssues = useReportStore((s) => s.addActivitiesFromIssues);
+  const activeTabId = useReportTabsStore((s) => s.activeTabId);
 
   // `issue.row` é único dentro da resposta de uma mesma importação (vem de
   // um contador incremental por linha/lançamento — ver parser.py/
@@ -57,6 +59,24 @@ export function ValidationBanner() {
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [target, setTarget] = useState("");
   const [addError, setAddError] = useState("");
+
+  // reseta a seleção/erro locais ao trocar de guia — sem isso, checkbox/
+  // grupo marcados em "Adicionar como atividade" sobreviviam à troca e
+  // podiam apontar pra pacote/grupo de OUTRA guia, fazendo a hora
+  // recuperável sumir da lista sem ser adicionada em lugar nenhum.
+  // Antes isso era feito via `key={activeTabId}` em App.tsx, forçando o
+  // React a desmontar/remontar o componente inteiro — mas trocar de guia
+  // muda DUAS stores Zustand independentes (useReportTabsStore.activeTabId
+  // e useReportStore.currentIssues) dentro do mesmo clique, e o React podia
+  // reconciliar a troca de key de forma inconsistente (viu-se ao vivo tanto
+  // o componente antigo nunca desmontar quanto dois bancos "fantasmas"
+  // acumulando na tela). Resetar via efeito, com o componente sempre
+  // montado, elimina essa dependência de mount/unmount coordenado.
+  useEffect(() => {
+    setChecked(new Set());
+    setTarget("");
+    setAddError("");
+  }, [activeTabId]);
 
   if (!issues.length) return null;
 
