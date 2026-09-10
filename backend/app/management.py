@@ -52,6 +52,7 @@ import calendar
 import html
 import json
 import os
+import threading
 import time
 from datetime import date, datetime, timezone
 from uuid import uuid4
@@ -99,6 +100,19 @@ _PACOTE_SCOPE_ALL = "__ALL__"
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 _DATA_FILE = os.path.join(_DATA_DIR, "management_kpi.json")
+
+# protege TODO load-modifica-salva de management_kpi.json como uma transação
+# atômica — sem isso, uma escrita "lenta" (ex: _poll_emails_loop, que carrega
+# o arquivo, faz uma chamada de rede real pro Graph e só depois salva, tudo
+# numa thread separada via asyncio.to_thread) podia carregar um snapshot
+# ANTES de outra escrita "rápida" e concorrente (ex: o usuário adicionando um
+# relatório manual pela tela de Diagnóstico), e ao salvar por cima minutos
+# depois, apagar silenciosamente essa escrita concorrente — bug real
+# reproduzido em backend/tests/test_management.py::
+# test_concurrent_writes_without_lock_lose_data. RLock (não Lock) porque as
+# funções públicas abaixo chamam _load_data()/_save_data(), que também
+# tomam o lock — precisa ser reentrante pela mesma thread.
+_DATA_LOCK = threading.RLock()
 
 _DEFAULT_DATA = {
     "manual_entries": {},
@@ -207,17 +221,19 @@ def _recompute_duplicate_flags(samples: list[dict]) -> None:
 
 
 def set_manual_entry(month: str, billed_hours: float | None, elaboration_days: float | None) -> None:
-    data = _load_data()
-    data["manual_entries"][month] = {"billed_hours": billed_hours, "elaboration_days": elaboration_days}
-    _save_data(data)
+    with _DATA_LOCK:
+        data = _load_data()
+        data["manual_entries"][month] = {"billed_hours": billed_hours, "elaboration_days": elaboration_days}
+        _save_data(data)
 
 
 def is_message_processed(message_id: str) -> bool:
     """Consultado por `email_ingest.py` antes de baixar/processar um e-mail —
     garante idempotência mesmo com pollings sobrepostos ou reinícios do
     backend (`--reload`) no meio de um ciclo."""
-    data = _load_data()
-    return message_id in data["processed_message_ids"]
+    with _DATA_LOCK:
+        data = _load_data()
+        return message_id in data["processed_message_ids"]
 
 
 def append_project_kpi_sample(sample: dict) -> bool:
@@ -232,13 +248,14 @@ def append_project_kpi_sample(sample: dict) -> bool:
     `project_id`/`month`/`pacote_scope` de uma amostra já existente — ver
     `_recompute_duplicate_flags`) — `email_ingest.py` usa isso pra contar
     separadamente no resumo do polling em vez de somar como "amostra nova"."""
-    data = _load_data()
-    data["project_kpi_samples"].append(sample)
-    _recompute_duplicate_flags(data["project_kpi_samples"])
-    if sample["email_message_id"] not in data["processed_message_ids"]:
-        data["processed_message_ids"].append(sample["email_message_id"])
-    _save_data(data)
-    return bool(sample.get("is_duplicate"))
+    with _DATA_LOCK:
+        data = _load_data()
+        data["project_kpi_samples"].append(sample)
+        _recompute_duplicate_flags(data["project_kpi_samples"])
+        if sample["email_message_id"] not in data["processed_message_ids"]:
+            data["processed_message_ids"].append(sample["email_message_id"])
+        _save_data(data)
+        return bool(sample.get("is_duplicate"))
 
 
 def append_skipped_message(message_id: str, received_at: str, reason: str) -> None:
@@ -247,13 +264,14 @@ def append_skipped_message(message_id: str, received_at: str, reason: str) -> No
     (sem anexo .xlsx reconhecível, "Total de horas" não encontrado, etc) e
     marca o e-mail como processado — não fica tentando de novo a cada
     polling, mas fica visível no diagnóstico."""
-    data = _load_data()
-    data["skipped_messages"].append({
-        "message_id": message_id, "received_at": received_at, "reason": reason,
-    })
-    if message_id not in data["processed_message_ids"]:
-        data["processed_message_ids"].append(message_id)
-    _save_data(data)
+    with _DATA_LOCK:
+        data = _load_data()
+        data["skipped_messages"].append({
+            "message_id": message_id, "received_at": received_at, "reason": reason,
+        })
+        if message_id not in data["processed_message_ids"]:
+            data["processed_message_ids"].append(message_id)
+        _save_data(data)
 
 
 def list_samples(month: str | None = None) -> dict:
@@ -262,7 +280,8 @@ def list_samples(month: str | None = None) -> dict:
     (projeto, mês), e o que foi pulado, já que o match de projeto é
     automático e sem revisão humana. `month=None` lista tudo (aba "Todos" da
     tela); com `month`, filtra só aquele mês, mesmo comportamento de antes."""
-    data = _load_data()
+    with _DATA_LOCK:
+        data = _load_data()
     samples = data["project_kpi_samples"]
     skipped = data["skipped_messages"]
     if month is not None:
@@ -280,22 +299,23 @@ def update_project_kpi_sample(sample_id: str, patch: dict) -> bool:
     "email"`), preservando a distinção entre dado automático corrigido e
     dado 100% manual. Devolve `False` se `sample_id` não existir (o endpoint
     responde 404 nesse caso)."""
-    data = _load_data()
-    for sample in data["project_kpi_samples"]:
-        if sample.get("sample_id") != sample_id:
-            continue
-        allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days"}
-        for key, value in patch.items():
-            if key in allowed_fields:
-                sample[key] = value
-        if sample.get("source") == "email":
-            sample["edited"] = True
-        # corrigir project_id/month pode mudar se essa amostra passa a
-        # colidir (ou deixa de colidir) com outra — recalcula do zero.
-        _recompute_duplicate_flags(data["project_kpi_samples"])
-        _save_data(data)
-        return True
-    return False
+    with _DATA_LOCK:
+        data = _load_data()
+        for sample in data["project_kpi_samples"]:
+            if sample.get("sample_id") != sample_id:
+                continue
+            allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days"}
+            for key, value in patch.items():
+                if key in allowed_fields:
+                    sample[key] = value
+            if sample.get("source") == "email":
+                sample["edited"] = True
+            # corrigir project_id/month pode mudar se essa amostra passa a
+            # colidir (ou deixa de colidir) com outra — recalcula do zero.
+            _recompute_duplicate_flags(data["project_kpi_samples"])
+            _save_data(data)
+            return True
+        return False
 
 
 def delete_project_kpi_sample(sample_id: str) -> bool:
@@ -303,17 +323,18 @@ def delete_project_kpi_sample(sample_id: str) -> bool:
     match errado do cálculo. Não mexe em `processed_message_ids`: o e-mail
     original continua marcado como processado e não volta a ser reprocessado
     no próximo polling (decisão confirmada com o usuário)."""
-    data = _load_data()
-    samples = data["project_kpi_samples"]
-    remaining = [s for s in samples if s.get("sample_id") != sample_id]
-    if len(remaining) == len(samples):
-        return False
-    # apagar a amostra "original" (não-duplicada) de uma identidade precisa
-    # promover a próxima da mesma identidade de volta a não-duplicada.
-    _recompute_duplicate_flags(remaining)
-    data["project_kpi_samples"] = remaining
-    _save_data(data)
-    return True
+    with _DATA_LOCK:
+        data = _load_data()
+        samples = data["project_kpi_samples"]
+        remaining = [s for s in samples if s.get("sample_id") != sample_id]
+        if len(remaining) == len(samples):
+            return False
+        # apagar a amostra "original" (não-duplicada) de uma identidade precisa
+        # promover a próxima da mesma identidade de volta a não-duplicada.
+        _recompute_duplicate_flags(remaining)
+        data["project_kpi_samples"] = remaining
+        _save_data(data)
+        return True
 
 
 def create_manual_project_kpi_sample(
@@ -429,7 +450,8 @@ def compute_monthly_kpis(
     selected_months: list[str] | None = None,
     force_refresh: bool = False,
 ) -> dict:
-    data = _load_data()
+    with _DATA_LOCK:
+        data = _load_data()
     manual_entries: dict = data["manual_entries"]
 
     active_cost_centers = cost_centers or ENGINEERING_COST_CENTERS

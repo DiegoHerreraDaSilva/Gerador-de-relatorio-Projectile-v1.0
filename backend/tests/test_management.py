@@ -301,3 +301,73 @@ def test_load_management_panel_logins_falls_back_when_env_missing(monkeypatch):
     logins = management._load_management_panel_logins()
 
     assert logins == {"dherrera"}
+
+
+# ---------------------------------------------------------------------------
+# Escrita concorrente em management_kpi.json — bug real relatado: um relatório
+# manual adicionado pelo Diagnóstico "sumiu" depois de reiniciar o backend.
+# Causa: _load_data()/_save_data() fazem leitura-modificação-escrita sem
+# nenhum lock, e o loop de polling de e-mail (_poll_emails_loop, rodando em
+# thread separada via asyncio.to_thread) chama funções que fazem o mesmo
+# ciclo — se o polling carrega o arquivo, demora (chamada de rede real) e só
+# depois salva, ele sobrescreve com um snapshot antigo qualquer escrita feita
+# nesse meio-tempo (ex: o usuário adicionando uma amostra manual).
+# ---------------------------------------------------------------------------
+
+def test_concurrent_writes_do_not_lose_data(tmp_path, monkeypatch):
+    """Duas escritas concorrentes — uma "lenta" (simulando o polling de
+    e-mail, que carrega o arquivo, demora numa chamada de rede real e só
+    depois salva) e uma "rápida" (simulando o usuário adicionando uma
+    amostra manual pelo Diagnóstico) — não podem se perder uma à outra.
+
+    Antes de `_DATA_LOCK` existir, isso reproduzia o bug relatado (um
+    relatório manual "sumindo" depois de reiniciar o backend, porque o
+    polling de e-mail salvava por cima com um snapshot carregado ANTES da
+    escrita manual): a operação lenta ficava livre pra carregar um snapshot
+    desatualizado enquanto a rápida escrevia por baixo dela, e ao salvar de
+    volta apagava essa escrita. Com o lock, a rápida fica bloqueada até a
+    lenta soltar o lock — mais lento, mas nunca perde dado."""
+    import threading
+
+    data_file = tmp_path / "management_kpi.json"
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    slow_holds_lock = threading.Event()
+    fast_may_proceed = threading.Event()
+    original_load_data = management._load_data
+
+    def slow_first_load():
+        data = original_load_data()
+        # simula a demora real de uma chamada de rede (Graph) no meio do
+        # ciclo de polling, com o lock já em mãos (ver set_manual_entry).
+        slow_holds_lock.set()
+        fast_may_proceed.wait(timeout=2)
+        return data
+
+    monkeypatch.setattr(management, "_load_data", slow_first_load)
+
+    slow_thread = threading.Thread(target=lambda: management.set_manual_entry("2026-08", 100.0, 5.0))
+    fast_thread = threading.Thread(
+        target=lambda: management.append_project_kpi_sample(
+            {
+                "email_message_id": "manual-x", "received_at": "2026-09-10T12:00:00Z",
+                "sender": "manual", "report_project_text": "Projeto X", "project_id": "P1",
+                "project_name": "Projeto X", "match_score": 1.0, "month": "2026-08",
+                "billed_hours": 10.0, "business_days": 1, "source": "manual",
+                "edited": False, "pacote_scope": None, "sample_id": "s1",
+            }
+        )
+    )
+
+    slow_thread.start()
+    assert slow_holds_lock.wait(timeout=2), "operação lenta não chegou a segurar o lock a tempo"
+    fast_thread.start()  # fica bloqueada esperando o lock (comportamento esperado)
+    fast_may_proceed.set()  # libera a lenta pra terminar e soltar o lock
+    slow_thread.join(timeout=2)
+    fast_thread.join(timeout=2)
+
+    final = original_load_data()
+    assert final["manual_entries"].get("2026-08") == {"billed_hours": 100.0, "elaboration_days": 5.0}
+    assert len(final["project_kpi_samples"]) == 1
+    assert final["project_kpi_samples"][0]["sample_id"] == "s1"
