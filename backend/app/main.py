@@ -59,7 +59,7 @@ from .auth import (
     verify_projectile_login,
 )
 from .chat_ops import OperationError, apply_operations
-from .chatbot import ChatConfigError, ChatUpstreamError, call_chat
+from .chatbot import ChatConfigError, ChatUpstreamError, call_chat, call_translate
 from .generator import (
     ActivityInput,
     GroupInput,
@@ -1128,6 +1128,32 @@ async def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_sess
         raise HTTPException(502, "A IA retornou dados inválidos (ex: horas negativas). Tente reformular o pedido.")
 
     return ChatResponse(reply=summary, state=validated_state)
+
+
+class TranslateActivityItem(BaseModel):
+    id: str
+    description: str
+
+
+class TranslateActivitiesPayload(BaseModel):
+    activities: list[TranslateActivityItem] = Field(min_length=1)
+
+
+@app.post("/translate-activities")
+async def translate_activities_endpoint(
+    payload: TranslateActivitiesPayload, _user: dict = Depends(require_session)
+):
+    try:
+        translations = call_translate([item.model_dump() for item in payload.activities])
+    except ChatConfigError as e:
+        raise HTTPException(500, str(e))
+    except ChatUpstreamError as e:
+        raise HTTPException(502, str(e))
+    # não valida que a lista bate 1:1 com o pedido — o frontend aplica só os
+    # ids que vierem, e mantém o texto original pra qualquer id que a IA não
+    # tenha devolvido (mais seguro que rejeitar a resposta inteira por causa
+    # de um item faltando).
+    return {"translations": [item for item in translations if isinstance(item, dict) and "id" in item]}
 
 
 def _build_download_name(month_label: str, project_name: str) -> str:

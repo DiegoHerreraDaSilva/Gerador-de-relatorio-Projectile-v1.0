@@ -232,3 +232,45 @@ describe("moveGroupToPosition", () => {
     expect(p2Groups.map((g) => g.id)).toEqual(["gDestino", "gOrigem"]); // dois grupos "ENG" distintos, não mesclados
   });
 });
+
+describe("setActivityDescriptions", () => {
+  it("troca a description das atividades casando por id, sem mexer em mais nada", () => {
+    const a = activity({ id: "a", description: "Atividade A", hours: 1 });
+    const b = activity({ id: "b", description: "Atividade B", hours: 2 });
+    const g = group("g1", [a, b], { performance: 1.2 });
+    useReportStore.setState({ packages: [pkg("p1", [g])] });
+
+    useReportStore.getState().setActivityDescriptions("p1", [
+      { id: "a", description: "Activity A" },
+      { id: "b", description: "Activity B" },
+    ]);
+
+    const result = useReportStore.getState().packages[0].groups[0];
+    expect(result.activities.map((x) => x.description)).toEqual(["Activity A", "Activity B"]);
+    // nada além da description muda
+    expect(result.performance).toBe(1.2);
+    expect(result.activities.map((x) => x.hours)).toEqual([1, 2]);
+  });
+
+  it("ignora ids que não vieram na tradução, mantendo a description original", () => {
+    const a = activity({ id: "a", description: "Atividade A" });
+    const b = activity({ id: "b", description: "Atividade B" });
+    useReportStore.setState({ packages: [pkg("p1", [group("g1", [a, b])])] });
+
+    // só "a" veio traduzida — "b" fica como estava (ver comentário no endpoint
+    // /translate-activities: a IA pode não devolver todos os ids pedidos)
+    useReportStore.getState().setActivityDescriptions("p1", [{ id: "a", description: "Activity A" }]);
+
+    const activities = useReportStore.getState().packages[0].groups[0].activities;
+    expect(activities.map((x) => x.description)).toEqual(["Activity A", "Atividade B"]);
+  });
+
+  it("não faz nada se o packageId não existir", () => {
+    const a = activity({ id: "a", description: "Atividade A" });
+    useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])])] });
+
+    useReportStore.getState().setActivityDescriptions("pacote-inexistente", [{ id: "a", description: "Activity A" }]);
+
+    expect(useReportStore.getState().packages[0].groups[0].activities[0].description).toBe("Atividade A");
+  });
+});

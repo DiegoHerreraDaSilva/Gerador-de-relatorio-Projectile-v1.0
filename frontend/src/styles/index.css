@@ -2263,6 +2263,19 @@
     background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
     color: #fff; border-color: transparent;
   }
+  /* botão "EN" — mesmo cartão dos outros toggles, só com o texto do idioma em
+     destaque (letter-spacing/peso), pra ler como um "selo" curto em vez de um
+     rótulo comprido como os outros botões da toolbar. */
+  .btn-translate {
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    min-width: 34px;
+  }
+  .preview-translate-error {
+    font-size: 0.78rem;
+    color: var(--bad);
+    white-space: nowrap;
+  }
 
   /* ---------- Split view: 2 relatórios lado a lado ---------- */
   /* mesma cadeia flex de altura que .preview-sheet-wrap já usava sozinho —

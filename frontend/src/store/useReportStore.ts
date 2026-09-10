@@ -331,6 +331,11 @@ export interface StoreState {
     toGroupId: string,
     beforeActivityId: string | null
   ) => void;
+  // botão "EN" do preview — troca só `description` das atividades do pacote
+  // dado, casando por `id` (nunca ambíguo, diferente de applyChatState, que
+  // casa por nome/descrição porque lida com operações abertas). Quem chama
+  // (Preview.tsx) já dá pushUndo() antes, mesmo padrão de applyChatState.
+  setActivityDescriptions: (packageId: string, translations: Array<{ id: string; description: string }>) => void;
   applyChatState: (newState: {
     packages: Array<{ key: string; projectCode: string; projectName: string; groups: Array<{ name: string; performance: number; activities: Array<{ description: string; hours: number | null }> }> }>;
     locationDate: string;
@@ -784,6 +789,19 @@ export const useReportStore = create<StoreState>()(
         const insertAt = beforeActivityId ? toGroup.activities.findIndex((a) => a.id === beforeActivityId) : -1;
         if (insertAt === -1) toGroup.activities.push(...orderedMoved);
         else toGroup.activities.splice(insertAt, 0, ...orderedMoved);
+        s.hasGeneratedOnce = false;
+      }),
+    setActivityDescriptions: (packageId, translations) =>
+      set((s) => {
+        const pkg = s.packages.find((p) => p.id === packageId);
+        if (!pkg) return;
+        const byId = new Map(translations.map((t) => [t.id, t.description]));
+        pkg.groups.forEach((g) => {
+          g.activities.forEach((a) => {
+            const translated = byId.get(a.id);
+            if (translated !== undefined) a.description = translated;
+          });
+        });
         s.hasGeneratedOnce = false;
       }),
     applyChatState: (newState) => {

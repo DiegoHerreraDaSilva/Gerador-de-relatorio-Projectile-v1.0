@@ -28,6 +28,7 @@ truststore.inject_into_ssl()
 from anthropic import Anthropic
 
 from .chat_ops import TOOL_NAME, TOOL_SCHEMA, SYSTEM_PROMPT
+from .translate_ops import TRANSLATE_TOOL_NAME, TRANSLATE_TOOL_SCHEMA, TRANSLATE_SYSTEM_PROMPT
 
 
 class ChatConfigError(RuntimeError):
@@ -104,3 +105,33 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
     summary = payload.get("summary", "Alterações aplicadas.")
     operations = payload.get("operations", [])
     return summary, operations
+
+
+def call_translate(activities: list[dict]) -> list[dict]:
+    """Traduz `activities` (lista de `{id, description}`) pro inglês — usado
+    pelo botão "EN" do preview. Mesmo cliente/modelo de `call_chat`, mas com
+    um schema dedicado (ver translate_ops.py): aqui a tarefa é sempre a
+    mesma, então o casamento de cada item na resposta é por `id` — quem
+    chama é responsável por aplicar só os ids que efetivamente vieram de
+    volta, sem assumir que a lista bate 1:1 com a enviada."""
+    client = _get_client()
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system=[{"type": "text", "text": TRANSLATE_SYSTEM_PROMPT}],
+            tools=[{**TRANSLATE_TOOL_SCHEMA, "cache_control": {"type": "ephemeral"}}],
+            tool_choice={"type": "tool", "name": TRANSLATE_TOOL_NAME},
+            output_config={"effort": "low"},
+            messages=[{"role": "user", "content": f"Itens a traduzir:\n{activities}"}],
+        )
+    except Exception as e:
+        raise ChatUpstreamError(f"Falha ao chamar a API da Anthropic: {e}") from e
+
+    tool_use = next((block for block in response.content if block.type == "tool_use"), None)
+    if tool_use is None:
+        raise ChatUpstreamError("A IA não devolveu uma tradução estruturada. Tente de novo.")
+
+    return dict(tool_use.input).get("translations", [])

@@ -1,6 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useReportStore } from "../../store/useReportStore";
 import { PreviewSheet } from "./PreviewSheet";
+
+// desfaz o pushUndo() otimista feito antes da requisição de tradução (mesmo
+// padrão de Chat.tsx/revertPushedUndo) — usado nos caminhos de falha de
+// handleTranslate abaixo.
+function revertPushedUndo() {
+  const state = useReportStore.getState();
+  state.undoStack.pop();
+}
 
 function BarChartIcon() {
   return (
@@ -60,6 +68,10 @@ export function Preview() {
   const undo = useReportStore((s) => s.undo);
   const setChartBar = useReportStore((s) => s.setChartBar);
   const setChartPie = useReportStore((s) => s.setChartPie);
+  const pushUndo = useReportStore((s) => s.pushUndo);
+  const setActivityDescriptions = useReportStore((s) => s.setActivityDescriptions);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState("");
 
   const hasPackages = packages.length > 0;
   const activePkg = packages.find((p) => p.id === activeId) ?? null;
@@ -68,6 +80,35 @@ export function Preview() {
   const splitAvailable = packages.length >= 2;
   const primaryPaneId = activeId;
   const secondaryPaneId = isSplit ? (paneBPackage?.id ?? null) : null;
+
+  const handleTranslate = async () => {
+    if (!activePkg) return;
+    const items = activePkg.groups.flatMap((g) => g.activities.map((a) => ({ id: a.id, description: a.description })));
+    if (items.length === 0) return;
+    setTranslateError("");
+    setTranslating(true);
+    pushUndo();
+    try {
+      const res = await fetch("/translate-activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activities: items }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        setTranslateError(detail || `Erro ${res.status} ao traduzir.`);
+        revertPushedUndo();
+        return;
+      }
+      const data = await res.json();
+      setActivityDescriptions(activePkg.id, data.translations ?? []);
+    } catch {
+      setTranslateError("Não foi possível traduzir. Verifique sua conexão e tente de novo.");
+      revertPushedUndo();
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const primaryPaneDragHandlers = createPaneDragHandlers(primaryPaneId);
   const secondaryPaneDragHandlers = createPaneDragHandlers(secondaryPaneId);
@@ -104,6 +145,7 @@ export function Preview() {
                 <PieChartIcon />
               </button>
               <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">⇆ Dividir tela</button>
+              <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir as descrições de atividade deste relatório para inglês" aria-label="Traduzir atividades para inglês">EN</button>
               <button type="button" onClick={() => setZoom(previewZoom - 10)}>−</button>
               <span id="zoomLabel">{previewZoom}%</span>
               <button type="button" onClick={() => setZoom(previewZoom + 10)}>+</button>
@@ -156,6 +198,17 @@ export function Preview() {
             >
               ⇆ Dividir tela
             </button>
+            <button
+              type="button"
+              className="btn-toggle btn-translate"
+              disabled={translating}
+              onClick={handleTranslate}
+              title="Traduzir as descrições de atividade deste relatório para inglês"
+              aria-label="Traduzir atividades para inglês"
+            >
+              {translating ? "..." : "EN"}
+            </button>
+            {translateError && <span className="preview-translate-error">{translateError}</span>}
             <button type="button" onClick={() => setZoom(previewZoom - 10)} aria-label="Diminuir zoom">−</button>
             <span id="zoomLabel">{previewZoom}%</span>
             <button type="button" onClick={() => setZoom(previewZoom + 10)} aria-label="Aumentar zoom">+</button>
