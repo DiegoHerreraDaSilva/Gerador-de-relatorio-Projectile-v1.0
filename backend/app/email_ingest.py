@@ -32,6 +32,7 @@ from __future__ import annotations
 import base64
 import binascii
 import difflib
+import html
 import json
 import os
 import re
@@ -520,6 +521,81 @@ _ATTACHMENT_CONTENT_TYPES = {
     "pdf": "application/pdf",
 }
 
+# Assinatura fixa anexada a todo e-mail enviado por `send_report_email` —
+# imagens embutidas como anexo INLINE (`cid:`), não como <img src="https://...">
+# apontando pro próprio servidor: o destinatário pode estar fora da rede
+# interna, então uma URL só funcionaria se o backend fosse publicamente
+# acessível. Anexo inline funciona em qualquer cliente de e-mail, offline
+# inclusive, e é o jeito padrão de fazer assinatura com logo.
+#
+# Lidas direto de `frontend/public/` (não de `frontend/dist/`): mesmas
+# imagens que o Vite copia pro build do site, mas aqui é o BACKEND lendo o
+# arquivo do disco puro, sem precisar que o frontend tenha sido buildado.
+_SIGNATURE_LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "email-logo.jpg")
+_SIGNATURE_ISO_BADGE_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "frontend", "public", "ícone para assinatura de e-mail.jpg"
+)
+_SIGNATURE_LOGO_CID = "schwaben-email-logo"
+_SIGNATURE_ISO_BADGE_CID = "schwaben-iso-badge"
+
+_SIGNATURE_HTML = f"""
+<table cellpadding="0" cellspacing="0" border="0" style="background-color:#262626;padding:20px 24px;font-family:Arial,Helvetica,sans-serif;">
+  <tr><td><img src="cid:{_SIGNATURE_LOGO_CID}" alt="Schwaben Engineering" style="height:56px;display:block;"></td></tr>
+  <tr><td style="height:18px;line-height:18px;font-size:0;">&nbsp;</td></tr>
+  <tr><td style="color:#ffffff;font-size:13px;">Tel: +55 11 <strong>4468-1521</strong></td></tr>
+  <tr><td style="height:10px;line-height:10px;font-size:0;">&nbsp;</td></tr>
+  <tr><td><a href="https://www.schwaben.com.br" style="color:#c266c2;font-size:13px;text-decoration:underline;">www.schwaben.com.br</a></td></tr>
+  <tr><td style="height:14px;line-height:14px;font-size:0;">&nbsp;</td></tr>
+  <tr><td><img src="cid:{_SIGNATURE_ISO_BADGE_CID}" alt="ISO 9001:2015 Certificado" style="height:72px;display:block;"></td></tr>
+  <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+  <tr><td style="color:#9aa0a6;font-size:11px;line-height:16px;">
+    Caso você não seja o destinatário deste e-mail pedimos nos informar imediatamente do recebimento errôneo e deletá-lo. Agradecemos por seu apoio.<br>
+    If you are not the addressee, please inform us immediately that you have received this e-mail by mistake, and delete it. We thank you for your support.
+  </td></tr>
+</table>
+"""
+
+
+def _build_report_email_html(body_text: str) -> str:
+    """Corpo do e-mail (texto digitado pelo usuário) + assinatura fixa. Foge
+    de reconstruir HTML a partir de texto livre sem escapar — `body_text` vem
+    de um campo de formulário (`SendReportModal.tsx`), nunca confiável como
+    marcação."""
+    escaped = html.escape(body_text).replace("\n", "<br>") if body_text.strip() else ""
+    message_html = f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1a1a;">{escaped}</div>' if escaped else ""
+    # `<meta charset>` deixa a acentuação correta auto-descrita, independente
+    # de como um cliente de e-mail/webmail específico interpreta o payload —
+    # Graph já manda o JSON em UTF-8, mas isso é uma segunda camada de
+    # segurança barata (ex: reencaminhamento por um cliente que não confia
+    # no encoding declarado só no transporte).
+    return f'<meta charset="utf-8"><div>{message_html}<br>{_SIGNATURE_HTML}</div>'
+
+
+def _load_signature_inline_attachments() -> list[dict]:
+    """Anexos inline (Graph `fileAttachment` com `isInline: True`) da
+    assinatura — lidos do disco a cada envio (não vale a pena cachear em
+    memória: são poucos KB, e um deploy pode trocar a imagem sem reiniciar
+    o processo só pra pegar o arquivo novo)."""
+    inline_images = [
+        (_SIGNATURE_LOGO_CID, _SIGNATURE_LOGO_PATH),
+        (_SIGNATURE_ISO_BADGE_CID, _SIGNATURE_ISO_BADGE_PATH),
+    ]
+    attachments = []
+    for content_id, path in inline_images:
+        if not os.path.isfile(path):
+            continue
+        with open(path, "rb") as f:
+            content = f.read()
+        attachments.append({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": os.path.basename(path),
+            "contentType": "image/jpeg",
+            "contentBytes": base64.b64encode(content).decode("ascii"),
+            "contentId": content_id,
+            "isInline": True,
+        })
+    return attachments
+
 
 def send_report_email(
     sender_email: str,
@@ -550,23 +626,24 @@ def send_report_email(
     fora do código)."""
     mailbox = _require_env("GRAPH_MAILBOX")
     url = f"{GRAPH_BASE}/users/{sender_email}/sendMail"
+    report_attachments = [
+        {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": name,
+            "contentType": _ATTACHMENT_CONTENT_TYPES.get(
+                name.rsplit(".", 1)[-1].lower(), "application/octet-stream"
+            ),
+            "contentBytes": base64.b64encode(content).decode("ascii"),
+        }
+        for name, content in attachments
+    ]
     body = {
         "message": {
             "subject": subject,
-            "body": {"contentType": "Text", "content": body_text},
+            "body": {"contentType": "HTML", "content": _build_report_email_html(body_text)},
             "toRecipients": [{"emailAddress": {"address": to_email}}],
             "ccRecipients": [{"emailAddress": {"address": mailbox}}],
-            "attachments": [
-                {
-                    "@odata.type": "#microsoft.graph.fileAttachment",
-                    "name": name,
-                    "contentType": _ATTACHMENT_CONTENT_TYPES.get(
-                        name.rsplit(".", 1)[-1].lower(), "application/octet-stream"
-                    ),
-                    "contentBytes": base64.b64encode(content).decode("ascii"),
-                }
-                for name, content in attachments
-            ],
+            "attachments": report_attachments + _load_signature_inline_attachments(),
         },
         "saveToSentItems": True,
     }

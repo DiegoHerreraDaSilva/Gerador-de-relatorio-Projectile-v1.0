@@ -19,8 +19,10 @@ from openpyxl import Workbook
 
 from backend.app.email_ingest import (
     EmailIngestError,
+    _build_report_email_html,
     _build_sender_filter,
     _dedupe_by_stem,
+    _load_signature_inline_attachments,
     _parse_sender_emails,
     compute_business_days_elapsed,
     match_project,
@@ -405,3 +407,42 @@ def test_fetch_new_messages_raises_when_alberto_email_has_no_valid_address(monke
 
     with pytest.raises(EmailIngestError, match="ALBERTO_EMAIL"):
         email_ingest.fetch_new_messages()
+
+
+def test_build_report_email_html_escapes_user_message():
+    """`body_text` vem de um campo de formulário livre (SendReportModal.tsx)
+    — nunca confiável como marcação. Sem escapar, um usuário digitando
+    "<b>" ou "&" quebraria o HTML do e-mail (ou, no limite, injetaria
+    marcação arbitrária no corpo enviado)."""
+    html_body = _build_report_email_html("Segue <relatório> & observações")
+    assert "&lt;relatório&gt;" in html_body
+    assert "&amp;" in html_body
+    assert "<relatório>" not in html_body
+
+
+def test_build_report_email_html_preserves_line_breaks():
+    html_body = _build_report_email_html("Linha 1\nLinha 2")
+    assert "Linha 1<br>Linha 2" in html_body
+
+
+def test_build_report_email_html_includes_signature():
+    """A assinatura (telefone, site, aviso de confidencialidade bilíngue)
+    tem que ir em TODO e-mail, independente do que o usuário escreveu."""
+    html_body = _build_report_email_html("")
+    assert "4468-1521" in html_body
+    assert "www.schwaben.com.br" in html_body
+    assert "cid:schwaben-email-logo" in html_body
+    assert "cid:schwaben-iso-badge" in html_body
+    assert "If you are not the addressee" in html_body
+
+
+def test_load_signature_inline_attachments_reads_real_files():
+    """As imagens vivem em `frontend/public/` (fora de `backend/`) — esse
+    teste também é a garantia de que o caminho relativo calculado em
+    `email_ingest.py` continua batendo com a estrutura real do repo."""
+    attachments = _load_signature_inline_attachments()
+    content_ids = {a["contentId"] for a in attachments}
+    assert content_ids == {"schwaben-email-logo", "schwaben-iso-badge"}
+    for att in attachments:
+        assert att["isInline"] is True
+        assert len(att["contentBytes"]) > 0
