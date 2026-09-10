@@ -235,7 +235,7 @@ def require_manager(_user: dict = Depends(require_session)) -> dict:
     """Barra com 403 quem não é gerente — o painel de gerência mostra dados
     de TODOS os engenheiros, não só do usuário logado, então precisa de um
     controle de acesso além da sessão comum."""
-    if _user["login"] not in MANAGEMENT_PANEL_LOGINS:
+    if _user["login"].lower() not in MANAGEMENT_PANEL_LOGINS:
         raise HTTPException(403, "Sem acesso ao painel de gerência.")
     return _user
 
@@ -273,7 +273,7 @@ async def login_endpoint(payload: LoginRequest, request: Request, response: Resp
     )
     return {
         "name": user["name"], "login": user["login"], "email": user["email"],
-        "is_manager": user["login"] in MANAGEMENT_PANEL_LOGINS,
+        "is_manager": user["login"].lower() in MANAGEMENT_PANEL_LOGINS,
     }
 
 
@@ -284,7 +284,7 @@ async def me_endpoint(request: Request):
         raise HTTPException(401, "Não autenticado.")
     return {
         "name": session["name"], "login": session["login"], "email": session["email"],
-        "is_manager": session["login"] in MANAGEMENT_PANEL_LOGINS,
+        "is_manager": session["login"].lower() in MANAGEMENT_PANEL_LOGINS,
     }
 
 

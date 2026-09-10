@@ -271,3 +271,33 @@ def test_different_pacote_scope_is_not_duplicate(monkeypatch, tmp_path):
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
 
     assert _month_billed_hours(result) == 15.0  # pacotes diferentes — não é o mesmo relatório
+
+
+# ---------------------------------------------------------------------------
+# _load_management_panel_logins — normalização de caixa (ver main.py, que
+# compara com .lower() do lado do login também; auser.rLogin no Projectile
+# não tem capitalização padronizada, ex: "Lbrito" em vez de "lbrito")
+# ---------------------------------------------------------------------------
+
+def test_load_management_panel_logins_normalizes_to_lowercase(monkeypatch):
+    monkeypatch.setenv("MANAGEMENT_PANEL_LOGINS", "Dherrera, LFranco, lvicente")
+
+    logins = management._load_management_panel_logins()
+
+    assert logins == {"dherrera", "lfranco", "lvicente"}
+
+
+def test_load_management_panel_logins_strips_whitespace_and_drops_empty(monkeypatch):
+    monkeypatch.setenv("MANAGEMENT_PANEL_LOGINS", " dherrera ,, lfranco,")
+
+    logins = management._load_management_panel_logins()
+
+    assert logins == {"dherrera", "lfranco"}
+
+
+def test_load_management_panel_logins_falls_back_when_env_missing(monkeypatch):
+    monkeypatch.delenv("MANAGEMENT_PANEL_LOGINS", raising=False)
+
+    logins = management._load_management_panel_logins()
+
+    assert logins == {"dherrera"}

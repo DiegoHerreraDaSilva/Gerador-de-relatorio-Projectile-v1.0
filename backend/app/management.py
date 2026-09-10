@@ -71,9 +71,17 @@ def _load_management_panel_logins() -> set[str]:
     """Allowlist de logins com acesso ao Painel de Gerência, via
     MANAGEMENT_PANEL_LOGINS (logins separados por vírgula). Fallback pra
     {"dherrera"} se a env var estiver ausente/vazia — muda quem tem acesso
-    sem precisar de commit + redeploy."""
+    sem precisar de commit + redeploy.
+
+    Normalizado em minúsculas porque `auser.rLogin` (Projectile) não tem
+    capitalização padronizada — cadastros antigos podem estar como "Lbrito"
+    em vez de "lbrito" — e `auth.verify_projectile_login` devolve o login
+    exatamente como está no banco, sem normalizar. Comparar sem normalizar
+    fazia um login já correto no .env falhar silenciosamente (403 sem
+    explicação) só por causa da caixa. Quem consome este set (main.py)
+    precisa comparar com `.lower()` do lado do login também."""
     raw = os.environ.get("MANAGEMENT_PANEL_LOGINS", "")
-    logins = {login.strip() for login in raw.split(",") if login.strip()}
+    logins = {login.strip().lower() for login in raw.split(",") if login.strip()}
     return logins or {"dherrera"}
 
 
