@@ -156,3 +156,7 @@ def test_pdf_group_taller_than_one_page_does_not_raise_layout_error(tmp_path):
     text = "\n".join(page.extract_text() for page in reader.pages)
     assert "Ativ 0" in text
     assert "Ativ 34" in text
+    # sem o SPAN vertical, o valor não pode aparecer em toda linha nem sumir —
+    # só uma vez na atividade do meio da lista (ver _build_group_table) + uma
+    # vez no total geral (que aqui coincide, só tem esse grupo) — nunca 35x.
+    assert text.count("35 h") == 2

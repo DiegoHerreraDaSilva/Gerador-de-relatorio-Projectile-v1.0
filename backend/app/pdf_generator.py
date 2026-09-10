@@ -282,74 +282,78 @@ def generate_report_pdf(
         # coluna extra entre a descrição e a hora mostra Bruto/Performance
         # (ver `_bruto_performance_cell`), mesma informação que
         # `generator.py` grava nas colunas E/F do `.xlsx`.
-        header_row = [Paragraph(group.name, group_title_style), ""]
-        if include_performance:
-            header_row.append("")
-        table_data = [header_row]
-        for idx, desc in enumerate(descriptions):
-            row = [Paragraph(f"• {desc}", activity_style)]
+        def _build_group_table(value_row_idx: int, span_value_col: bool):
+            # `value_row_idx` é o índice (em `descriptions`) da linha de
+            # atividade que carrega a hora total do grupo (e o Bruto/
+            # Performance, se `include_performance`) — normalmente a
+            # primeira (0), mas ver comentário abaixo sobre o caso em que a
+            # tabela não cabe numa página inteira.
+            header_row = [Paragraph(group.name, group_title_style), ""]
             if include_performance:
-                row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style, bp_value_style, language) if idx == 0 else "")
-            row.append(Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == 0 else "")
-            table_data.append(row)
+                header_row.append("")
+            data = [header_row]
+            for idx, desc in enumerate(descriptions):
+                row = [Paragraph(f"• {desc}", activity_style)]
+                if include_performance:
+                    row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style, bp_value_style, language) if idx == value_row_idx else "")
+                row.append(Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == value_row_idx else "")
+                data.append(row)
 
-        style_commands = [
-            ("SPAN", (0, 0), (last_col, 0)),
-            ("BACKGROUND", (0, 0), (last_col, 0), _ACCENT_DARK),
-            ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
-            ("VALIGN", (0, 1), (0, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (0, 0), 8),
-            ("LEFTPADDING", (0, 1), (0, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, 0), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
-            ("TOPPADDING", (0, 1), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
-            ("BOX", (0, 0), (-1, -1), 0.5, _BORDER),
-        ]
-        if len(table_data) > 1:
-            style_commands.append(("SPAN", (last_col, 1), (last_col, len(table_data) - 1)))
-            style_commands.append(("VALIGN", (last_col, 1), (last_col, -1), "MIDDLE"))
-            style_commands.append(("ALIGN", (last_col, 1), (last_col, -1), "CENTER"))
-            # linha vertical separando a descrição da coluna de horas — só nas
-            # linhas de atividade, a barra do nome (linha 0) já é uma cor
-            # sólida sem divisão.
-            style_commands.append(("LINEAFTER", (0, 1), (0, -1), 0.5, _BORDER))
-            if include_performance:
-                style_commands.append(("SPAN", (1, 1), (1, len(table_data) - 1)))
-                style_commands.append(("VALIGN", (1, 1), (1, -1), "MIDDLE"))
-                style_commands.append(("LINEAFTER", (1, 1), (1, -1), 0.5, _BORDER))
-        for row_idx in range(1, len(table_data) - 1):
-            style_commands.append(("LINEBELOW", (0, row_idx), (0, row_idx), 0.4, _BORDER))
+            commands = [
+                ("SPAN", (0, 0), (last_col, 0)),
+                ("BACKGROUND", (0, 0), (last_col, 0), _ACCENT_DARK),
+                ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
+                ("VALIGN", (0, 1), (0, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (0, 0), 8),
+                ("LEFTPADDING", (0, 1), (0, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, 0), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+                ("TOPPADDING", (0, 1), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+                ("BOX", (0, 0), (-1, -1), 0.5, _BORDER),
+            ]
+            if len(data) > 1:
+                if span_value_col:
+                    commands.append(("SPAN", (last_col, 1), (last_col, len(data) - 1)))
+                    if include_performance:
+                        commands.append(("SPAN", (1, 1), (1, len(data) - 1)))
+                commands.append(("VALIGN", (last_col, 1), (last_col, -1), "MIDDLE"))
+                commands.append(("ALIGN", (last_col, 1), (last_col, -1), "CENTER"))
+                # linha vertical separando a descrição da coluna de horas — só nas
+                # linhas de atividade, a barra do nome (linha 0) já é uma cor
+                # sólida sem divisão.
+                commands.append(("LINEAFTER", (0, 1), (0, -1), 0.5, _BORDER))
+                if include_performance:
+                    commands.append(("VALIGN", (1, 1), (1, -1), "MIDDLE"))
+                    commands.append(("LINEAFTER", (1, 1), (1, -1), 0.5, _BORDER))
+            for row_idx in range(1, len(data) - 1):
+                commands.append(("LINEBELOW", (0, row_idx), (0, row_idx), 0.4, _BORDER))
 
-        group_table = Table(table_data, colWidths=col_widths)
-        group_table.setStyle(TableStyle(style_commands))
-        # Um SPAN vertical (linha 310/318 acima) torna a tabela INTEIRA um
-        # bloco atômico pro reportlab — ele não sabe quebrar uma tabela no
-        # meio de uma célula mesclada, então um grupo com muitas atividades
-        # (cuja lista sozinha já não cabe numa página inteira) trava com
-        # `LayoutError` em vez de simplesmente continuar na próxima página.
-        # Bug real reportado: grupo com 35 atividades. Mede a altura real
-        # (via wrap, mesmo cálculo que o reportlab usa internamente) contra
-        # o espaço útil de uma página CHEIA — o maior espaço que a tabela
-        # teria disponível em qualquer página — e, se não couber nem assim,
-        # reconstrói sem o SPAN da(s) coluna(s) mescladas: o valor (hora
-        # total do grupo, e Bruto/Performance quando `include_performance`)
-        # passa a aparecer só na primeira linha, sem centralizar ao lado de
-        # todas as atividades, mas a lista quebra entre páginas normalmente
-        # em vez de travar a geração inteira do PDF.
+            built = Table(data, colWidths=col_widths)
+            built.setStyle(TableStyle(commands))
+            return built
+
+        # Um SPAN vertical (dentro de `_build_group_table`) torna a tabela
+        # INTEIRA um bloco atômico pro reportlab — ele não sabe quebrar uma
+        # tabela no meio de uma célula mesclada, então um grupo com muitas
+        # atividades (cuja lista sozinha já não cabe numa página inteira)
+        # travava com `LayoutError` em vez de simplesmente continuar na
+        # próxima página (bug real reportado: grupo com 35 atividades).
+        # Mede a altura real (via wrap, mesmo cálculo que o reportlab usa
+        # internamente) contra o espaço útil de uma página CHEIA — o maior
+        # espaço que a tabela teria disponível em qualquer página — e, se
+        # não couber nem assim, reconstrói sem o SPAN: a lista quebra entre
+        # páginas normalmente. Sem o SPAN o valor não pode mais ficar
+        # verticalmente centralizado ao lado de TODAS as atividades (o
+        # reportlab não sabe centralizar algo "no meio de várias páginas"),
+        # então ele vai na atividade do meio da lista em vez da primeira —
+        # não é o efeito visual original, mas fica mais discreto que
+        # simplesmente jogar o valor lá no topo.
         max_frame_height = A4[1] - _MARGIN_TOP - _MARGIN_BOTTOM
+        group_table = _build_group_table(0, span_value_col=True)
         _, table_height = group_table.wrap(content_width, 0xFFFFFF)
         if table_height > max_frame_height:
-            unspannable_cols = {last_col} | ({1} if include_performance else set())
-            style_commands = [
-                cmd for cmd in style_commands
-                # cmd[1] é (col_inicial, linha_inicial) do SPAN — linha_inicial >= 1
-                # identifica os spans de valor (linhas de atividade), nunca o
-                # cabeçalho do grupo (linha 0, que não cruza página nenhuma).
-                if not (cmd[0] == "SPAN" and cmd[1][0] in unspannable_cols and cmd[1][1] >= 1)
-            ]
-            group_table = Table(table_data, colWidths=col_widths)
-            group_table.setStyle(TableStyle(style_commands))
+            group_table = _build_group_table(len(descriptions) // 2, span_value_col=False)
         story.append(group_table)
         story.append(Spacer(1, 5 * mm))
 
