@@ -900,6 +900,20 @@
   td .diagnostics-month-dropdown { display: inline-block; text-align: left; }
   .diagnostics-table-wrap { justify-content: flex-start; max-height: 420px; overflow-y: auto; }
   .diagnostics-table-wrap .kpi-table { width: 100%; }
+  /* .kpi-table foi pensada pro KPI executivo (colunas numéricas, right por
+     padrão) — aqui a maioria das colunas é texto (Projeto/Pacote/Competência/
+     Motivo/Origem), então título e conteúdo "começavam" de lados opostos da
+     coluna em vez de alinhar à esquerda como o olho espera lendo uma tabela.
+     Texto à esquerda por padrão; só Horas/Dias (numéricas de verdade) e Ações
+     (ícones) mantêm à direita. */
+  .diagnostics-table-wrap .kpi-table th,
+  .diagnostics-table-wrap .kpi-table td { text-align: left; }
+  .diagnostics-table-wrap .kpi-table th:nth-child(5),
+  .diagnostics-table-wrap .kpi-table td:nth-child(5),
+  .diagnostics-table-wrap .kpi-table th:nth-child(6),
+  .diagnostics-table-wrap .kpi-table td:nth-child(6),
+  .diagnostics-table-wrap .kpi-table th:nth-child(8),
+  .diagnostics-table-wrap .kpi-table td:nth-child(8) { text-align: right; }
   .diagnostics-pacote-cell {
     max-width: 160px;
     overflow: hidden;
@@ -919,9 +933,10 @@
   }
   /* wrapper interno em vez de display:flex direto na <td> — flex na própria
      célula bagunça o cálculo de largura de coluna do table layout. Sem
-     text-align próprio aqui: herda o padrão de .kpi-table td (right), igual
-     ao cabeçalho "Ações" (.kpi-table th, também right por padrão) — os dois
-     alinham pelo mesmo mecanismo em vez de brigar com regras conflitantes. */
+     text-align próprio aqui: fica à direita pela regra explícita de
+     :nth-child(8) acima (ver comentário perto de .diagnostics-table-wrap),
+     igual ao cabeçalho "Ações" — os dois alinham pelo mesmo mecanismo em vez
+     de brigar com regras conflitantes. */
   .diagnostics-actions { display: inline-flex; gap: 6px; }
   .diagnostics-actions button {
     display: inline-flex;
