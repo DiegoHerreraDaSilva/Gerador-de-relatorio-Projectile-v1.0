@@ -24,7 +24,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import HRFlowable, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .generator import TEMPLATE_PATH, ActivityInput, GroupInput, ReportHeader, _fmt_number, _labels, _translate_month_label
 
@@ -213,9 +213,14 @@ def generate_report_pdf(
     # Bruto/Performance (ver `_bruto_performance_cell`) — só usados quando
     # `include_performance=True`; mesmo espírito visual de `.preview-side-header`/
     # `.preview-side-values` do preview: rótulo pequeno e discreto, valor um
-    # pouco mais forte, sobre o fundo escuro do cabeçalho de grupo/total.
+    # pouco mais forte. Duas variantes de cor: a caixa da linha de TOTAL fica
+    # sobre o fundo escuro `_ACCENT` (texto branco), mas a caixa POR GRUPO
+    # fica dentro de uma linha de atividade normal, fundo branco — usar texto
+    # branco ali o deixava invisível (branco sobre branco, bug real reportado).
     bp_label_style = ParagraphStyle("bpLabel", fontName="Helvetica", fontSize=6.5, alignment=1, textColor=colors.white)
     bp_value_style = ParagraphStyle("bpValue", fontName="Helvetica-Bold", fontSize=8.5, alignment=1, textColor=colors.white)
+    bp_label_style_light = ParagraphStyle("bpLabelLight", parent=bp_label_style, textColor=colors.grey)
+    bp_value_style_light = ParagraphStyle("bpValueLight", parent=bp_value_style, textColor=_ACCENT_DARK)
 
     story: list = []
 
@@ -295,7 +300,7 @@ def generate_report_pdf(
             for idx, desc in enumerate(descriptions):
                 row = [Paragraph(f"• {desc}", activity_style)]
                 if include_performance:
-                    row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style, bp_value_style, language) if idx == value_row_idx else "")
+                    row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style_light, bp_value_style_light, language) if idx == value_row_idx else "")
                 row.append(Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == value_row_idx else "")
                 data.append(row)
 
@@ -354,7 +359,18 @@ def generate_report_pdf(
         _, table_height = group_table.wrap(content_width, 0xFFFFFF)
         if table_height > max_frame_height:
             group_table = _build_group_table(len(descriptions) // 2, span_value_col=False)
-        story.append(group_table)
+            story.append(group_table)
+        else:
+            # O SPAN da coluna de valor começa na linha 1 (não na 0) — pra
+            # ele, a linha 0 (barra do nome do grupo) é um ponto de quebra
+            # LEGAL, então o reportlab podia deixar só a barra no fim de uma
+            # página e jogar TODAS as atividades pra próxima (bug real
+            # reportado: cabeçalho "separado" das atividades, com um vão em
+            # branco enorme). Já sabemos (pelo `wrap` acima) que essa tabela
+            # cabe inteira numa página — então forçar ela como um bloco único
+            # com KeepTogether só pode fazer ela pular INTEIRA pra próxima
+            # página quando necessário, nunca quebrar no meio.
+            story.append(KeepTogether(group_table))
         story.append(Spacer(1, 5 * mm))
 
     total_row_cells = [Paragraph(
