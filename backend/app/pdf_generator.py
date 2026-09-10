@@ -323,6 +323,33 @@ def generate_report_pdf(
 
         group_table = Table(table_data, colWidths=col_widths)
         group_table.setStyle(TableStyle(style_commands))
+        # Um SPAN vertical (linha 310/318 acima) torna a tabela INTEIRA um
+        # bloco atômico pro reportlab — ele não sabe quebrar uma tabela no
+        # meio de uma célula mesclada, então um grupo com muitas atividades
+        # (cuja lista sozinha já não cabe numa página inteira) trava com
+        # `LayoutError` em vez de simplesmente continuar na próxima página.
+        # Bug real reportado: grupo com 35 atividades. Mede a altura real
+        # (via wrap, mesmo cálculo que o reportlab usa internamente) contra
+        # o espaço útil de uma página CHEIA — o maior espaço que a tabela
+        # teria disponível em qualquer página — e, se não couber nem assim,
+        # reconstrói sem o SPAN da(s) coluna(s) mescladas: o valor (hora
+        # total do grupo, e Bruto/Performance quando `include_performance`)
+        # passa a aparecer só na primeira linha, sem centralizar ao lado de
+        # todas as atividades, mas a lista quebra entre páginas normalmente
+        # em vez de travar a geração inteira do PDF.
+        max_frame_height = A4[1] - _MARGIN_TOP - _MARGIN_BOTTOM
+        _, table_height = group_table.wrap(content_width, 0xFFFFFF)
+        if table_height > max_frame_height:
+            unspannable_cols = {last_col} | ({1} if include_performance else set())
+            style_commands = [
+                cmd for cmd in style_commands
+                # cmd[1] é (col_inicial, linha_inicial) do SPAN — linha_inicial >= 1
+                # identifica os spans de valor (linhas de atividade), nunca o
+                # cabeçalho do grupo (linha 0, que não cruza página nenhuma).
+                if not (cmd[0] == "SPAN" and cmd[1][0] in unspannable_cols and cmd[1][1] >= 1)
+            ]
+            group_table = Table(table_data, colWidths=col_widths)
+            group_table.setStyle(TableStyle(style_commands))
         story.append(group_table)
         story.append(Spacer(1, 5 * mm))
 

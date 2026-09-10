@@ -137,3 +137,22 @@ def test_pdf_include_performance_true_shows_bruto_and_performance(tmp_path):
     # Bruto total (18h) e performance geral ponderada (18,2/18 ≈ 1,011)
     assert "18 h" in text
     assert "1,011" in text
+
+
+def test_pdf_group_taller_than_one_page_does_not_raise_layout_error(tmp_path):
+    """Bug real reportado: um grupo com muitas atividades tem sua lista mais
+    alta que uma página A4 inteira. A coluna de horas totais é mesclada
+    verticalmente (SPAN) ao lado de todas as atividades do grupo — e o
+    reportlab não sabe quebrar uma tabela no meio de uma célula mesclada,
+    então travava com `LayoutError` em vez de continuar na página seguinte
+    (ver comentário em `pdf_generator.py` na função `generate_report_pdf`).
+    35 atividades de uma linha cada já é o suficiente pra estourar uma
+    página A4 com as margens usadas aqui."""
+    activities = [ActivityInput(f"Ativ {i}", 1.0) for i in range(35)]
+    groups = [GroupInput(name="Grupo Grande", performance=1.0, activities=activities)]
+    pdf_path = make_report_pdf(tmp_path, groups=groups)
+    reader = PdfReader(pdf_path)
+    assert len(reader.pages) >= 2
+    text = "\n".join(page.extract_text() for page in reader.pages)
+    assert "Ativ 0" in text
+    assert "Ativ 34" in text
