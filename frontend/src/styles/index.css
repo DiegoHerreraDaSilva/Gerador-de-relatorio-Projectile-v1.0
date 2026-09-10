@@ -901,17 +901,11 @@
   .diagnostics-table-wrap { justify-content: flex-start; max-height: 420px; overflow-y: auto; }
   .diagnostics-table-wrap .kpi-table { width: 100%; }
   /* .kpi-table foi pensada pro KPI executivo (colunas numéricas, right por
-     padrão) — aqui a maioria das colunas é texto (Projeto/Pacote/Competência/
-     Motivo/Origem), então título e conteúdo "começavam" de lados opostos da
-     coluna em vez de alinhar à esquerda como o olho espera lendo uma tabela.
-     Texto à esquerda por padrão; só Horas/Dias (numéricas de verdade) e Ações
-     (ícones) mantêm à direita. */
+     padrão) — aqui título e conteúdo "começavam" de lados opostos da coluna
+     em vez de alinhar à esquerda como o olho espera lendo uma tabela.
+     Esquerda por padrão em toda coluna; só Ações (ícones) mantém à direita. */
   .diagnostics-table-wrap .kpi-table th,
   .diagnostics-table-wrap .kpi-table td { text-align: left; }
-  .diagnostics-table-wrap .kpi-table th:nth-child(5),
-  .diagnostics-table-wrap .kpi-table td:nth-child(5),
-  .diagnostics-table-wrap .kpi-table th:nth-child(6),
-  .diagnostics-table-wrap .kpi-table td:nth-child(6),
   .diagnostics-table-wrap .kpi-table th:nth-child(8),
   .diagnostics-table-wrap .kpi-table td:nth-child(8) { text-align: right; }
   .diagnostics-pacote-cell {
