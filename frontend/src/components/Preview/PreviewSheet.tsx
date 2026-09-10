@@ -26,6 +26,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
   const mergeActivitiesIntoActivity = useReportStore((s) => s.mergeActivitiesIntoActivity);
   const moveActivitiesToPosition = useReportStore((s) => s.moveActivitiesToPosition);
   const moveGroupToPackage = useReportStore((s) => s.moveGroupToPackage);
+  const moveGroupToPosition = useReportStore((s) => s.moveGroupToPosition);
   const draggedActivities = useReportStore((s) => s.draggedActivities);
   const setDraggedActivities = useReportStore((s) => s.setDraggedActivities);
   const draggedGroup = useReportStore((s) => s.draggedGroup);
@@ -209,17 +210,44 @@ export function PreviewSheet({ paneId, packageId }: Props) {
             }}
             onDragLeave={(e) => {
               (e.currentTarget.querySelector(".preview-group") as HTMLElement)?.classList.remove("drop-target");
+              e.currentTarget.classList.remove("drop-before-group", "drop-after-group");
             }}
             onDragOver={(e) => {
-              if (!draggedActivities) return;
-              e.preventDefault();
+              if (draggedActivities) {
+                e.preventDefault();
+                return;
+              }
+              // reordenar grupos: solta perto do topo/base desta linha —
+              // insere antes/depois do grupo (nunca mescla, ver
+              // moveGroupToPosition). Ignora soltar em cima do próprio
+              // grupo arrastado.
+              if (draggedGroup && !(draggedGroup.fromPackageId === packageId && draggedGroup.groupId === group.id)) {
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = (e.clientY - rect.top) / rect.height;
+                const zone = ratio < 0.5 ? "before" : "after";
+                e.currentTarget.classList.toggle("drop-before-group", zone === "before");
+                e.currentTarget.classList.toggle("drop-after-group", zone === "after");
+                e.currentTarget.dataset.groupDropZone = zone;
+              }
             }}
             onDrop={(e) => {
-              if (!draggedActivities) return;
-              e.preventDefault();
-              (e.currentTarget.querySelector(".preview-group") as HTMLElement)?.classList.remove("drop-target");
-              moveActivitiesToGroup(draggedActivities.fromPackageId, draggedActivities.items, packageId, group.id);
-              setDraggedActivities(null);
+              if (draggedActivities) {
+                e.preventDefault();
+                (e.currentTarget.querySelector(".preview-group") as HTMLElement)?.classList.remove("drop-target");
+                moveActivitiesToGroup(draggedActivities.fromPackageId, draggedActivities.items, packageId, group.id);
+                setDraggedActivities(null);
+                return;
+              }
+              if (draggedGroup && !(draggedGroup.fromPackageId === packageId && draggedGroup.groupId === group.id)) {
+                e.preventDefault();
+                const zone = e.currentTarget.dataset.groupDropZone ?? "before";
+                e.currentTarget.classList.remove("drop-before-group", "drop-after-group");
+                delete e.currentTarget.dataset.groupDropZone;
+                const beforeGroupId = zone === "before" ? group.id : (pkg.groups[gIdx + 1]?.id ?? null);
+                moveGroupToPosition(draggedGroup.fromPackageId, draggedGroup.groupId, packageId, beforeGroupId);
+                setDraggedGroup(null);
+              }
             }}
           >
             <div
@@ -230,7 +258,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                 <span
                   className="pv-group-handle"
                   draggable
-                  title="Arrastar grupo para o outro painel (split view)"
+                  title="Arrastar grupo para reordenar, ou para o outro painel (split view)"
                   onDragStart={(e) => {
                     setDraggedGroup({ fromPackageId: packageId, groupId: group.id });
                     e.dataTransfer.effectAllowed = "move";

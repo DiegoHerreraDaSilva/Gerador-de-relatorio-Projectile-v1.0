@@ -181,3 +181,54 @@ describe("moveActivitiesToPosition", () => {
     expect(ids).toEqual(["b", "a", "c", "d"]);
   });
 });
+
+describe("moveGroupToPosition", () => {
+  it("insere o grupo arrastado ANTES de beforeGroupId, dentro do mesmo pacote", () => {
+    const g1 = group("g1", [activity({ id: "a1" })]);
+    const g2 = group("g2", [activity({ id: "a2" })]);
+    const g3 = group("g3", [activity({ id: "a3" })]);
+    useReportStore.setState({ packages: [pkg("p1", [g1, g2, g3])] });
+
+    // arrasta "g3" pra antes de "g1"
+    useReportStore.getState().moveGroupToPosition("p1", "g3", "p1", "g1");
+
+    const ids = useReportStore.getState().packages[0].groups.map((g) => g.id);
+    expect(ids).toEqual(["g3", "g1", "g2"]);
+  });
+
+  it("beforeGroupId null insere no fim do pacote", () => {
+    const g1 = group("g1", [activity()]);
+    const g2 = group("g2", [activity()]);
+    useReportStore.setState({ packages: [pkg("p1", [g1, g2])] });
+
+    useReportStore.getState().moveGroupToPosition("p1", "g1", "p1", null);
+
+    const ids = useReportStore.getState().packages[0].groups.map((g) => g.id);
+    expect(ids).toEqual(["g2", "g1"]);
+  });
+
+  it("beforeGroupId sendo o próprio grupo arrastado cai no fallback de inserir no fim", () => {
+    const g1 = group("g1", [activity()]);
+    const g2 = group("g2", [activity()]);
+    useReportStore.setState({ packages: [pkg("p1", [g1, g2])] });
+
+    useReportStore.getState().moveGroupToPosition("p1", "g1", "p1", "g1");
+
+    const ids = useReportStore.getState().packages[0].groups.map((g) => g.id);
+    expect(ids).toEqual(["g2", "g1"]);
+  });
+
+  it("move o grupo pra outro pacote sem mesclar, mesmo com nome igual a um grupo existente lá", () => {
+    // diferente de moveGroupToPackage: reordenar não deve mesclar por nome
+    const gOrigem = group("gOrigem", [activity({ id: "a1", description: "Origem" })], { name: "ENG" });
+    const gDestino = group("gDestino", [activity({ id: "a2", description: "Destino" })], { name: "ENG" });
+    useReportStore.setState({ packages: [pkg("p1", [gOrigem]), pkg("p2", [gDestino])] });
+
+    useReportStore.getState().moveGroupToPosition("p1", "gOrigem", "p2", null);
+
+    const p1Groups = useReportStore.getState().packages[0].groups;
+    const p2Groups = useReportStore.getState().packages[1].groups;
+    expect(p1Groups).toHaveLength(0);
+    expect(p2Groups.map((g) => g.id)).toEqual(["gDestino", "gOrigem"]); // dois grupos "ENG" distintos, não mesclados
+  });
+});

@@ -2408,6 +2408,13 @@
   }
   .pv-group-handle:hover { color: var(--accent-hi); }
   .preview-group.dragging { opacity: 0.5; }
+  /* soltar perto do topo/base da linha de outro grupo REORDENA (insere
+     antes/depois), nunca mescla — mesmo padrão visual de
+     .preview-activity.drop-before/.drop-after, aplicado à linha inteira do
+     grupo (não só ao card .preview-group) porque a linha inclui o índice/
+     numeração ao lado. */
+  .preview-group-row.drop-before-group { box-shadow: inset 0 2px 0 0 var(--accent-hi); }
+  .preview-group-row.drop-after-group { box-shadow: inset 0 -2px 0 0 var(--accent-hi); }
   .activity-marquee {
     position: fixed;
     border: 1px solid var(--accent);

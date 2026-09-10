@@ -297,6 +297,12 @@ export interface StoreState {
   removePackage: (packageId: string) => void;
   mergePackages: (sourceId: string, targetId: string) => void;
   moveGroupToPackage: (fromPackageId: string, groupId: string, toPackageId: string) => void;
+  // reordenar: solta perto do TOPO/BASE de outro grupo — insere o grupo
+  // arrastado ANTES de `beforeGroupId` (ou no fim do pacote, se `null`), sem
+  // mesclar nada (diferente de moveGroupToPackage, que mescla por nome
+  // quando os pacotes são diferentes). Funciona pra reordenar dentro do
+  // mesmo pacote ou mover entre pacotes sem mesclar.
+  moveGroupToPosition: (fromPackageId: string, groupId: string, toPackageId: string, beforeGroupId: string | null) => void;
   moveActivitiesToGroup: (
     fromPackageId: string,
     items: Array<{ groupId: string; activityId: string }>,
@@ -696,6 +702,21 @@ export const useReportStore = create<StoreState>()(
         fromPkg.groups = fromPkg.groups.filter((g) => g.id !== groupId);
         fromPkg.collapsedGroupIds.delete(groupId);
         mergeGroupIntoPackage(toPkg, group, new Set());
+        s.hasGeneratedOnce = false;
+      }),
+    moveGroupToPosition: (fromPackageId, groupId, toPackageId, beforeGroupId) =>
+      set((s) => {
+        const fromPkg = s.packages.find((p) => p.id === fromPackageId);
+        const toPkg = s.packages.find((p) => p.id === toPackageId);
+        const group = fromPkg?.groups.find((g) => g.id === groupId);
+        if (!fromPkg || !toPkg || !group) return;
+        const snap = snapshotState(s);
+        s.undoStack.push(snap); if (s.undoStack.length > 50) s.undoStack.shift();
+
+        fromPkg.groups = fromPkg.groups.filter((g) => g.id !== groupId);
+        const insertAt = beforeGroupId ? toPkg.groups.findIndex((g) => g.id === beforeGroupId) : -1;
+        if (insertAt === -1) toPkg.groups.push(group);
+        else toPkg.groups.splice(insertAt, 0, group);
         s.hasGeneratedOnce = false;
       }),
     moveActivitiesToGroup: (fromPackageId, items, toPackageId, toGroupId) =>
