@@ -69,7 +69,7 @@ export function Preview() {
   const setChartBar = useReportStore((s) => s.setChartBar);
   const setChartPie = useReportStore((s) => s.setChartPie);
   const pushUndo = useReportStore((s) => s.pushUndo);
-  const setActivityDescriptions = useReportStore((s) => s.setActivityDescriptions);
+  const applyTranslation = useReportStore((s) => s.applyTranslation);
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState("");
 
@@ -83,7 +83,12 @@ export function Preview() {
 
   const handleTranslate = async () => {
     if (!activePkg) return;
-    const items = activePkg.groups.flatMap((g) => g.activities.map((a) => ({ id: a.id, description: a.description })));
+    // nomes de grupo + descrições de atividade numa lista só — id nunca é
+    // ambíguo entre os dois tipos (ver comentário em applyTranslation).
+    const items = activePkg.groups.flatMap((g) => [
+      { id: g.id, text: g.name },
+      ...g.activities.map((a) => ({ id: a.id, text: a.description })),
+    ]);
     if (items.length === 0) return;
     setTranslateError("");
     setTranslating(true);
@@ -92,7 +97,7 @@ export function Preview() {
       const res = await fetch("/translate-activities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activities: items }),
+        body: JSON.stringify({ items }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
@@ -101,7 +106,7 @@ export function Preview() {
         return;
       }
       const data = await res.json();
-      setActivityDescriptions(activePkg.id, data.translations ?? []);
+      applyTranslation(activePkg.id, data.translations ?? []);
     } catch {
       setTranslateError("Não foi possível traduzir. Verifique sua conexão e tente de novo.");
       revertPushedUndo();

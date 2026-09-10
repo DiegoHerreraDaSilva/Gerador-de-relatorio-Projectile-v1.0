@@ -26,7 +26,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .generator import TEMPLATE_PATH, ActivityInput, GroupInput, ReportHeader, _fmt_number
+from .generator import TEMPLATE_PATH, ActivityInput, GroupInput, ReportHeader, _fmt_number, _labels, _translate_month_label
 
 _LOGO_MEDIA_PART = "xl/media/image2.png"
 
@@ -61,14 +61,14 @@ def _load_logo_reader() -> io.BytesIO:
         return io.BytesIO(zf.read(_LOGO_MEDIA_PART))
 
 
-def _group_display(group: GroupInput) -> tuple[list[str], float]:
+def _group_display(group: GroupInput, language: str = "pt") -> tuple[list[str], float]:
     """(descrições a mostrar, horas do grupo já com performance aplicada) —
     mesma regra de `generator._build_group_rows`: o `.xlsx` final mostra UM
     valor de horas por grupo (bruto × performance), não por atividade."""
     real_activities = [a for a in group.activities if a.hours is not None]
     extra_activities = [a for a in group.activities if a.hours is None]
     if not real_activities and not extra_activities:
-        extra_activities = [ActivityInput(description="(sem atividades apontadas)", hours=None)]
+        extra_activities = [ActivityInput(description=_labels(language)["no_activities"], hours=None)]
 
     descriptions = [a.description for a in real_activities] + [a.description for a in extra_activities]
     bruto_total = round(sum(a.hours for a in real_activities), 3)
@@ -76,14 +76,17 @@ def _group_display(group: GroupInput) -> tuple[list[str], float]:
     return descriptions, group_hours
 
 
-def _bruto_performance_cell(bruto: float, performance: float, label_style: ParagraphStyle, value_style: ParagraphStyle) -> Table:
+def _bruto_performance_cell(
+    bruto: float, performance: float, label_style: ParagraphStyle, value_style: ParagraphStyle, language: str = "pt"
+) -> Table:
     """Mini-tabela "Bruto | Performance" (cabeçalho pequeno + valores embaixo)
     — mesma informação, na mesma disposição, da caixa `.preview-side-box` do
     preview (ver `PreviewSheet.tsx`). Usada tanto por grupo quanto na linha de
     total, só aparece quando `include_performance=True`."""
+    labels = _labels(language)
     table = Table(
         [
-            [Paragraph("Bruto", label_style), Paragraph("Performance", label_style)],
+            [Paragraph(labels["bruto"], label_style), Paragraph(labels["performance"], label_style)],
             [Paragraph(_fmt_hours(bruto), value_style), Paragraph(_fmt_number(round(performance, 3)).replace(".", ","), value_style)],
         ],
         colWidths=["50%", "50%"],
@@ -180,7 +183,9 @@ def generate_report_pdf(
     chart_image_pie_b64: str | None = None,
     pacote_scope: str | None = None,
     include_performance: bool = False,
+    language: str = "pt",
 ) -> None:
+    labels = _labels(language)
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,  # A4 sem rotação = retrato
@@ -188,7 +193,7 @@ def generate_report_pdf(
         rightMargin=_MARGIN_H,
         topMargin=_MARGIN_TOP,
         bottomMargin=_MARGIN_BOTTOM,
-        title="Relatório de Horas",
+        title=labels["title"],
     )
 
     title_style = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=16, textColor=_ACCENT_DARK)
@@ -218,7 +223,7 @@ def generate_report_pdf(
     logo = Image(_load_logo_reader(), width=40 * mm, height=16 * mm)
     logo.hAlign = "LEFT"
     header_table = Table(
-        [[logo, Paragraph("RELATÓRIO DE HORAS", title_style)]],
+        [[logo, Paragraph(labels["title"], title_style)]],
         colWidths=[45 * mm, (A4[0] - 2 * _MARGIN_H - 45 * mm)],
     )
     header_table.setStyle(
@@ -241,7 +246,9 @@ def generate_report_pdf(
     story.append(Spacer(1, 2 * mm))
     story.append(Paragraph(header.project_name, info_style))
     story.append(Paragraph(header.location_date, info_style))
-    story.append(Paragraph(f"Relatório de horas referentes ao mês de {header.month_label}", info_style))
+    story.append(Paragraph(
+        labels["subtitle"].format(month=_translate_month_label(header.month_label, language)), info_style
+    ))
     story.append(Spacer(1, 8 * mm))
 
     grand_total = 0.0
@@ -254,7 +261,7 @@ def generate_report_pdf(
         else [content_width * 0.72, content_width * 0.28]
     )
     for group in groups:
-        descriptions, group_hours = _group_display(group)
+        descriptions, group_hours = _group_display(group, language)
         grand_total += group_hours
         bruto_total = round(sum(a.hours for a in group.activities if a.hours is not None), 3)
         grand_bruto += bruto_total
@@ -282,7 +289,7 @@ def generate_report_pdf(
         for idx, desc in enumerate(descriptions):
             row = [Paragraph(f"• {desc}", activity_style)]
             if include_performance:
-                row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style, bp_value_style) if idx == 0 else "")
+                row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style, bp_value_style, language) if idx == 0 else "")
             row.append(Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == 0 else "")
             table_data.append(row)
 
@@ -319,10 +326,12 @@ def generate_report_pdf(
         story.append(group_table)
         story.append(Spacer(1, 5 * mm))
 
-    total_row_cells = [Paragraph(f"Total de horas {header.month_label}:", total_label_style)]
+    total_row_cells = [Paragraph(
+        labels["total_hours"].format(month=_translate_month_label(header.month_label, language)), total_label_style
+    )]
     if include_performance:
         total_performance = grand_total / grand_bruto if grand_bruto > 0 else 0.0
-        total_row_cells.append(_bruto_performance_cell(grand_bruto, total_performance, bp_label_style, bp_value_style))
+        total_row_cells.append(_bruto_performance_cell(grand_bruto, total_performance, bp_label_style, bp_value_style, language))
     total_row_cells.append(Paragraph(_fmt_hours(grand_total), total_value_style))
     total_row = Table([total_row_cells], colWidths=col_widths)
     total_style_commands = [

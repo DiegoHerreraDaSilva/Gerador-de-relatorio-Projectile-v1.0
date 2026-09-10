@@ -332,10 +332,15 @@ export interface StoreState {
     beforeActivityId: string | null
   ) => void;
   // botão "EN" do preview — troca só `description` das atividades do pacote
-  // dado, casando por `id` (nunca ambíguo, diferente de applyChatState, que
-  // casa por nome/descrição porque lida com operações abertas). Quem chama
-  // (Preview.tsx) já dá pushUndo() antes, mesmo padrão de applyChatState.
-  setActivityDescriptions: (packageId: string, translations: Array<{ id: string; description: string }>) => void;
+  // botão "EN" do preview — troca `name` de grupo e `description` de
+  // atividade, casando por `id` (nunca ambíguo, diferente de applyChatState,
+  // que casa por nome/descrição porque lida com operações abertas). `id` de
+  // grupo e de atividade nunca colidem entre si (mesmo gerador `genId()`,
+  // mas espaços de uso disjuntos), então uma lista só serve pros dois tipos
+  // — quem chama (Preview.tsx) nem precisa saber qual é qual. Marca
+  // `pkg.language = "en"`; quem chama já dá pushUndo() antes (mesmo padrão
+  // de applyChatState), então desfazer reverte dado e idioma juntos.
+  applyTranslation: (packageId: string, translations: Array<{ id: string; text: string }>) => void;
   applyChatState: (newState: {
     packages: Array<{ key: string; projectCode: string; projectName: string; groups: Array<{ name: string; performance: number; activities: Array<{ description: string; hours: number | null }> }> }>;
     locationDate: string;
@@ -791,17 +796,20 @@ export const useReportStore = create<StoreState>()(
         else toGroup.activities.splice(insertAt, 0, ...orderedMoved);
         s.hasGeneratedOnce = false;
       }),
-    setActivityDescriptions: (packageId, translations) =>
+    applyTranslation: (packageId, translations) =>
       set((s) => {
         const pkg = s.packages.find((p) => p.id === packageId);
         if (!pkg) return;
-        const byId = new Map(translations.map((t) => [t.id, t.description]));
+        const byId = new Map(translations.map((t) => [t.id, t.text]));
         pkg.groups.forEach((g) => {
+          const translatedName = byId.get(g.id);
+          if (translatedName !== undefined) g.name = translatedName;
           g.activities.forEach((a) => {
-            const translated = byId.get(a.id);
-            if (translated !== undefined) a.description = translated;
+            const translatedDesc = byId.get(a.id);
+            if (translatedDesc !== undefined) a.description = translatedDesc;
           });
         });
+        pkg.language = "en";
         s.hasGeneratedOnce = false;
       }),
     applyChatState: (newState) => {

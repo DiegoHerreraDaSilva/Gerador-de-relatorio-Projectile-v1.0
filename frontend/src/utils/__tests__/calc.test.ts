@@ -47,6 +47,7 @@ function pkg(groups: Group[], overrides: Partial<WorkPackage> = {}): WorkPackage
     chartBar: false,
     chartPie: false,
     pacoteScope: null,
+    language: "pt",
     ...overrides,
   };
 }

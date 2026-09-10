@@ -75,6 +75,64 @@ S_ACTIVITY_PERF = 20
 S_SUM_E = 21
 S_RATIO_F = 18
 
+# rótulos fixos do relatório final — traduzidos quando o usuário clica "EN"
+# no preview (frontend marca o pacote como `language="en"`, que chega aqui
+# via `ReportPackagePayload.language`). Só os RÓTULOS/estrutura fixa vêm
+# daqui: descrições de atividade e nomes de grupo são dado do usuário, já
+# traduzidos pela IA antes de chegar no payload (ver
+# frontend/src/store/useReportStore.ts::applyTranslation).
+#
+# CUIDADO ao mexer em "total_hours": email_ingest._find_total_row faz regex
+# sobre esse rótulo pra achar a célula-âncora do total num .xlsx recebido de
+# volta por e-mail — o regex de lá já foi ajustado pra aceitar as DUAS
+# variantes (PT e EN) definidas aqui. Se adicionar um idioma novo ou mudar
+# o texto de "total_hours", atualize o regex em email_ingest.py também.
+_LABELS = {
+    "pt": {
+        "title": "RELATÓRIO DE HORAS",
+        "subtitle": "Relatório de horas referentes ao mês de {month}",
+        "activity_description": "Descritivo de Atividades",
+        "hours": "Horas",
+        "bruto": "Bruto",
+        "performance": "Performance",
+        "total_hours": "Total de horas {month}:",
+        "no_activities": "(sem atividades apontadas)",
+    },
+    "en": {
+        "title": "HOURS REPORT",
+        "subtitle": "Hours report for the month of {month}",
+        "activity_description": "Activity Description",
+        "hours": "Hours",
+        "bruto": "Gross",
+        "performance": "Performance",
+        "total_hours": "Total hours {month}:",
+        "no_activities": "(no activities logged)",
+    },
+}
+
+_MONTH_NAMES_EN = {
+    "janeiro": "January", "fevereiro": "February", "março": "March", "abril": "April",
+    "maio": "May", "junho": "June", "julho": "July", "agosto": "August",
+    "setembro": "September", "outubro": "October", "novembro": "November", "dezembro": "December",
+}
+
+
+def _labels(language: str) -> dict:
+    return _LABELS.get(language, _LABELS["pt"])
+
+
+def _translate_month_label(month_label: str, language: str) -> str:
+    """`month_label` vem como "Mês/AAAA" (ex: "Agosto/2026") — só o NOME do
+    mês é traduzido quando `language="en"`, sem mexer no ano/formato. Não
+    altera `header.month_label` em si (usado por email_ingest.py/
+    management.py em outro formato) — é uma tradução só pro texto embutido
+    nos rótulos fixos do arquivo gerado."""
+    if language != "en":
+        return month_label
+    name, sep, year = month_label.partition("/")
+    translated = _MONTH_NAMES_EN.get(name.strip().lower())
+    return f"{translated}{sep}{year}" if translated else month_label
+
 
 @dataclass
 class ActivityInput:
@@ -168,6 +226,12 @@ _MESES_PT = [
     "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ]
+# nomes de mês em inglês, minúsculos — usado só como fallback em
+# `parse_month_label` pra reconhecer o `month_label` extraído de volta de um
+# relatório GERADO EM INGLÊS (ver `_MONTH_NAMES_EN`/`_translate_month_label`
+# acima); nunca é o texto que o app grava, só o que ele pode precisar LER de
+# volta de um .xlsx/.pdf que o próprio app gerou em EN e recebeu por e-mail.
+_MESES_EN = [name.lower() for name in _MONTH_NAMES_EN.values()]
 
 
 def _strip_accents(text: str) -> str:
@@ -175,15 +239,21 @@ def _strip_accents(text: str) -> str:
 
 
 def parse_month_label(label: str) -> tuple[int, int] | None:
-    """'Julho/2026' -> (2026, 7). Retorna None se o texto não seguir esse padrão
-    (ex: o usuário apagou/reescreveu o campo com outro formato)."""
+    """'Julho/2026' -> (2026, 7). Também reconhece o nome do mês em inglês
+    ('August/2026') — necessário pra ler de volta relatórios que o próprio
+    app gerou com `language="en"` (ver email_ingest._find_total_row/
+    resolve_total_hours, que chamam esta função com o texto extraído do
+    arquivo, seja qual for o idioma em que ele foi gerado). Retorna None se
+    o texto não seguir esse padrão nem bater com nenhum dos dois idiomas."""
     match = re.match(r"\s*([^/]+?)\s*/\s*(\d{4})\s*$", label or "")
     if not match:
         return None
     month_name = _strip_accents(match.group(1).strip().lower())
-    try:
+    if month_name in _MESES_PT:
         month = _MESES_PT.index(month_name) + 1
-    except ValueError:
+    elif month_name in _MESES_EN:
+        month = _MESES_EN.index(month_name) + 1
+    else:
         return None
     return int(match.group(2)), month
 
@@ -381,7 +451,8 @@ def _add_cells(rows_by_number: dict[int, list[str]], row_number: int, cells: lis
 
 
 def _build_group_rows(
-    rows_by_number: dict[int, list[str]], groups: list[GroupInput], include_performance: bool = False
+    rows_by_number: dict[int, list[str]], groups: list[GroupInput], include_performance: bool = False,
+    language: str = "pt",
 ) -> tuple[list[str], list[str], list[str], dict[int, float], int]:
     """Escreve em `rows_by_number` o cabeçalho + atividades de cada grupo, a
     partir de GROUP_START_ROW. Retorna (merges, total_hours_cells,
@@ -418,7 +489,7 @@ def _build_group_rows(
             # dele na tela) não pode simplesmente sumir do relatório sem deixar
             # rastro — isso apagaria uma categoria de trabalho silenciosamente.
             # Em vez disso, mostra o grupo com uma linha de aviso e 0h.
-            extra_activities = [ActivityInput(description="(sem atividades apontadas)", hours=None)]
+            extra_activities = [ActivityInput(description=_labels(language)["no_activities"], hours=None)]
 
         header_row = row
         merges.append(f"B{header_row}:C{header_row}")
@@ -433,8 +504,8 @@ def _build_group_rows(
                 # — por padrão colunas E/F ficam em branco (S_FILLER, sem
                 # borda/preenchimento, em vez do estilo original do template,
                 # que tinha borda e deixava uma caixinha vazia visível).
-                _inline_str_cell(f"E{header_row}", S_LABEL, "Bruto") if include_performance else _empty_cell(f"E{header_row}", S_FILLER),
-                _inline_str_cell(f"F{header_row}", S_LABEL, "Performance") if include_performance else _empty_cell(f"F{header_row}", S_FILLER),
+                _inline_str_cell(f"E{header_row}", S_LABEL, _labels(language)["bruto"]) if include_performance else _empty_cell(f"E{header_row}", S_FILLER),
+                _inline_str_cell(f"F{header_row}", S_LABEL, _labels(language)["performance"]) if include_performance else _empty_cell(f"F{header_row}", S_FILLER),
                 _empty_cell(f"G{header_row}", S_FILLER),
             ],
         )
@@ -532,6 +603,7 @@ def _build_totals_row(
     total_bruto_cells: list[str],
     pacote_scope: str | None = None,
     include_performance: bool = False,
+    language: str = "pt",
 ) -> int:
     """Escreve a linha "Total de horas {mês}:" (soma das células C de cada
     grupo) e, logo abaixo, a linha de resumo Bruto/Performance (E = soma do
@@ -551,10 +623,13 @@ def _build_totals_row(
         rows_by_number,
         total_row,
         [
-            _inline_str_cell(f"B{total_row}", S_TOTAL_LABEL, f"Total de horas {month_label}:"),
+            _inline_str_cell(
+                f"B{total_row}", S_TOTAL_LABEL,
+                _labels(language)["total_hours"].format(month=_translate_month_label(month_label, language)),
+            ),
             _formula_cell(f"C{total_row}", S_TOTAL_VALUE, total_value.lstrip("=")),
-            _inline_str_cell(f"E{total_row}", S_LABEL, "Bruto") if include_performance else _empty_cell(f"E{total_row}", S_FILLER),
-            _inline_str_cell(f"F{total_row}", S_LABEL, "Performance") if include_performance else _empty_cell(f"F{total_row}", S_FILLER),
+            _inline_str_cell(f"E{total_row}", S_LABEL, _labels(language)["bruto"]) if include_performance else _empty_cell(f"E{total_row}", S_FILLER),
+            _inline_str_cell(f"F{total_row}", S_LABEL, _labels(language)["performance"]) if include_performance else _empty_cell(f"F{total_row}", S_FILLER),
         ],
     )
 
@@ -573,16 +648,18 @@ def _build_totals_row(
 
 
 def _build_groups_xml(
-    groups: list[GroupInput], month_label: str, pacote_scope: str | None = None, include_performance: bool = False
+    groups: list[GroupInput], month_label: str, pacote_scope: str | None = None, include_performance: bool = False,
+    language: str = "pt",
 ):
     """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
     rows_by_number: dict[int, list[str]] = {}
 
     merges, total_hours_cells, total_bruto_cells, row_heights, next_row = _build_group_rows(
-        rows_by_number, groups, include_performance
+        rows_by_number, groups, include_performance, language
     )
     bruto_row = _build_totals_row(
-        rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells, pacote_scope, include_performance
+        rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells, pacote_scope, include_performance,
+        language,
     )
 
     rows = [
@@ -705,18 +782,28 @@ def generate_report(
     chart_image_pie_b64: str | None = None,
     pacote_scope: str | None = None,
     include_performance: bool = False,
+    language: str = "pt",
 ) -> str:
+    labels = _labels(language)
     with zipfile.ZipFile(TEMPLATE_PATH) as zin:
         names = zin.namelist()
         contents = {name: zin.read(name) for name in names}
 
     sheet_xml = contents[SHEET_PART].decode("utf-8")
 
-    sheet_xml = _replace_header_cell(sheet_xml, "B4", 22, "RELATÓRIO DE HORAS")
+    sheet_xml = _replace_header_cell(sheet_xml, "B4", 22, labels["title"])
     sheet_xml = _replace_header_cell(sheet_xml, "B8", 27, header.project_code)
     sheet_xml = _replace_header_cell(sheet_xml, "C8", 8, header.location_date)
     sheet_xml = _replace_header_cell(sheet_xml, "C9", 16, header.project_name)
-    sheet_xml = _replace_header_cell(sheet_xml, "B11", 12, f"Relatório de horas referentes ao mês de {header.month_label}")
+    sheet_xml = _replace_header_cell(
+        sheet_xml, "B11", 12, labels["subtitle"].format(month=_translate_month_label(header.month_label, language))
+    )
+    # cabeçalho de coluna da tabela de atividades ("Descritivo de
+    # Atividades"/"Horas") — texto ESTÁTICO do template original (shared
+    # string, nunca reescrito antes desta mudança), por isso sempre saía em
+    # português independente do resto do relatório.
+    sheet_xml = _replace_header_cell(sheet_xml, "B13", 11, labels["activity_description"])
+    sheet_xml = _replace_header_cell(sheet_xml, "C13", 11, labels["hours"])
     # cabeçalho estático da tabela "Week/AK/days/Hours/week" (linha 14, fora da
     # faixa regenerada por _build_groups_xml) — os dados dela não aparecem mais
     # no relatório final, então o cabeçalho também não deve ficar sozinho.
@@ -730,7 +817,7 @@ def generate_report(
     sheet_xml = _hide_helper_column(sheet_xml)
 
     data_rows, group_merges, last_data_row = _build_groups_xml(
-        groups, header.month_label, pacote_scope, include_performance
+        groups, header.month_label, pacote_scope, include_performance, language
     )
 
     start = sheet_xml.index(f'<row r="{GROUP_START_ROW}"')

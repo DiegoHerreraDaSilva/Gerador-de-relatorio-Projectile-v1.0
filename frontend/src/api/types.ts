@@ -34,6 +34,13 @@ export type WorkPackage = {
   // generator.py), pro Painel de Gerência não marcar o projeto inteiro como
   // "Enviado" quando só 1 pacote foi mandado por e-mail.
   pacoteScope: string | null;
+  // idioma dos rótulos fixos do arquivo gerado pra ESTE pacote — "pt" por
+  // padrão, vira "en" quando o botão "EN" do preview traduz esse pacote
+  // (nomes de grupo + descrições de atividade via IA, e os rótulos fixos —
+  // título, "Bruto"/"Performance", "Total de horas..." — no backend, ver
+  // generator._LABELS). Undo reverte junto (é campo do pacote, entra no
+  // snapshot igual a tudo mais).
+  language: "pt" | "en";
 };
 
 export type RowIssue = {

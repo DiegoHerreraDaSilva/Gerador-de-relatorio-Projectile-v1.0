@@ -14,7 +14,7 @@ function pkg(id: string, groups: Group[], overrides: Partial<WorkPackage> = {}):
   return {
     id, key: id, projectCode: "SE.01.001", projectName: "Projeto Teste",
     groups, collapsedGroupIds: new Set(), fileName: "", fileNameEdited: false,
-    chartBar: false, chartPie: false, pacoteScope: null,
+    chartBar: false, chartPie: false, pacoteScope: null, language: "pt",
     ...overrides,
   };
 }
@@ -233,33 +233,44 @@ describe("moveGroupToPosition", () => {
   });
 });
 
-describe("setActivityDescriptions", () => {
-  it("troca a description das atividades casando por id, sem mexer em mais nada", () => {
+describe("applyTranslation", () => {
+  it("troca description de atividade e name de grupo casando por id, sem mexer em mais nada", () => {
     const a = activity({ id: "a", description: "Atividade A", hours: 1 });
     const b = activity({ id: "b", description: "Atividade B", hours: 2 });
-    const g = group("g1", [a, b], { performance: 1.2 });
+    const g = group("g1", [a, b], { name: "Geral", performance: 1.2 });
     useReportStore.setState({ packages: [pkg("p1", [g])] });
 
-    useReportStore.getState().setActivityDescriptions("p1", [
-      { id: "a", description: "Activity A" },
-      { id: "b", description: "Activity B" },
+    useReportStore.getState().applyTranslation("p1", [
+      { id: "g1", text: "General" },
+      { id: "a", text: "Activity A" },
+      { id: "b", text: "Activity B" },
     ]);
 
     const result = useReportStore.getState().packages[0].groups[0];
+    expect(result.name).toBe("General");
     expect(result.activities.map((x) => x.description)).toEqual(["Activity A", "Activity B"]);
-    // nada além da description muda
+    // nada além de name/description muda
     expect(result.performance).toBe(1.2);
     expect(result.activities.map((x) => x.hours)).toEqual([1, 2]);
   });
 
-  it("ignora ids que não vieram na tradução, mantendo a description original", () => {
+  it("marca o pacote como language=\"en\"", () => {
+    const a = activity({ id: "a", description: "Atividade A" });
+    useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])], { language: "pt" })] });
+
+    useReportStore.getState().applyTranslation("p1", [{ id: "a", text: "Activity A" }]);
+
+    expect(useReportStore.getState().packages[0].language).toBe("en");
+  });
+
+  it("ignora ids que não vieram na tradução, mantendo o texto original", () => {
     const a = activity({ id: "a", description: "Atividade A" });
     const b = activity({ id: "b", description: "Atividade B" });
     useReportStore.setState({ packages: [pkg("p1", [group("g1", [a, b])])] });
 
     // só "a" veio traduzida — "b" fica como estava (ver comentário no endpoint
     // /translate-activities: a IA pode não devolver todos os ids pedidos)
-    useReportStore.getState().setActivityDescriptions("p1", [{ id: "a", description: "Activity A" }]);
+    useReportStore.getState().applyTranslation("p1", [{ id: "a", text: "Activity A" }]);
 
     const activities = useReportStore.getState().packages[0].groups[0].activities;
     expect(activities.map((x) => x.description)).toEqual(["Activity A", "Atividade B"]);
@@ -267,10 +278,12 @@ describe("setActivityDescriptions", () => {
 
   it("não faz nada se o packageId não existir", () => {
     const a = activity({ id: "a", description: "Atividade A" });
-    useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])])] });
+    useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])], { language: "pt" })] });
 
-    useReportStore.getState().setActivityDescriptions("pacote-inexistente", [{ id: "a", description: "Activity A" }]);
+    useReportStore.getState().applyTranslation("pacote-inexistente", [{ id: "a", text: "Activity A" }]);
 
-    expect(useReportStore.getState().packages[0].groups[0].activities[0].description).toBe("Atividade A");
+    const result = useReportStore.getState().packages[0];
+    expect(result.groups[0].activities[0].description).toBe("Atividade A");
+    expect(result.language).toBe("pt");
   });
 });

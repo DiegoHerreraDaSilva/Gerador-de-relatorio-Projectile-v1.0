@@ -107,13 +107,14 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
     return summary, operations
 
 
-def call_translate(activities: list[dict]) -> list[dict]:
-    """Traduz `activities` (lista de `{id, description}`) pro inglês — usado
-    pelo botão "EN" do preview. Mesmo cliente/modelo de `call_chat`, mas com
-    um schema dedicado (ver translate_ops.py): aqui a tarefa é sempre a
-    mesma, então o casamento de cada item na resposta é por `id` — quem
-    chama é responsável por aplicar só os ids que efetivamente vieram de
-    volta, sem assumir que a lista bate 1:1 com a enviada."""
+def call_translate(items: list[dict]) -> list[dict]:
+    """Traduz `items` (lista de `{id, text}` — nomes de grupo e descrições de
+    atividade misturados, ver translate_ops.py) pro inglês — usado pelo botão
+    "EN" do preview. Mesmo cliente/modelo de `call_chat`, mas com um schema
+    dedicado: aqui a tarefa é sempre a mesma, então o casamento de cada item
+    na resposta é por `id` — quem chama é responsável por aplicar só os ids
+    que efetivamente vieram de volta, sem assumir que a lista bate 1:1 com a
+    enviada."""
     client = _get_client()
     model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
@@ -125,7 +126,7 @@ def call_translate(activities: list[dict]) -> list[dict]:
             tools=[{**TRANSLATE_TOOL_SCHEMA, "cache_control": {"type": "ephemeral"}}],
             tool_choice={"type": "tool", "name": TRANSLATE_TOOL_NAME},
             output_config={"effort": "low"},
-            messages=[{"role": "user", "content": f"Itens a traduzir:\n{activities}"}],
+            messages=[{"role": "user", "content": f"Itens a traduzir:\n{items}"}],
         )
     except Exception as e:
         raise ChatUpstreamError(f"Falha ao chamar a API da Anthropic: {e}") from e

@@ -73,6 +73,7 @@ export function GenerateFooter() {
         chart_image_bar: pkg.chartBar ? chartPng(pkg.groups, "bar") : undefined,
         chart_image_pie: pkg.chartPie ? chartPng(pkg.groups, "pie") : undefined,
         pacote_scope: pkg.pacoteScope,
+        language: pkg.language,
       })),
       formats: Array.from(formats),
       include_performance: includePerformance,

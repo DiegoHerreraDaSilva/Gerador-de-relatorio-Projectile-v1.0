@@ -352,6 +352,7 @@ export function FileUpload() {
       chartBar: false,
       chartPie: false,
       pacoteScope: isPacoteMode ? p.key : null,
+      language: "pt" as const,
     }));
     pkgs.forEach((pkg) => {
       pkg.collapsedGroupIds = new Set(pkg.groups.map((g) => g.id));

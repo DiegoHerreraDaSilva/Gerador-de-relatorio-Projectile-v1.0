@@ -373,8 +373,12 @@ def _find_total_row(ws) -> tuple[int, str]:
     """Acha a linha "Total de horas <mês/ano>:" (coluna B) — devolve (número
     da linha, month_label). Compartilhado por `resolve_total_hours` e
     `read_pacote_scope` (mesma linha-âncora — a linha logo abaixo é
-    `bruto_row`, ver `generator._build_totals_row`)."""
-    label_re = re.compile(r"^Total de horas\s+(.+?):$")
+    `bruto_row`, ver `generator._build_totals_row`).
+
+    Aceita tanto "Total de horas" (PT) quanto "Total hours" (EN, ver
+    `generator._LABELS["en"]["total_hours"]`) — um relatório gerado com
+    `language="en"` pode voltar por e-mail pra alimentar o mesmo KPI."""
+    label_re = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):$")
     for row in ws.iter_rows():
         for cell in row:
             if not isinstance(cell.value, str):

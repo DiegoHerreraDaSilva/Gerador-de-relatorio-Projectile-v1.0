@@ -839,6 +839,15 @@ class ReportPackagePayload(BaseModel):
     # de trabalho — vira uma marca oculta no .xlsx (ver generator.py), lida
     # de volta por email_ingest.py pra status "enviado"/"parcial" por projeto.
     pacote_scope: str | None = None
+    # idioma dos RÓTULOS FIXOS do arquivo gerado (título, cabeçalhos de
+    # coluna, "Bruto"/"Performance", "Total de horas.../Total hours...") —
+    # ver generator._LABELS/pdf_generator.generate_report_pdf. Por pacote
+    # (não no nível de GeneratePayload, como include_performance): reflete
+    # se ESSE pacote já foi traduzido pelo botão "EN" do preview (que também
+    # traduz nomes de grupo/descrições de atividade via IA, antes de este
+    # payload ser montado) — por isso já vale tanto pra /generate quanto
+    # pra /send-report, sem precisar duplicar o campo em SendReportPayload.
+    language: Literal["pt", "en"] = "pt"
 
 
 class GeneratePayload(BaseModel):
@@ -882,6 +891,7 @@ def _build_report(
             chart_image_pie_b64=pkg_payload.chart_image_pie,
             pacote_scope=pkg_payload.pacote_scope,
             include_performance=include_performance,
+            language=pkg_payload.language,
         )
     else:
         generate_report(
@@ -892,6 +902,7 @@ def _build_report(
             chart_image_pie_b64=pkg_payload.chart_image_pie,
             pacote_scope=pkg_payload.pacote_scope,
             include_performance=include_performance,
+            language=pkg_payload.language,
         )
     return header
 
@@ -1130,21 +1141,21 @@ async def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_sess
     return ChatResponse(reply=summary, state=validated_state)
 
 
-class TranslateActivityItem(BaseModel):
+class TranslateItem(BaseModel):
     id: str
-    description: str
+    text: str
 
 
-class TranslateActivitiesPayload(BaseModel):
-    activities: list[TranslateActivityItem] = Field(min_length=1)
+class TranslatePayload(BaseModel):
+    # nomes de grupo e descrições de atividade misturados numa lista só —
+    # ver comentário em translate_ops.py sobre por que `id` nunca é ambíguo.
+    items: list[TranslateItem] = Field(min_length=1)
 
 
 @app.post("/translate-activities")
-async def translate_activities_endpoint(
-    payload: TranslateActivitiesPayload, _user: dict = Depends(require_session)
-):
+async def translate_activities_endpoint(payload: TranslatePayload, _user: dict = Depends(require_session)):
     try:
-        translations = call_translate([item.model_dump() for item in payload.activities])
+        translations = call_translate([item.model_dump() for item in payload.items])
     except ChatConfigError as e:
         raise HTTPException(500, str(e))
     except ChatUpstreamError as e:

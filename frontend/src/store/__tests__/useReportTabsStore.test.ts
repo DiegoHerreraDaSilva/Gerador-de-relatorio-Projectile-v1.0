@@ -38,6 +38,7 @@ function fakePackage(overrides: Partial<WorkPackage> = {}): WorkPackage {
     chartBar: false,
     chartPie: false,
     pacoteScope: null,
+    language: "pt",
     ...overrides,
   };
 }
