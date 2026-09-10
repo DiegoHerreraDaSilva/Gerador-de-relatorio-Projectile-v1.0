@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useReportStore } from "../../store/useReportStore";
+import { useAuthStore } from "../../store/useAuthStore";
 import { PreviewSheet } from "./PreviewSheet";
 
 // desfaz o pushUndo() otimista feito antes da requisição de tradução (mesmo
@@ -70,6 +71,7 @@ export function Preview() {
   const setChartPie = useReportStore((s) => s.setChartPie);
   const pushUndo = useReportStore((s) => s.pushUndo);
   const applyTranslation = useReportStore((s) => s.applyTranslation);
+  const translateAllowed = useAuthStore((s) => s.user?.translateAllowed ?? false);
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState("");
 
@@ -150,7 +152,9 @@ export function Preview() {
                 <PieChartIcon />
               </button>
               <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">⇆ Dividir tela</button>
-              <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir as descrições de atividade deste relatório para inglês" aria-label="Traduzir atividades para inglês">EN</button>
+              {translateAllowed && (
+                <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir as descrições de atividade deste relatório para inglês" aria-label="Traduzir atividades para inglês">EN</button>
+              )}
               <button type="button" onClick={() => setZoom(previewZoom - 10)}>−</button>
               <span id="zoomLabel">{previewZoom}%</span>
               <button type="button" onClick={() => setZoom(previewZoom + 10)}>+</button>
@@ -203,16 +207,18 @@ export function Preview() {
             >
               ⇆ Dividir tela
             </button>
-            <button
-              type="button"
-              className="btn-toggle btn-translate"
-              disabled={translating}
-              onClick={handleTranslate}
-              title="Traduzir as descrições de atividade deste relatório para inglês"
-              aria-label="Traduzir atividades para inglês"
-            >
-              {translating ? "..." : "EN"}
-            </button>
+            {translateAllowed && (
+              <button
+                type="button"
+                className="btn-toggle btn-translate"
+                disabled={translating}
+                onClick={handleTranslate}
+                title="Traduzir as descrições de atividade deste relatório para inglês"
+                aria-label="Traduzir atividades para inglês"
+              >
+                {translating ? "..." : "EN"}
+              </button>
+            )}
             {translateError && <span className="preview-translate-error">{translateError}</span>}
             <button type="button" onClick={() => setZoom(previewZoom - 10)} aria-label="Diminuir zoom">−</button>
             <span id="zoomLabel">{previewZoom}%</span>

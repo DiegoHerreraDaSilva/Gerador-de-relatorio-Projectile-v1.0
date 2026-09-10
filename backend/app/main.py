@@ -88,6 +88,7 @@ from .pdf_generator import generate_report_pdf
 from . import email_ingest
 from .management import (
     MANAGEMENT_PANEL_LOGINS,
+    TRANSLATE_ALLOWED_LOGINS,
     compute_monthly_kpis,
     create_manual_project_kpi_sample,
     delete_project_kpi_sample,
@@ -240,6 +241,16 @@ def require_manager(_user: dict = Depends(require_session)) -> dict:
     return _user
 
 
+def require_translate_access(_user: dict = Depends(require_session)) -> dict:
+    """Barra com 403 quem não está na allowlist de tradução — cada clique no
+    botão "EN" do preview chama a API da Anthropic, então isso existe pra
+    limitar o gasto a quem realmente precisa (ver `TRANSLATE_ALLOWED_LOGINS`
+    em management.py)."""
+    if _user["login"].lower() not in TRANSLATE_ALLOWED_LOGINS:
+        raise HTTPException(403, "Sem acesso à tradução do relatório.")
+    return _user
+
+
 class LoginRequest(BaseModel):
     login: str
     password: str
@@ -274,6 +285,7 @@ async def login_endpoint(payload: LoginRequest, request: Request, response: Resp
     return {
         "name": user["name"], "login": user["login"], "email": user["email"],
         "is_manager": user["login"].lower() in MANAGEMENT_PANEL_LOGINS,
+        "is_translate_allowed": user["login"].lower() in TRANSLATE_ALLOWED_LOGINS,
     }
 
 
@@ -285,6 +297,7 @@ async def me_endpoint(request: Request):
     return {
         "name": session["name"], "login": session["login"], "email": session["email"],
         "is_manager": session["login"].lower() in MANAGEMENT_PANEL_LOGINS,
+        "is_translate_allowed": session["login"].lower() in TRANSLATE_ALLOWED_LOGINS,
     }
 
 
@@ -1153,7 +1166,7 @@ class TranslatePayload(BaseModel):
 
 
 @app.post("/translate-activities")
-async def translate_activities_endpoint(payload: TranslatePayload, _user: dict = Depends(require_session)):
+async def translate_activities_endpoint(payload: TranslatePayload, _user: dict = Depends(require_translate_access)):
     try:
         translations = call_translate([item.model_dump() for item in payload.items])
     except ChatConfigError as e:

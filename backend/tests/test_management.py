@@ -303,6 +303,22 @@ def test_load_management_panel_logins_falls_back_when_env_missing(monkeypatch):
     assert logins == {"dherrera"}
 
 
+def test_load_translate_allowed_logins_normalizes_to_lowercase(monkeypatch):
+    monkeypatch.setenv("TRANSLATE_ALLOWED_LOGINS", "Dherrera, LFranco")
+
+    logins = management._load_translate_allowed_logins()
+
+    assert logins == {"dherrera", "lfranco"}
+
+
+def test_load_translate_allowed_logins_falls_back_when_env_missing(monkeypatch):
+    monkeypatch.delenv("TRANSLATE_ALLOWED_LOGINS", raising=False)
+
+    logins = management._load_translate_allowed_logins()
+
+    assert logins == {"dherrera"}
+
+
 # ---------------------------------------------------------------------------
 # Escrita concorrente em management_kpi.json — bug real relatado: um relatório
 # manual adicionado pelo Diagnóstico "sumiu" depois de reiniciar o backend.

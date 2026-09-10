@@ -88,6 +88,22 @@ def _load_management_panel_logins() -> set[str]:
 
 MANAGEMENT_PANEL_LOGINS = _load_management_panel_logins()
 
+
+def _load_translate_allowed_logins() -> set[str]:
+    """Allowlist de logins com acesso ao botão "EN" do preview (tradução via
+    IA), via TRANSLATE_ALLOWED_LOGINS (logins separados por vírgula) — cada
+    clique chama a API da Anthropic, então isso existe pra limitar o gasto a
+    quem realmente precisa. Mesmo fallback de MANAGEMENT_PANEL_LOGINS
+    (`{"dherrera"}` se a env var estiver ausente/vazia) pra nunca travar todo
+    mundo por falta de configuração. Mesma normalização em minúsculas, pelo
+    mesmo motivo (ver `_load_management_panel_logins`)."""
+    raw = os.environ.get("TRANSLATE_ALLOWED_LOGINS", "")
+    logins = {login.strip().lower() for login in raw.split(",") if login.strip()}
+    return logins or {"dherrera"}
+
+
+TRANSLATE_ALLOWED_LOGINS = _load_translate_allowed_logins()
+
 # times/centros de custo de engenharia disponíveis pro filtro — o usuário
 # confirmou que "CAD + CAE juntos" é a equipe (não existe um valor literal
 # "Engenharia" no Projectile, ver investigação de schema desta sessão).

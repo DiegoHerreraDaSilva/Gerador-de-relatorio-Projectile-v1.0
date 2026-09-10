@@ -1,9 +1,15 @@
 import { create } from "zustand";
 
-type User = { name: string; login: string; email: string; isManager: boolean };
+type User = { name: string; login: string; email: string; isManager: boolean; translateAllowed: boolean };
 
 function toUser(raw: any): User {
-  return { name: raw.name, login: raw.login, email: raw.email, isManager: Boolean(raw.is_manager) };
+  return {
+    name: raw.name,
+    login: raw.login,
+    email: raw.email,
+    isManager: Boolean(raw.is_manager),
+    translateAllowed: Boolean(raw.is_translate_allowed),
+  };
 }
 
 interface AuthState {
