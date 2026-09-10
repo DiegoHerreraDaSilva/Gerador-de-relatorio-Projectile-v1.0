@@ -759,6 +759,13 @@
 
   .send-status-table-wrap .kpi-table th:last-child,
   .send-status-table-wrap .kpi-table td:last-child { text-align: center; }
+  /* mesmo problema já corrigido no Diagnóstico: Projeto/Competência são
+     texto, mas herdavam o right-align padrão de .kpi-table (pensada pro
+     KPI numérico) — cabeçalho e conteúdo "começavam" de lados opostos. */
+  .send-status-table-wrap .kpi-table th:nth-child(2),
+  .send-status-table-wrap .kpi-table td:nth-child(2),
+  .send-status-table-wrap .kpi-table th:nth-child(3),
+  .send-status-table-wrap .kpi-table td:nth-child(3) { text-align: left; }
 
   .send-status-badge {
     display: inline-flex;
