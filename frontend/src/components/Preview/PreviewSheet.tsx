@@ -5,6 +5,7 @@ import { fmtNum } from "../../utils/fmt";
 import { drawGroupsChart } from "../../utils/chart";
 import { ExtraHoursInput } from "../ExtraHoursInput";
 import { PerformanceInput } from "../PerformanceInput";
+import { LABELS, translateMonthLabel } from "../../utils/labels";
 
 type Props = { paneId: string; packageId: string };
 
@@ -113,7 +114,8 @@ export function PreviewSheet({ paneId, packageId }: Props) {
 
   if (!pkg) return <p className="preview-empty">Analise um arquivo do Projectile para ver o preview.</p>;
 
-  const monthLabelDisplay = header.monthLabel || "Mês/AAAA";
+  const labels = LABELS[pkg.language];
+  const monthLabelDisplay = translateMonthLabel(header.monthLabel || "Mês/AAAA", pkg.language);
   const totalHoras = computeGrandTotalFor(pkg.groups);
   const totalBruto = computeGrandBruto(pkg.groups);
   // performance "geral" é uma média PONDERADA pelo bruto de cada grupo
@@ -130,7 +132,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
   return (
     <div ref={containerRef} className="preview-sheet" data-pane={paneId}>
       <div className="preview-top">
-        <div className="preview-title">RELATÓRIO DE HORAS</div>
+        <div className="preview-title">{labels.title}</div>
         <img src="logo-light.png" alt="Schwaben Engineering" className="preview-logo" />
       </div>
       <div className="preview-meta">
@@ -187,12 +189,12 @@ export function PreviewSheet({ paneId, packageId }: Props) {
       </div>
 
       <div className="preview-banner-row">
-        <div className="preview-banner">Relatório de horas referentes ao mês de {monthLabelDisplay}</div>
+        <div className="preview-banner">{labels.subtitle.replace("{month}", monthLabelDisplay)}</div>
         <div className="preview-banner-side" />
       </div>
       <div className="preview-cols">
-        <div className="c1">Descritivo de Atividades</div>
-        <div className="c2">Horas</div>
+        <div className="c1">{labels.activityDescription}</div>
+        <div className="c2">{labels.hours}</div>
       </div>
 
       {pkg.groups.map((group, gIdx) => {
@@ -433,8 +435,8 @@ export function PreviewSheet({ paneId, packageId }: Props) {
 
             <div className="preview-side-box">
               <div className="preview-side-header">
-                <span>Bruto</span>
-                <span>Performance</span>
+                <span>{labels.bruto}</span>
+                <span>{labels.performance}</span>
               </div>
               <div className="preview-side-values">
                 <span className="bruto">{bruto ? fmtNum(bruto) : ""}</span>
@@ -458,12 +460,12 @@ export function PreviewSheet({ paneId, packageId }: Props) {
       </button>
 
       <div className="preview-total">
-        <div className="label">Total de horas {monthLabelDisplay}:</div>
+        <div className="label">{labels.totalHours.replace("{month}", monthLabelDisplay)}</div>
         <div className="value">{fmtNum(totalHoras)}</div>
         <div className="preview-side-box">
           <div className="preview-side-header">
-            <span>Bruto</span>
-            <span>Performance</span>
+            <span>{labels.bruto}</span>
+            <span>{labels.performance}</span>
           </div>
           <div className="preview-side-values">
             <span className="bruto">{totalBruto ? fmtNum(totalBruto) : ""}</span>
