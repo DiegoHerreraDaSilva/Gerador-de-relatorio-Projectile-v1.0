@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useReportStore } from "../useReportStore";
+import { useReportStore, applyTabBundle } from "../useReportStore";
 import type { WorkPackage, Group, Activity } from "../../api/types";
 
 function activity(overrides: Partial<Activity> = {}): Activity {
@@ -285,5 +285,21 @@ describe("applyTranslation", () => {
     const result = useReportStore.getState().packages[0];
     expect(result.groups[0].activities[0].description).toBe("Atividade A");
     expect(result.language).toBe("pt");
+  });
+});
+
+describe("applyTabBundle", () => {
+  it("preenche language='pt' em pacotes salvos antes desse campo existir", () => {
+    // bug real reportado: uma guia salva no localStorage antes do campo
+    // `language` existir carrega pacotes sem essa propriedade — sem esse
+    // fallback, LABELS[pkg.language] (PreviewSheet.tsx) vira `undefined` e
+    // `.title` quebra a tela inteira ("Cannot read properties of undefined").
+    const { language, ...pkgSemLanguage } = pkg("p1", [group("g1", [activity()])]);
+    const bundleAntigo = JSON.stringify({ packages: [pkgSemLanguage] });
+
+    const state: { packages: WorkPackage[] } = { packages: [] };
+    applyTabBundle(bundleAntigo, state as any);
+
+    expect(state.packages[0].language).toBe("pt");
   });
 });

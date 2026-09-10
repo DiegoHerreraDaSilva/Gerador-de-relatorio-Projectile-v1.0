@@ -146,7 +146,11 @@ export function serializeTabBundle(state: StoreState): string {
 
 export function applyTabBundle(bundleStr: string, state: StoreState) {
   const parsed = JSON.parse(bundleStr, jsonReviver) as TabBundle;
-  state.packages = parsed.packages;
+  // `language` foi adicionado depois — guias salvas no localStorage antes
+  // disso (ou pacotes vindos de uma sessão de backend mais antiga) não têm
+  // esse campo, e `LABELS[pkg.language]` (PreviewSheet.tsx) quebra com
+  // `undefined` em vez de cair no português.
+  state.packages = parsed.packages.map((pkg) => ({ ...pkg, language: pkg.language ?? "pt" }));
   state.activePackageId = parsed.activePackageId;
   state.reportMode = parsed.reportMode;
   state.currentIssues = parsed.currentIssues;
