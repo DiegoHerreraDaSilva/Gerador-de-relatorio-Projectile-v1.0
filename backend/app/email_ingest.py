@@ -822,7 +822,12 @@ def process_new_emails() -> dict:
                             "month": month_key,
                             "billed_hours": billed_hours,
                             "business_days": business_days,
-                            "pacote_scope": pacote_scope,
+                            # o relatório recebido sempre cobre UM pacote (ou
+                            # o projeto inteiro) no momento da geração — a
+                            # amostra guarda como lista de 1 item pra bater
+                            # com o formato de `management.py` (que aceita
+                            # marcar vários pacotes na edição manual).
+                            "pacote_scope": [pacote_scope] if pacote_scope else None,
                         })
                         if is_duplicate:
                             summary["duplicates_found"] += 1

@@ -11,9 +11,11 @@ export type Sample = {
   business_days: number;
   source: "email" | "manual";
   edited: boolean;
-  // null = amostra cobre o projeto inteiro; string = cobre só esse pacote de
-  // trabalho (lido da marca oculta do .xlsx, ver generator.py/email_ingest.py).
-  pacote_scope: string | null;
+  // null/lista vazia = amostra cobre o projeto inteiro; lista com 1+ pacotes
+  // = cobre só esses pacotes de trabalho (lido da marca oculta do .xlsx pra
+  // amostras automáticas, ver generator.py/email_ingest.py; editável pra
+  // qualquer amostra na tela de Diagnóstico).
+  pacote_scope: string[] | null;
   // true = mesmo projeto/mês/pacote já tinha amostra antes (reenvio) — não
   // entrou na soma de horas faturadas (ver management._recompute_duplicate_flags).
   is_duplicate: boolean;

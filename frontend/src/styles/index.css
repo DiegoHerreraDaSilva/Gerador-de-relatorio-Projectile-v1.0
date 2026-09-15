@@ -884,6 +884,50 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* editor de pacote_scope na edição de amostra (PacoteScopeEditor) — mesmo
+     visual de trigger dos outros dropdowns desta tela, mas cabendo na
+     largura apertada da coluna "Pacote" da tabela. */
+  .diagnostics-pacote-dropdown .month-dropdown-trigger {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 0.82rem;
+    font-weight: 400;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: none;
+  }
+  .diagnostics-pacote-dropdown .mgmt-filter-summary {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diagnostics-pacote-list { width: 320px; padding: 10px; }
+  .diagnostics-pacote-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 4px;
+    font-size: 0.82rem;
+    font-weight: 400;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .diagnostics-pacote-option:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .diagnostics-pacote-option input { margin-top: 2px; flex-shrink: 0; }
+  .diagnostics-pacote-option-text { overflow-wrap: anywhere; }
+  .diagnostics-pacote-divider {
+    margin: 8px 0 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .diagnostics-pacote-loading { padding: 4px; font-size: 0.82rem; }
   /* lista do ProjectSelect abre num portal (document.body) — não é mais
      descendente de `.diagnostics-project-dropdown` no DOM, por isso a classe
      própria em vez de escopar pelo ancestral (que só funciona sem portal). */

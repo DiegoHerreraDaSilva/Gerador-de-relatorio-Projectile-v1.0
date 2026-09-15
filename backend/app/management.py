@@ -194,6 +194,14 @@ def _load_data() -> dict:
             # comportamento em vez de marcar dado antigo como "parcial".
             sample["pacote_scope"] = None
             migrated = True
+        elif isinstance(sample["pacote_scope"], str):
+            # formato antigo: um texto único (o app só permitia marcar UM
+            # pacote por amostra). A edição manual no Diagnóstico agora
+            # permite escolher vários de uma vez — migra pra lista de 1 item,
+            # o resto do código (compute_monthly_kpis, dedup, frontend) só
+            # lida com list|None a partir daqui.
+            sample["pacote_scope"] = [sample["pacote_scope"]]
+            migrated = True
     if any("is_duplicate" not in sample for sample in data["project_kpi_samples"]):
         # depende de olhar TODAS as amostras juntas (não dá pra decidir
         # amostra a amostra), por isso é uma passada própria, não um
@@ -231,7 +239,11 @@ def _recompute_duplicate_flags(samples: list[dict]) -> None:
         if sample.get("source") == "manual":
             sample["is_duplicate"] = False
             continue
-        identity = (sample.get("project_id"), sample.get("month"), sample.get("pacote_scope"))
+        scope = sample.get("pacote_scope")
+        # lista não é hashable — normaliza pra tupla ordenada (ordem de
+        # seleção não importa pra identidade, só QUAIS pacotes).
+        scope_key = tuple(sorted(scope)) if scope else None
+        identity = (sample.get("project_id"), sample.get("month"), scope_key)
         sample["is_duplicate"] = identity in seen
         seen.add(identity)
 
@@ -320,7 +332,7 @@ def update_project_kpi_sample(sample_id: str, patch: dict) -> bool:
         for sample in data["project_kpi_samples"]:
             if sample.get("sample_id") != sample_id:
                 continue
-            allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days"}
+            allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days", "pacote_scope"}
             for key, value in patch.items():
                 if key in allowed_fields:
                     sample[key] = value
@@ -625,11 +637,13 @@ def compute_monthly_kpis(
     # status por (projeto, mês) a partir das amostras de e-mail
     # (project_kpi_samples) — não é editável manualmente na tela, é marcado
     # quando a caixa agente.reunioes@ recebe o relatório daquele projeto (ver
-    # email_ingest.py). Cada amostra carrega `pacote_scope`: None significa
-    # "esse envio cobria o projeto inteiro" (_PACOTE_SCOPE_ALL), um texto
-    # significa "só esse pacote de trabalho" — um projeto só é "enviado" de
-    # verdade se TODOS os pacotes com hora naquele mês foram cobertos por
-    # algum envio, não só qualquer um (era o bug: mandar 1 pacote marcava o
+    # email_ingest.py). Cada amostra carrega `pacote_scope`: None/lista vazia
+    # significa "esse envio cobria o projeto inteiro" (_PACOTE_SCOPE_ALL),
+    # uma lista de 1+ pacotes significa "só esses pacotes de trabalho" (a
+    # correção manual no Diagnóstico permite marcar vários de uma vez, ver
+    # `update_project_kpi_sample`) — um projeto só é "enviado" de verdade se
+    # TODOS os pacotes com hora naquele mês foram cobertos por algum envio,
+    # não só qualquer um (era o bug original: mandar 1 pacote marcava o
     # projeto inteiro como enviado).
     sent_scopes_by_project_month: dict[tuple[str, str], set[str]] = {}
     for sample in data.get("project_kpi_samples", []):
@@ -637,8 +651,8 @@ def compute_monthly_kpis(
         sample_project_id = sample.get("project_id")
         if not sample_month or not sample_project_id:
             continue
-        scope = sample.get("pacote_scope") or _PACOTE_SCOPE_ALL
-        sent_scopes_by_project_month.setdefault((sample_month, sample_project_id), set()).add(scope)
+        scopes = sample.get("pacote_scope") or [_PACOTE_SCOPE_ALL]
+        sent_scopes_by_project_month.setdefault((sample_month, sample_project_id), set()).update(scopes)
 
     project_send_status = []
     for (month_key, project_id), hours in project_month_hours.items():
@@ -678,3 +692,26 @@ def compute_monthly_kpis(
         "nonbillable_breakdown": nonbillable_breakdown,
         "project_send_status": project_send_status,
     }
+
+
+def list_pacotes_for_project(project_id: str, month: str, force_refresh: bool = False) -> list[str]:
+    """Pacotes de trabalho com apontamento de horas de verdade no Projectile
+    pra um projeto num mês específico — usado pela edição manual de amostra
+    no Diagnóstico (`GET /management/projects/{project_id}/packages`), pra
+    oferecer só pacotes que EXISTEM naquele projeto/mês, em vez de deixar o
+    gerente digitar texto livre (que poderia nunca bater com nada real e
+    nunca fechar como "enviado" em `compute_monthly_kpis`).
+
+    Mesma extração/normalização de `compute_monthly_kpis` (`row_package`),
+    mas sem nenhum filtro de Centro de Custo/Cliente — aqui já se sabe
+    exatamente o projeto, não faz sentido esconder um pacote só porque foi
+    apontado num centro de custo fora do recorte padrão do painel."""
+    first_day = date(*map(int, month.split("-")), 1)
+    last_day = date(first_day.year, first_day.month, calendar.monthrange(first_day.year, first_day.month)[1])
+    rows = _get_cached_rows(first_day.isoformat(), last_day.isoformat(), force_refresh)
+    pacotes = {
+        html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
+        for row in rows
+        if row.get("project_id") == project_id
+    }
+    return sorted(pacotes, key=lambda p: p.casefold())

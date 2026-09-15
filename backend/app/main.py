@@ -92,6 +92,7 @@ from .management import (
     compute_monthly_kpis,
     create_manual_project_kpi_sample,
     delete_project_kpi_sample,
+    list_pacotes_for_project,
     list_samples,
     set_manual_entry,
     update_project_kpi_sample,
@@ -782,6 +783,14 @@ class SampleUpdatePayload(BaseModel):
     month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
     billed_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     business_days: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # None/lista vazia = "projeto inteiro"; 1+ pacotes = só esses pacotes de
+    # trabalho foram cobertos por essa amostra (ver management.py,
+    # compute_monthly_kpis/_recompute_duplicate_flags). Sentinela
+    # `_PACOTE_SCOPE_UNSET` (em vez do default None de todo campo aqui)
+    # porque None É um valor válido de verdade ("projeto inteiro") — sem
+    # isso, `exclude_unset` não conseguiria distinguir "o usuário quer
+    # limpar pra projeto inteiro" de "o usuário não mexeu nesse campo".
+    pacote_scope: list[str] | None | Literal["__unset__"] = "__unset__"
 
 
 @app.patch("/management/kpis/samples/{sample_id}")
@@ -789,11 +798,27 @@ async def management_kpi_sample_update_endpoint(
     sample_id: str, payload: SampleUpdatePayload, _user: dict = Depends(require_manager)
 ):
     """Corrige uma amostra existente — projeto errado (match automático
-    fraco), horas/dias lidos errado, ou competência errada."""
+    fraco), horas/dias lidos errado, competência errada, ou pacote de
+    trabalho coberto (projeto inteiro vs 1+ pacotes específicos)."""
     patch = payload.model_dump(exclude_unset=True)
+    if patch.get("pacote_scope") == "__unset__":
+        del patch["pacote_scope"]
     if not update_project_kpi_sample(sample_id, patch):
         raise HTTPException(404, "Amostra não encontrada.")
     return {"ok": True}
+
+
+@app.get("/management/projects/{project_id}/packages")
+async def management_project_packages_endpoint(
+    project_id: str, month: str = Query(pattern=r"^\d{4}-\d{2}$"), _user: dict = Depends(require_manager)
+):
+    """Pacotes de trabalho com hora de verdade nesse projeto/mês no
+    Projectile — alimenta o multi-select de "Pacote de trabalho" na edição
+    de amostra do Diagnóstico (ver `list_pacotes_for_project`)."""
+    try:
+        return {"packages": list_pacotes_for_project(project_id, month)}
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
 
 
 @app.delete("/management/kpis/samples/{sample_id}")

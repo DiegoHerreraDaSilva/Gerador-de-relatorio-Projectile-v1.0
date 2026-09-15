@@ -24,6 +24,10 @@ def _write_samples(data_file, samples):
 
 
 def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1"):
+    # aceita tanto uma string única (a maioria dos testes, mais legível) quanto
+    # já uma lista/None — `pacote_scope` internamente é sempre list|None
+    # (ver management._load_data, migração retroativa do formato antigo).
+    scope = [pacote_scope] if isinstance(pacote_scope, str) else pacote_scope
     return {
         "email_message_id": msg_id,
         "received_at": "2026-09-01T00:00:00Z",
@@ -35,7 +39,7 @@ def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1"):
         "month": month,
         "billed_hours": billed_hours,
         "business_days": 1,
-        "pacote_scope": pacote_scope,
+        "pacote_scope": scope,
     }
 
 
@@ -127,6 +131,74 @@ def test_all_pacotes_sent_is_sent(monkeypatch, tmp_path):
 
     assert row["status"] == "sent"
     assert row["missing_pacotes"] == []
+
+
+def test_one_sample_covering_multiple_pacotes_at_once_is_sent(monkeypatch, tmp_path):
+    """Edição manual do Diagnóstico permite marcar VÁRIOS pacotes numa única
+    amostra (ex: um relatório que na real cobriu 2 pacotes de trabalho) —
+    não precisa de 2 amostras separadas pra fechar "enviado"."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(
+        data_file,
+        [_sample("P1", "2026-08", pacote_scope=["Pacote A", "Pacote B"], billed_hours=15.0)],
+    )
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["status"] == "sent"
+    assert row["missing_pacotes"] == []
+
+
+def test_legacy_string_pacote_scope_migrates_to_list(tmp_path, monkeypatch):
+    """Amostras gravadas antes da edição multi-pacote existir têm
+    `pacote_scope` como texto único — `_load_data` precisa migrar isso pra
+    lista de 1 item na primeira leitura, senão todo o resto do código (que
+    já assume list|None) quebra com dado antigo."""
+    data_file = tmp_path / "management_kpi.json"
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, msg_id="m1")])
+    # sobrescreve pra simular o formato ANTIGO (string), sem passar por
+    # `_sample`/`_write_samples` (que já produzem o formato novo).
+    raw = json.loads(data_file.read_text(encoding="utf-8"))
+    raw["project_kpi_samples"][0]["pacote_scope"] = "Pacote Antigo"
+    data_file.write_text(json.dumps(raw), encoding="utf-8")
+
+    samples = management.list_samples()["samples"]
+
+    assert samples[0]["pacote_scope"] == ["Pacote Antigo"]
+
+
+def test_update_project_kpi_sample_can_set_pacote_scope(tmp_path, monkeypatch):
+    data_file = tmp_path / "management_kpi.json"
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, msg_id="m1")])
+    sample_id = management.list_samples()["samples"][0]["sample_id"]
+
+    ok = management.update_project_kpi_sample(sample_id, {"pacote_scope": ["Pacote A", "Pacote B"]})
+
+    assert ok
+    updated = management.list_samples()["samples"][0]
+    assert updated["pacote_scope"] == ["Pacote A", "Pacote B"]
+
+
+def test_list_pacotes_for_project_filters_by_project(monkeypatch):
+    """O recorte por mês é feito pela query SQL (`fetch_engineering_hours(
+    start, end)`), não em Python — aqui só se testa o filtro por projeto,
+    já que o mock de `fetch_engineering_hours` (ver `_patch_projectile`)
+    ignora o intervalo de datas recebido, igual ao resto dos testes deste
+    arquivo."""
+    _patch_projectile(monkeypatch, [
+        _row("P1", "Pacote A", 10.0),
+        _row("P1", "Pacote B", 5.0),
+        _row("P2", "Pacote C", 3.0),
+    ])
+
+    pacotes = management.list_pacotes_for_project("P1", "2026-08", force_refresh=True)
+
+    assert pacotes == ["Pacote A", "Pacote B"]
 
 
 def test_null_pacote_scope_covers_whole_project(monkeypatch, tmp_path):

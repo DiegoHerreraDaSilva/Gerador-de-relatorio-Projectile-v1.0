@@ -154,6 +154,98 @@ function ProjectSelect({
   );
 }
 
+// Editor de pacote_scope de uma amostra: "Projeto inteiro" (radio) ou 1+
+// pacotes de trabalho reais do projeto/mês (checkboxes) — os pacotes vêm de
+// `GET /management/projects/{id}/packages`, nunca texto livre, pra sempre
+// bater com algo que `compute_monthly_kpis` reconhece de verdade. Marcar
+// qualquer pacote já tira "Projeto inteiro" (mutuamente exclusivos, sem
+// precisar de um estado de "modo" separado — deriva tudo de `value`).
+function PacoteScopeEditor({
+  projectId,
+  month,
+  value,
+  onChange,
+}: {
+  projectId: string;
+  month: string;
+  value: string[] | null;
+  onChange: (v: string[] | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [packages, setPackages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useClickOutside([wrapRef, listRef], () => setOpen(false), open);
+
+  // busca só quando abre (evita 1 requisição por linha da tabela) e de novo
+  // se o projeto mudar (ex: usuário corrigiu o projeto E o pacote na mesma
+  // edição) — mês não muda durante a edição (não é campo editável aqui).
+  useEffect(() => {
+    if (!open || !projectId) return;
+    setLoading(true);
+    fetchJson<{ packages: string[] }>(`/management/projects/${encodeURIComponent(projectId)}/packages?month=${month}`)
+      .then((data) => setPackages(data.packages))
+      .catch(() => setPackages([]))
+      .finally(() => setLoading(false));
+  }, [open, projectId, month]);
+
+  const toggleOpen = () => {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setRect({ top: r.bottom + 6, left: r.left, width: Math.max(r.width, 280) });
+    }
+    setOpen((v) => !v);
+  };
+
+  const togglePacote = (pacote: string) => {
+    const current = value ?? [];
+    const next = current.includes(pacote) ? current.filter((p) => p !== pacote) : [...current, pacote];
+    onChange(next.length ? next : null);
+  };
+
+  const summary = value?.length ? (value.length === 1 ? value[0] : `${value.length} pacotes`) : "Projeto inteiro";
+
+  return (
+    <div className="diagnostics-pacote-dropdown" ref={wrapRef}>
+      <button ref={triggerRef} type="button" className="month-dropdown-trigger" onClick={toggleOpen} title={summary}>
+        <span className="mgmt-filter-summary">{summary}</span>
+        <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
+      </button>
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            ref={listRef}
+            className="month-dropdown-list month-dropdown-list-portal diagnostics-pacote-list"
+            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
+          >
+            <label className="diagnostics-pacote-option">
+              <input type="radio" checked={!value?.length} onChange={() => onChange(null)} />
+              Projeto inteiro
+            </label>
+            <div className="diagnostics-pacote-divider">ou pacote(s) de trabalho:</div>
+            {loading && <p className="muted diagnostics-pacote-loading">Carregando...</p>}
+            {!loading && packages.length === 0 && (
+              <p className="muted diagnostics-pacote-loading">Nenhum pacote com hora nesse mês.</p>
+            )}
+            {!loading &&
+              packages.map((p) => (
+                <label key={p} className="diagnostics-pacote-option" title={p}>
+                  <input type="checkbox" checked={value?.includes(p) ?? false} onChange={() => togglePacote(p)} />
+                  <span className="diagnostics-pacote-option-text">{p}</span>
+                </label>
+              ))}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
 function MonthSelect({ value, onChange }: { value: string; onChange: (month: string) => void }) {
   return (
     <SimpleDropdown
@@ -190,6 +282,7 @@ export function DiagnosticsPanel() {
   const [editProjectId, setEditProjectId] = useState("");
   const [editBilled, setEditBilled] = useState<number | null>(null);
   const [editDays, setEditDays] = useState<number | null>(null);
+  const [editPacoteScope, setEditPacoteScope] = useState<string[] | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
   const [createProjectId, setCreateProjectId] = useState("");
@@ -225,7 +318,7 @@ export function DiagnosticsPanel() {
   const sampleSort = useSortableRows<Sample>(displaySamples, (s, key) => {
     if (key === "client") return clientFor(s.project_id);
     if (key === "project") return s.project_name;
-    if (key === "pacote") return s.pacote_scope || "Projeto inteiro";
+    if (key === "pacote") return s.pacote_scope?.length ? s.pacote_scope.join(", ") : "Projeto inteiro";
     if (key === "month") return s.month;
     if (key === "hours") return s.billed_hours;
     if (key === "days") return s.business_days;
@@ -267,6 +360,7 @@ export function DiagnosticsPanel() {
     setEditProjectId(s.project_id);
     setEditBilled(s.billed_hours);
     setEditDays(s.business_days);
+    setEditPacoteScope(s.pacote_scope?.length ? s.pacote_scope : null);
   };
   const cancelEdit = () => setEditingId(null);
 
@@ -275,6 +369,7 @@ export function DiagnosticsPanel() {
     const patch: Record<string, unknown> = {
       billed_hours: editBilled ?? 0,
       business_days: editDays ?? 0,
+      pacote_scope: editPacoteScope?.length ? editPacoteScope : null,
     };
     if (project && project.id !== s.project_id) {
       patch.project_id = project.id;
@@ -406,7 +501,14 @@ export function DiagnosticsPanel() {
                             onChange={setEditProjectId}
                           />
                         </td>
-                        <td className="muted diagnostics-pacote-cell" title={s.pacote_scope || undefined}>{s.pacote_scope || "Projeto inteiro"}</td>
+                        <td>
+                          <PacoteScopeEditor
+                            projectId={editProjectId}
+                            month={s.month}
+                            value={editPacoteScope}
+                            onChange={setEditPacoteScope}
+                          />
+                        </td>
                         <td>{s.month}</td>
                         <td><ExtraHoursInput className="kpi-input" value={editBilled} onCommit={setEditBilled} /></td>
                         <td><ExtraHoursInput className="kpi-input kpi-input-days" value={editDays} onCommit={setEditDays} /></td>
@@ -422,7 +524,12 @@ export function DiagnosticsPanel() {
                       <>
                         <td>{clientFor(s.project_id)}</td>
                         <td>{s.project_name}</td>
-                        <td className="muted diagnostics-pacote-cell" title={s.pacote_scope || undefined}>{s.pacote_scope || "Projeto inteiro"}</td>
+                        <td
+                          className="muted diagnostics-pacote-cell"
+                          title={s.pacote_scope?.length ? s.pacote_scope.join(", ") : undefined}
+                        >
+                          {s.pacote_scope?.length ? s.pacote_scope.join(", ") : "Projeto inteiro"}
+                        </td>
                         <td>{s.month}</td>
                         <td>
                           {fmtNum(s.billed_hours)}
