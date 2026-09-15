@@ -254,43 +254,42 @@ def _write_excel_exported_pdf(path: str, lines: list[str]) -> None:
     c.save()
 
 
-def test_read_pdf_report_data_falls_back_to_text_when_metadata_missing(tmp_path):
-    """Caso real que motivou o fallback: usuário abre o `.xlsx` gerado por
-    este app no Excel e exporta ele mesmo como PDF — esse processo não passa
-    por `pdf_generator.py`, então não tem metadado nenhum. Ordem das linhas
-    replica a das células da planilha (B8=código e C8=local/data na MESMA
-    linha, C9=nome só na linha seguinte — ver `_PDF_TEXT_LOCATION_DATE_RE`),
-    não a ordem do nosso `pdf_generator.py`."""
-    path = str(tmp_path / "excel_export.pdf")
+def test_read_pdf_report_data_from_text_matches_real_excel_export(tmp_path):
+    """Caso real que motivou o fallback (e quebrou a 1ª tentativa): usuário
+    abre o `.xlsx` gerado por este app no Excel e exporta ele mesmo como
+    PDF. Linhas exatas observadas num PDF de verdade exportado assim —
+    código+pacote+local+data GRUDADOS numa linha só, e o valor de horas
+    GRUDADO na mesma linha do rótulo "Total de horas ...:" (não numa linha
+    separada como no nosso próprio pdf_generator.py). O título também saiu
+    em title case ("Relatório de Horas"), não "RELATÓRIO DE HORAS" — daí
+    `_PDF_TEXT_TITLE_RE` ser case-insensitive."""
+    path = str(tmp_path / "excel_export_real.pdf")
     _write_excel_exported_pdf(path, [
-        "RELATÓRIO DE HORAS",
-        "SE.01.001",
-        "Santo André, 10.09.2026",
-        "Projeto A",
+        "Relatório de Horas",
+        "SE.26.059 - 1/3 Santo André, 11.09.2026",
+        "Cabina Legislation Package",
         "Relatório de horas referentes ao mês de Agosto/2026",
-        "Descritivo de Atividades",
-        "Horas",
-        "Ajuste no inventário",
-        "6",
-        "Total de horas Agosto/2026:",
-        "6 h",
+        "Descritivo de Atividades Horas",
+        "Ativ 1",
+        "Total de horas Agosto/2026: 127,45",
     ])
 
     data = read_pdf_report_data(path)
 
-    assert data["project_name"] == "Projeto A"
+    assert data["project_name"] == "Cabina Legislation Package"
     assert data["month_label"] == "Agosto/2026"
-    assert data["total_hours"] == pytest.approx(6.0, abs=1e-3)
+    assert data["total_hours"] == pytest.approx(127.45, abs=1e-3)
     assert data["pacote_scope"] is None
 
 
-def test_read_pdf_report_data_from_text_handles_decimal_comma_and_english_label(tmp_path):
-    """Também cobre um relatório gerado com language="en" (ver
-    _PDF_TEXT_TOTAL_HOURS_RE aceitando "Total hours" além de "Total de
-    horas") e sem nenhuma linha de local/data entre código e nome — a busca
-    de nome precisa achar o candidato certo mesmo sem essa linha no meio."""
+def test_read_pdf_report_data_from_text_handles_value_on_separate_line_and_english_label(tmp_path):
+    """Cobre a outra forma possível: rótulo e valor em linhas separadas
+    (formato que nosso próprio pdf_generator.py usaria SE algum dia caísse
+    nesse fallback) e o rótulo em inglês (relatório gerado com
+    language="en", ver _PDF_TEXT_TOTAL_HOURS_RE aceitando "Total hours")."""
     path = str(tmp_path / "excel_export_en.pdf")
     _write_excel_exported_pdf(path, [
+        "Hours Report",
         "1471.3.1-002",
         "TCI_Infraestrutura",
         "Total hours August/2026:",
@@ -309,7 +308,7 @@ def test_read_pdf_report_data_from_text_raises_without_total_hours_line(tmp_path
     de texto também não tem como funcionar — mesmo erro de "não é um
     relatório desta automação", só que agora explicando o que faltou."""
     path = str(tmp_path / "sem_total.pdf")
-    _write_excel_exported_pdf(path, ["SE.01.001", "Projeto A"])
+    _write_excel_exported_pdf(path, ["Relatório de Horas", "SE.01.001", "Projeto A"])
 
     with pytest.raises(EmailIngestError, match="Total de horas"):
         read_pdf_report_data(path)

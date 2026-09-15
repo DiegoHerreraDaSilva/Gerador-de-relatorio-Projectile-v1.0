@@ -433,20 +433,27 @@ def read_project_identity(xlsx_path: str) -> tuple[str, str]:
     return project_code, project_name
 
 
-_PDF_TEXT_TOTAL_HOURS_RE = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):$")
-# Formato de código de projeto usado nos exemplos reais deste app: segmentos
-# alfanuméricos separados por "." e/ou "-" (ex: "SE.01.001", "1546.7.2-003").
-# Heurística, não uma regra do Projectile — só serve pra achar a ÂNCORA de
-# onde o nome do projeto deve estar na linha seguinte, no texto solto de um
-# PDF que não é o nosso (ver `_read_pdf_report_data_from_text`).
-_PDF_TEXT_PROJECT_CODE_RE = re.compile(r"^[A-Za-z0-9]+(?:[.\-][A-Za-z0-9]+)+$")
-# "Santo André, 10.09.2026" (header.location_date) — generator.py grava o
-# código do projeto (B8) e essa data (C8) na MESMA linha da planilha, mas o
-# nome do projeto (C9) só na linha seguinte; ao exportar pro PDF o Excel
-# tende a listar tudo nessa ordem (código, depois data, só depois nome), não
-# na ordem código-nome do nosso próprio `pdf_generator.py`. Serve pra pular
-# essa linha na busca do nome do projeto, não pra validar formato de data.
-_PDF_TEXT_LOCATION_DATE_RE = re.compile(r".+,\s*\d{1,2}\.\d{1,2}\.\d{2,4}")
+# Rótulo de "Total de horas ...:" — o VALOR às vezes sai na MESMA linha do
+# rótulo (ex real, PDF exportado pelo Excel: "Total de horas Agosto/2026:
+# 127,45", tudo grudado porque a célula B e a C da planilha ficam próximas o
+# bastante pro Excel não separar em linhas de texto distintas) e às vezes na
+# linha seguinte — sem o `$` no fim pra aceitar as duas formas (ver uso
+# abaixo, que tenta o resto da própria linha antes de olhar a próxima).
+_PDF_TEXT_TOTAL_HOURS_RE = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):", re.IGNORECASE)
+# "Relatório de Horas"/"Hours Report" (título do relatório, B4) — usado como
+# ÂNCORA de posição pro nome do projeto, não pelo texto em si: em qualquer
+# origem (nosso pdf_generator.py OU um `.xlsx` deste app exportado pelo
+# Excel), a ordem de leitura é sempre título → código do projeto (+ o que
+# mais estiver colado na mesma célula/linha, ex: pacote/local/data) → nome
+# do projeto. Tentar casar o FORMATO do código é frágil — um exemplo real
+# saiu como "SE.26.059 - 1/3 Santo André, 11.09.2026" (código + fração de
+# pacote + local + data, tudo numa linha só), que nenhuma regex de "formato
+# de código" pega; mas a POSIÇÃO (duas linhas depois do título) se manteve
+# estável nesse caso e no nosso próprio layout. IGNORECASE porque um PDF já
+# visto tinha o título em "Relatório de Horas" (title case) em vez do
+# "RELATÓRIO DE HORAS" (caixa alta) que o código atual grava — de uma
+# versão anterior do app, mas não custa aceitar os dois.
+_PDF_TEXT_TITLE_RE = re.compile(r"relat[oó]rio de horas|hours report", re.IGNORECASE)
 
 
 def _parse_pt_br_hours(text: str) -> float:
@@ -490,13 +497,20 @@ def _read_pdf_report_data_from_text(reader: PdfReader) -> dict:
     total_hours = None
     for i, line in enumerate(lines):
         match = _PDF_TEXT_TOTAL_HOURS_RE.match(line)
-        if match and i + 1 < len(lines):
-            try:
-                total_hours = _parse_pt_br_hours(lines[i + 1])
-            except ValueError:
-                continue
-            month_label = match.group(1).strip()
-            break
+        if not match:
+            continue
+        month_label = match.group(1).strip()
+        rest_of_line = line[match.end():].strip()
+        try:
+            # tenta o resto da PRÓPRIA linha primeiro (caso real: valor
+            # grudado depois dos dois-pontos); só olha a linha seguinte se
+            # não sobrou nada ali (nosso pdf_generator.py nunca cai nesse
+            # fallback, mas o formato "linha separada" também é aceito).
+            total_hours = _parse_pt_br_hours(rest_of_line) if rest_of_line else _parse_pt_br_hours(lines[i + 1])
+        except (ValueError, IndexError):
+            month_label = None
+            continue
+        break
     if month_label is None or total_hours is None:
         raise EmailIngestError(
             "Não encontrei os metadados nem a linha 'Total de horas ...:' no texto do PDF anexado — "
@@ -505,17 +519,12 @@ def _read_pdf_report_data_from_text(reader: PdfReader) -> dict:
 
     project_name = None
     for i, line in enumerate(lines):
-        if not _PDF_TEXT_PROJECT_CODE_RE.match(line):
+        if not _PDF_TEXT_TITLE_RE.search(line):
             continue
-        # tolera 1-2 linhas irrelevantes entre o código e o nome (ex: local
-        # + data da mesma linha da planilha, ver _PDF_TEXT_LOCATION_DATE_RE)
-        for candidate in lines[i + 1 : i + 4]:
-            if not candidate or _PDF_TEXT_TOTAL_HOURS_RE.match(candidate) or _PDF_TEXT_LOCATION_DATE_RE.match(candidate):
-                continue
-            project_name = candidate
-            break
-        if project_name:
-            break
+        candidates = lines[i + 1 : i + 4]
+        if len(candidates) >= 2:
+            project_name = candidates[1].strip()
+        break
     if not project_name:
         raise EmailIngestError("Não encontrei o nome do projeto no texto do PDF anexado.")
 
