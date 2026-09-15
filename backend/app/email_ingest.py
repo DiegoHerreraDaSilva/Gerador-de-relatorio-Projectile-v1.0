@@ -22,9 +22,13 @@ cadeia de fórmulas manualmente, reconhecendo só as 3 formas exatas que
 O `.pdf` não tem fórmula nem célula pra ler — `pdf_generator.py` grava os
 mesmos dados (código/nome do projeto, mês, total já calculado, pacote de
 trabalho coberto) como metadado do próprio arquivo (Info dictionary,
-`PDF_METADATA_KEY`), lido de volta aqui por `read_pdf_report_data`. Quando um
-mesmo relatório chega nos dois formatos na mesma mensagem (transição pro
-novo formato, ou envio duplicado por hábito), só UM é processado — ver
+`PDF_METADATA_KEY`), lido de volta aqui por `read_pdf_report_data`. Um PDF
+sem esse metadado (ex: o `.xlsx` deste app aberto no Excel e exportado/
+impresso como PDF por fora do app — processo que não passa por
+`pdf_generator.py`) cai pro fallback de `_read_pdf_report_data_from_text`,
+que lê o mesmo texto visível na página em vez do metadado. Quando um mesmo
+relatório chega nos dois formatos na mesma mensagem (transição pro novo
+formato, ou envio duplicado por hábito), só UM é processado — ver
 `fetch_report_attachments` — pra não somar a mesma hora faturada duas vezes.
 """
 from __future__ import annotations
@@ -429,29 +433,116 @@ def read_project_identity(xlsx_path: str) -> tuple[str, str]:
     return project_code, project_name
 
 
+_PDF_TEXT_TOTAL_HOURS_RE = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):$")
+# Formato de código de projeto usado nos exemplos reais deste app: segmentos
+# alfanuméricos separados por "." e/ou "-" (ex: "SE.01.001", "1546.7.2-003").
+# Heurística, não uma regra do Projectile — só serve pra achar a ÂNCORA de
+# onde o nome do projeto deve estar na linha seguinte, no texto solto de um
+# PDF que não é o nosso (ver `_read_pdf_report_data_from_text`).
+_PDF_TEXT_PROJECT_CODE_RE = re.compile(r"^[A-Za-z0-9]+(?:[.\-][A-Za-z0-9]+)+$")
+# "Santo André, 10.09.2026" (header.location_date) — generator.py grava o
+# código do projeto (B8) e essa data (C8) na MESMA linha da planilha, mas o
+# nome do projeto (C9) só na linha seguinte; ao exportar pro PDF o Excel
+# tende a listar tudo nessa ordem (código, depois data, só depois nome), não
+# na ordem código-nome do nosso próprio `pdf_generator.py`. Serve pra pular
+# essa linha na busca do nome do projeto, não pra validar formato de data.
+_PDF_TEXT_LOCATION_DATE_RE = re.compile(r".+,\s*\d{1,2}\.\d{1,2}\.\d{2,4}")
+
+
+def _parse_pt_br_hours(text: str) -> float:
+    """"13,48 h" / "282,54" → 13.48 / 282.54 — mesma tolerância a vírgula
+    decimal de `parser._parse_hs_value`, mas plugado num regex porque aqui o
+    texto sempre vem com o sufixo " h" (`_fmt_hours`) junto."""
+    match = re.match(r"^([\d.,]+)", text.strip())
+    if not match:
+        raise ValueError(f"não é um número: {text!r}")
+    raw = match.group(1).replace(".", "").replace(",", ".") if "," in match.group(1) else match.group(1)
+    return round(float(raw), 3)
+
+
+def _read_pdf_report_data_from_text(reader: PdfReader) -> dict:
+    """Fallback quando o PDF não tem `PDF_METADATA_KEY` — o caso mais comum é
+    o usuário ter aberto o `.xlsx` gerado por este app no Excel e
+    exportado/impresso como PDF ele mesmo: esse processo não passa por
+    `pdf_generator.py`, então não tem COMO gravar metadado nenhum ali, mas o
+    TEXTO que fica visível na página (o mesmo em qualquer PDF, nosso ou do
+    Excel) ainda dá pra ler. O Excel já recalcula as fórmulas antes de
+    exportar, então "Total de horas ...:" já sai com o valor resolvido — não
+    precisa seguir cadeia de fórmula como `resolve_total_hours` faz pro
+    `.xlsx` cru.
+
+    Mais frágil que o metadado (depende de como o Excel decidiu dispor o
+    texto ao exportar, não de uma chave gravada de propósito) — por isso só
+    entra em ação quando o metadado está mesmo ausente; nunca substitui o
+    caminho principal pra PDF gerado por este app. `pacote_scope` nunca é
+    recuperável por aqui: a marca fica numa coluna genuinamente OCULTA da
+    planilha (`HIDDEN_HELPER_COL`), que o Excel não inclui na impressão —
+    trata sempre como "projeto inteiro" (`None`), mesmo default de quando a
+    marca está ausente no `.xlsx`."""
+    lines = [
+        line.strip()
+        for page in reader.pages
+        for line in (page.extract_text() or "").split("\n")
+        if line.strip()
+    ]
+
+    month_label = None
+    total_hours = None
+    for i, line in enumerate(lines):
+        match = _PDF_TEXT_TOTAL_HOURS_RE.match(line)
+        if match and i + 1 < len(lines):
+            try:
+                total_hours = _parse_pt_br_hours(lines[i + 1])
+            except ValueError:
+                continue
+            month_label = match.group(1).strip()
+            break
+    if month_label is None or total_hours is None:
+        raise EmailIngestError(
+            "Não encontrei os metadados nem a linha 'Total de horas ...:' no texto do PDF anexado — "
+            "ele não foi gerado por este app, ou a exportação removeu esse texto."
+        )
+
+    project_name = None
+    for i, line in enumerate(lines):
+        if not _PDF_TEXT_PROJECT_CODE_RE.match(line):
+            continue
+        # tolera 1-2 linhas irrelevantes entre o código e o nome (ex: local
+        # + data da mesma linha da planilha, ver _PDF_TEXT_LOCATION_DATE_RE)
+        for candidate in lines[i + 1 : i + 4]:
+            if not candidate or _PDF_TEXT_TOTAL_HOURS_RE.match(candidate) or _PDF_TEXT_LOCATION_DATE_RE.match(candidate):
+                continue
+            project_name = candidate
+            break
+        if project_name:
+            break
+    if not project_name:
+        raise EmailIngestError("Não encontrei o nome do projeto no texto do PDF anexado.")
+
+    return {"project_name": project_name, "month_label": month_label, "total_hours": total_hours, "pacote_scope": None}
+
+
 def read_pdf_report_data(pdf_path: str) -> dict:
     """Equivalente, pro `.pdf`, de `resolve_total_hours` +
-    `read_project_identity` + `read_pacote_scope` juntos: o `.pdf` não tem
-    fórmula nem célula pra ler, então `pdf_generator._embed_report_metadata`
-    já grava tudo isso de uma vez como metadado do arquivo (Info dictionary,
-    `PDF_METADATA_KEY`) no momento da geração — aqui só lê de volta e valida
-    que veio completo. Um PDF que não foi gerado por este app (ou teve o
-    metadado apagado/editado) não tem essa chave ou vem incompleta — mesmo
-    tratamento de erro que um `.xlsx` sem a célula/label esperada."""
+    `read_project_identity` + `read_pacote_scope` juntos. Dois caminhos:
+
+    1. `pdf_generator._embed_report_metadata` grava tudo de uma vez como
+       metadado do arquivo (Info dictionary, `PDF_METADATA_KEY`) no momento
+       da geração — todo PDF gerado por este app tem isso, é o caminho
+       principal e o mais confiável (não depende de layout nenhum).
+    2. Sem essa chave (PDF de outra origem — ex: `.xlsx` deste app aberto no
+       Excel e exportado como PDF por fora do app), cai pro fallback de
+       texto em `_read_pdf_report_data_from_text`."""
     reader = PdfReader(pdf_path)
     raw = (reader.metadata or {}).get(PDF_METADATA_KEY)
-    if not raw:
-        raise EmailIngestError(
-            "Não encontrei os metadados do relatório no PDF anexado — ele não foi "
-            "gerado por este app, ou o metadado foi removido."
-        )
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError) as e:
-        raise EmailIngestError(f"Metadados do PDF corrompidos: {e}") from e
-    if not data.get("project_name") or not data.get("month_label") or data.get("total_hours") is None:
-        raise EmailIngestError("Metadados do PDF incompletos (relatório gerado por uma versão antiga do app?).")
-    return data
+    if raw:
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError) as e:
+            raise EmailIngestError(f"Metadados do PDF corrompidos: {e}") from e
+        if data.get("project_name") and data.get("month_label") and data.get("total_hours") is not None:
+            return data
+    return _read_pdf_report_data_from_text(reader)
 
 
 def match_project(report_project_name: str, candidates: dict[str, str]) -> tuple[str, str, float]:

@@ -237,6 +237,84 @@ def test_read_pdf_report_data_raises_when_pdf_was_not_generated_by_this_app(tmp_
         read_pdf_report_data(path)
 
 
+def _write_excel_exported_pdf(path: str, lines: list[str]) -> None:
+    """Simula (aproximadamente) o texto que sobra quando o `.xlsx` gerado
+    por este app é aberto no Excel e exportado/impresso como PDF por fora do
+    app — cada linha do layout da planilha vira uma linha de texto no PDF,
+    SEM o metadado que só `pdf_generator.py` grava. Usa `canvas.drawString`
+    puro (não `pdf_generator.generate_report_pdf`) de propósito: o objetivo
+    aqui é não ter o metadado."""
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(path)
+    y = 750
+    for line in lines:
+        c.drawString(72, y, line)
+        y -= 20
+    c.save()
+
+
+def test_read_pdf_report_data_falls_back_to_text_when_metadata_missing(tmp_path):
+    """Caso real que motivou o fallback: usuário abre o `.xlsx` gerado por
+    este app no Excel e exporta ele mesmo como PDF — esse processo não passa
+    por `pdf_generator.py`, então não tem metadado nenhum. Ordem das linhas
+    replica a das células da planilha (B8=código e C8=local/data na MESMA
+    linha, C9=nome só na linha seguinte — ver `_PDF_TEXT_LOCATION_DATE_RE`),
+    não a ordem do nosso `pdf_generator.py`."""
+    path = str(tmp_path / "excel_export.pdf")
+    _write_excel_exported_pdf(path, [
+        "RELATÓRIO DE HORAS",
+        "SE.01.001",
+        "Santo André, 10.09.2026",
+        "Projeto A",
+        "Relatório de horas referentes ao mês de Agosto/2026",
+        "Descritivo de Atividades",
+        "Horas",
+        "Ajuste no inventário",
+        "6",
+        "Total de horas Agosto/2026:",
+        "6 h",
+    ])
+
+    data = read_pdf_report_data(path)
+
+    assert data["project_name"] == "Projeto A"
+    assert data["month_label"] == "Agosto/2026"
+    assert data["total_hours"] == pytest.approx(6.0, abs=1e-3)
+    assert data["pacote_scope"] is None
+
+
+def test_read_pdf_report_data_from_text_handles_decimal_comma_and_english_label(tmp_path):
+    """Também cobre um relatório gerado com language="en" (ver
+    _PDF_TEXT_TOTAL_HOURS_RE aceitando "Total hours" além de "Total de
+    horas") e sem nenhuma linha de local/data entre código e nome — a busca
+    de nome precisa achar o candidato certo mesmo sem essa linha no meio."""
+    path = str(tmp_path / "excel_export_en.pdf")
+    _write_excel_exported_pdf(path, [
+        "1471.3.1-002",
+        "TCI_Infraestrutura",
+        "Total hours August/2026:",
+        "282,54 h",
+    ])
+
+    data = read_pdf_report_data(path)
+
+    assert data["project_name"] == "TCI_Infraestrutura"
+    assert data["month_label"] == "August/2026"
+    assert data["total_hours"] == pytest.approx(282.54, abs=1e-3)
+
+
+def test_read_pdf_report_data_from_text_raises_without_total_hours_line(tmp_path):
+    """Sem a linha-âncora "Total de horas ...:" em lugar nenhum, o fallback
+    de texto também não tem como funcionar — mesmo erro de "não é um
+    relatório desta automação", só que agora explicando o que faltou."""
+    path = str(tmp_path / "sem_total.pdf")
+    _write_excel_exported_pdf(path, ["SE.01.001", "Projeto A"])
+
+    with pytest.raises(EmailIngestError, match="Total de horas"):
+        read_pdf_report_data(path)
+
+
 # ---------------------------------------------------------------------------
 # _dedupe_by_stem — mesmo relatório em .xlsx e .pdf na mesma mensagem só deve
 # virar 1 amostra (billed_hours é SOMADO entre amostras em
