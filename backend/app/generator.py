@@ -283,6 +283,32 @@ def parse_month_label(label: str) -> tuple[int, int] | None:
     return int(match.group(2)), month
 
 
+def parse_period_label(label: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """'Julho a Novembro/2026' -> ((2026,7), (2026,11)); 'Dezembro/2025 a
+    Fevereiro/2026' -> ((2025,12), (2026,2)) — reconhece as duas variantes
+    que o frontend produz numa busca de PERÍODO no /parse-db (ver
+    `buildPeriodLabel` em `FileUpload.tsx`). Quem chama tenta
+    `parse_month_label` (mês único) primeiro e só cai aqui se aquele falhar
+    (ver `_resolve_month_range`/`process_new_emails`) — mês único nunca passa
+    por aqui. Retorna None se o texto não bater com nenhuma variante, ou se
+    o mês final vier antes do inicial."""
+    match = re.match(r"^\s*(.+?)\s+a\s+(.+?)\s*$", label or "")
+    if not match:
+        return None
+    start_text, end_text = match.group(1), match.group(2)
+    end_parsed = parse_month_label(end_text)
+    if end_parsed is None:
+        return None
+    if not re.search(r"/\s*\d{4}\s*$", start_text):
+        # início sem ano próprio ("Julho a Novembro/2026") — empresta o ano
+        # do fim; quando o início já tem o seu (caso cruzando ano), mantém.
+        start_text = f"{start_text}/{end_parsed[0]}"
+    start_parsed = parse_month_label(start_text)
+    if start_parsed is None or start_parsed > end_parsed:
+        return None
+    return start_parsed, end_parsed
+
+
 def _easter_sunday(year: int) -> datetime.date:
     """Algoritmo anônimo gregoriano (Meeus/Jones/Butcher) para a Páscoa — usado
     para derivar os feriados móveis (Carnaval, Sexta-feira Santa, Corpus Christi)."""

@@ -50,7 +50,7 @@ from openpyxl import load_workbook
 from pypdf import PdfReader
 
 from . import management
-from .generator import parse_month_label, count_business_days, HIDDEN_HELPER_COL
+from .generator import parse_month_label, parse_period_label, count_business_days, HIDDEN_HELPER_COL
 from .pdf_generator import PDF_METADATA_KEY
 from .projectile_db import ProjectileDbError, fetch_all_projects
 
@@ -583,10 +583,18 @@ def _month_end(year: int, month: int) -> date:
 
 def compute_business_days_elapsed(month_label: str, sent_at: datetime) -> int:
     """Dias úteis entre o último dia do mês do relatório (competência lida da
-    própria label "Total de horas <mês/ano>:") e a data de envio do e-mail."""
+    própria label "Total de horas <mês/ano>:") e a data de envio do e-mail.
+
+    Se `month_label` for uma label de PERÍODO ("Julho a Novembro/2026", ver
+    `generator.parse_period_label`) em vez de mês único, ancora no MÊS
+    FINAL do período — é o mês que acabou de fechar quando o relatório
+    combinado foi escrito."""
     parsed = parse_month_label(month_label)
     if parsed is None:
-        raise EmailIngestError(f"Não reconheço o formato de competência: {month_label!r}")
+        parsed_period = parse_period_label(month_label)
+        if parsed_period is None:
+            raise EmailIngestError(f"Não reconheço o formato de competência: {month_label!r}")
+        parsed = parsed_period[1]
     year, month = parsed
     anchor = _month_end(year, month)
     return count_business_days(anchor, sent_at.date())
@@ -751,6 +759,35 @@ def send_report_email(
     _graph_post(url, body)
 
 
+def _kpi_samples_for_period(
+    base_sample: dict, start: tuple[int, int], end: tuple[int, int], total_billed_hours: float
+) -> list[dict]:
+    """Divide `total_billed_hours` IGUALMENTE entre cada mês do intervalo
+    `start`..`end` (inclusive, ambos `(ano, mês)`) e devolve 1 amostra de KPI
+    por mês, cada uma com `month`/`billed_hours` próprios e o resto dos
+    campos copiados de `base_sample` (`project_id`, `business_days`, etc.).
+
+    Usado quando um relatório combinado de vários meses (ver
+    `generator.parse_period_label`) volta por e-mail — decisão confirmada
+    com o usuário: sem informação de quanto foi trabalhado em CADA mês
+    individualmente (o relatório soma tudo), a média mensal é a única
+    aproximação disponível, e o Painel de Gerência (que é por mês) continua
+    funcionando automaticamente com ela.
+
+    Função pura (sem I/O) de propósito — separada de `process_new_emails`
+    pra ser testável sem mockar Graph/e-mail."""
+    months: list[tuple[int, int]] = []
+    year, month = start
+    while (year, month) <= end:
+        months.append((year, month))
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    per_month_hours = round(total_billed_hours / len(months), 3)
+    return [{**base_sample, "month": f"{y:04d}-{m:02d}", "billed_hours": per_month_hours} for y, m in months]
+
+
 def process_new_emails() -> dict:
     """Orquestra um ciclo de polling. Chamado periodicamente pelo loop em
     `main.py` (`_poll_emails_loop`) e também sob demanda pelo botão
@@ -809,10 +846,7 @@ def process_new_emails() -> dict:
                             pacote_scope = read_pacote_scope(report_path)
                         project_id, project_name, score = match_project(report_project_name, candidates)
                         business_days = compute_business_days_elapsed(month_label, sent_at)
-                        parsed_month = parse_month_label(month_label)
-                        month_key = f"{parsed_month[0]:04d}-{parsed_month[1]:02d}"
-
-                        is_duplicate = management.append_project_kpi_sample({
+                        base_sample = {
                             "email_message_id": message_id,
                             "received_at": received_at,
                             "sender": sender,
@@ -820,8 +854,6 @@ def process_new_emails() -> dict:
                             "project_id": project_id,
                             "project_name": project_name,
                             "match_score": score,
-                            "month": month_key,
-                            "billed_hours": billed_hours,
                             "business_days": business_days,
                             # o relatório recebido sempre cobre UM pacote (ou
                             # o projeto inteiro) no momento da geração — a
@@ -829,11 +861,27 @@ def process_new_emails() -> dict:
                             # com o formato de `management.py` (que aceita
                             # marcar vários pacotes na edição manual).
                             "pacote_scope": [pacote_scope] if pacote_scope else None,
-                        })
-                        if is_duplicate:
-                            summary["duplicates_found"] += 1
+                        }
+
+                        # mês único (caminho de sempre) vira 1 amostra só;
+                        # uma label de PERÍODO ("Julho a Novembro/2026") vira
+                        # 1 amostra por mês coberto, billed_hours dividido
+                        # igualmente entre elas (ver _kpi_samples_for_period).
+                        parsed_month = parse_month_label(month_label)
+                        if parsed_month is not None:
+                            samples = [{**base_sample, "month": f"{parsed_month[0]:04d}-{parsed_month[1]:02d}", "billed_hours": billed_hours}]
                         else:
-                            summary["samples_added"] += 1
+                            parsed_period = parse_period_label(month_label)
+                            if parsed_period is None:
+                                raise EmailIngestError(f"Não reconheço o formato de competência: {month_label!r}")
+                            samples = _kpi_samples_for_period(base_sample, parsed_period[0], parsed_period[1], billed_hours)
+
+                        for sample in samples:
+                            is_duplicate = management.append_project_kpi_sample(sample)
+                            if is_duplicate:
+                                summary["duplicates_found"] += 1
+                            else:
+                                summary["samples_added"] += 1
                     except (EmailIngestError, ProjectileDbError) as e:
                         attachment_errors.append(str(e))
                     except Exception as e:

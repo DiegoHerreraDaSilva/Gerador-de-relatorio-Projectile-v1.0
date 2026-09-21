@@ -71,6 +71,7 @@ from .generator import (
     local_holidays_for_filiale,
     national_holidays_between,
     parse_month_label,
+    parse_period_label,
     generate_report,
 )
 from .hours_analytics import (
@@ -407,12 +408,7 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     # request e puxar as horas de outra pessoa.
     employee_name = _user["name"]
 
-    parsed_month = parse_month_label(payload.month_label)
-    if not parsed_month:
-        raise HTTPException(400, f'Mês de referência inválido: "{payload.month_label}" (use o formato "Julho/2026").')
-    year, month = parsed_month
-    start_date = f"{year:04d}-{month:02d}-01"
-    end_date = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+    start_date, end_date = _resolve_month_range(payload.month_label)
 
     try:
         rows = fetch_employee_hours(
@@ -606,12 +602,25 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
 
 
 def _resolve_month_range(month_label: str) -> tuple[str, str]:
+    """1º dia do mês inicial até o último dia do mês final. Aceita tanto um
+    mês único ("Julho/2026") quanto uma label de PERÍODO ("Julho a
+    Novembro/2026", "Dezembro/2025 a Fevereiro/2026", ver
+    `generator.parse_period_label`) — mês único é tentado primeiro, sem
+    mudança de comportamento pro caso de sempre."""
     parsed_month = parse_month_label(month_label)
-    if not parsed_month:
-        raise HTTPException(400, f'Mês de referência inválido: "{month_label}" (use o formato "Julho/2026").')
-    year, month = parsed_month
-    start_date = f"{year:04d}-{month:02d}-01"
-    end_date = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+    if parsed_month:
+        start_year, start_month = end_year, end_month = parsed_month
+    else:
+        parsed_period = parse_period_label(month_label)
+        if not parsed_period:
+            raise HTTPException(
+                400,
+                f'Mês/período de referência inválido: "{month_label}" '
+                '(use o formato "Julho/2026" ou "Julho a Novembro/2026").',
+            )
+        (start_year, start_month), (end_year, end_month) = parsed_period
+    start_date = f"{start_year:04d}-{start_month:02d}-01"
+    end_date = f"{end_year:04d}-{end_month:02d}-{calendar.monthrange(end_year, end_month)[1]:02d}"
     return start_date, end_date
 
 

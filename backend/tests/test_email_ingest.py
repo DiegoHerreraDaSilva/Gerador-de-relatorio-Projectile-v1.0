@@ -22,6 +22,7 @@ from backend.app.email_ingest import (
     _build_report_email_html,
     _build_sender_filter,
     _dedupe_by_stem,
+    _kpi_samples_for_period,
     _load_signature_inline_attachments,
     _parse_sender_emails,
     compute_business_days_elapsed,
@@ -472,6 +473,54 @@ def test_compute_business_days_elapsed_weekend_only_span():
 def test_compute_business_days_elapsed_invalid_label_raises():
     with pytest.raises(EmailIngestError):
         compute_business_days_elapsed("não é uma competência válida", datetime.now(timezone.utc))
+
+
+def test_compute_business_days_elapsed_period_label_anchors_on_end_month():
+    """Uma label de período ("Junho a Julho/2026") ancora no mês FINAL —
+    mesmo resultado do caso de mês único já validado acima pra Julho/2026
+    sozinho, com o mesmo `sent_at`."""
+    sent_at = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+
+    result = compute_business_days_elapsed("Junho a Julho/2026", sent_at)
+
+    assert result == 3
+
+
+# ---------------------------------------------------------------------------
+# _kpi_samples_for_period
+# ---------------------------------------------------------------------------
+
+def test_kpi_samples_for_period_splits_hours_evenly_one_per_month():
+    base = {"project_id": "P1", "business_days": 2, "pacote_scope": None}
+
+    samples = _kpi_samples_for_period(base, (2026, 7), (2026, 9), 30.0)
+
+    assert [s["month"] for s in samples] == ["2026-07", "2026-08", "2026-09"]
+    assert all(s["billed_hours"] == 10.0 for s in samples)
+    # o resto dos campos de base_sample é preservado em cada amostra
+    assert all(s["project_id"] == "P1" and s["business_days"] == 2 for s in samples)
+
+
+def test_kpi_samples_for_period_crosses_year_boundary():
+    samples = _kpi_samples_for_period({}, (2025, 11), (2026, 2), 40.0)
+
+    assert [s["month"] for s in samples] == ["2025-11", "2025-12", "2026-01", "2026-02"]
+    assert all(s["billed_hours"] == 10.0 for s in samples)
+
+
+def test_kpi_samples_for_period_rounds_hours_to_3_decimals():
+    samples = _kpi_samples_for_period({}, (2026, 1), (2026, 3), 10.0)
+
+    assert [s["billed_hours"] for s in samples] == [pytest.approx(3.333)] * 3
+
+
+def test_kpi_samples_for_period_single_month_still_works():
+    """Não é bem o caso de uso (process_new_emails só chama isso quando
+    parse_month_label falhou), mas a função em si não deve quebrar com um
+    intervalo de 1 mês só."""
+    samples = _kpi_samples_for_period({}, (2026, 5), (2026, 5), 8.0)
+
+    assert samples == [{"month": "2026-05", "billed_hours": 8.0}]
 
 
 # ---------------------------------------------------------------------------

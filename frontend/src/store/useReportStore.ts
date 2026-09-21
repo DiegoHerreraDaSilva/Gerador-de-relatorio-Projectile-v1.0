@@ -111,6 +111,8 @@ type TabBundle = {
   importSelectedClient: string;
   importSelectedProjectIds: Set<string>;
   importClientReportMode: "pacote" | "projeto";
+  importPeriodMode: "single" | "range";
+  importEndMonthLabel: string;
   includePerformanceInExport: boolean;
   isSplit: boolean;
   paneBPackageId: string | null;
@@ -135,6 +137,8 @@ export function serializeTabBundle(state: StoreState): string {
     importSelectedClient: state.importSelectedClient,
     importSelectedProjectIds: state.importSelectedProjectIds,
     importClientReportMode: state.importClientReportMode,
+    importPeriodMode: state.importPeriodMode,
+    importEndMonthLabel: state.importEndMonthLabel,
     includePerformanceInExport: state.includePerformanceInExport,
     isSplit: state.isSplit,
     paneBPackageId: state.paneBPackageId,
@@ -165,6 +169,10 @@ export function applyTabBundle(bundleStr: string, state: StoreState) {
   state.importSelectedClient = parsed.importSelectedClient;
   state.importSelectedProjectIds = parsed.importSelectedProjectIds;
   state.importClientReportMode = parsed.importClientReportMode;
+  // adicionados depois — mesmo padrão de `language` acima, guias salvas
+  // antes desta feature não têm esses campos.
+  state.importPeriodMode = parsed.importPeriodMode ?? "single";
+  state.importEndMonthLabel = parsed.importEndMonthLabel ?? parsed.header?.monthLabel ?? createInitialHeader().monthLabel;
   state.includePerformanceInExport = parsed.includePerformanceInExport;
   state.isSplit = parsed.isSplit;
   state.paneBPackageId = parsed.paneBPackageId;
@@ -192,6 +200,8 @@ export function blankTabBundle(): string {
     importSelectedClient: "",
     importSelectedProjectIds: new Set(),
     importClientReportMode: "pacote",
+    importPeriodMode: "single",
+    importEndMonthLabel: createInitialHeader().monthLabel,
     includePerformanceInExport: false,
     isSplit: false,
     paneBPackageId: null,
@@ -223,6 +233,13 @@ export interface StoreState {
   importSelectedClient: string;
   importSelectedProjectIds: Set<string>;
   importClientReportMode: "pacote" | "projeto";
+  // "single" (padrão, mês único) ou "range" (período — busca soma vários
+  // meses num relatório só, ver PeriodPicker em FileUpload.tsx).
+  importPeriodMode: "single" | "range";
+  // mês final do período, mesmo formato "Mês/Ano" de `header.monthLabel`
+  // (que vira o mês INICIAL nesse modo) — só é lido quando
+  // `importPeriodMode === "range"`.
+  importEndMonthLabel: string;
   // checkbox "Incluir performance" no rodapé de Gerar Relatório — por guia,
   // mesmo motivo dos campos de import acima.
   includePerformanceInExport: boolean;
@@ -251,6 +268,8 @@ export interface StoreState {
   setImportSelectedClient: (v: string) => void;
   setImportSelectedProjectIds: (v: Set<string>) => void;
   setImportClientReportMode: (v: "pacote" | "projeto") => void;
+  setImportPeriodMode: (v: "single" | "range") => void;
+  setImportEndMonthLabel: (v: string) => void;
   setIncludePerformanceInExport: (v: boolean) => void;
   setActivePackageId: (id: string) => void;
   setReportMode: (mode: "single" | "multi") => void;
@@ -425,6 +444,8 @@ export const useReportStore = create<StoreState>()(
     importSelectedClient: "",
     importSelectedProjectIds: new Set(),
     importClientReportMode: "pacote",
+    importPeriodMode: "single",
+    importEndMonthLabel: createInitialHeader().monthLabel,
     includePerformanceInExport: false,
     activePackageId: null,
     reportMode: "single",
@@ -550,6 +571,14 @@ export const useReportStore = create<StoreState>()(
     setImportClientReportMode: (v) =>
       set((s) => {
         s.importClientReportMode = v;
+      }),
+    setImportPeriodMode: (v) =>
+      set((s) => {
+        s.importPeriodMode = v;
+      }),
+    setImportEndMonthLabel: (v) =>
+      set((s) => {
+        s.importEndMonthLabel = v;
       }),
     setIncludePerformanceInExport: (v) =>
       set((s) => {

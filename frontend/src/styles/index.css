@@ -1764,6 +1764,21 @@
     gap: 10px;
     margin-bottom: 10px;
   }
+  /* atalho "Últimos 3 meses" do seletor de Período — mesmo "chip" das
+     sugestões do chat (.chat-suggestion-chip), reaproveitado aqui. */
+  .period-shortcut-btn {
+    display: block;
+    margin: 2px 0 14px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: .78rem; font-weight: 500;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+  }
+  .period-shortcut-btn:hover { color: var(--accent-hi); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 
   /* dropdown de mês customizado (o nativo não dá pra estilizar de verdade) */
   .month-dropdown { position: relative; flex: 0 0 190px; }

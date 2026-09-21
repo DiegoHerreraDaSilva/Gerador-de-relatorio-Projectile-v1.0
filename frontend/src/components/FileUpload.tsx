@@ -4,6 +4,7 @@ import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { buildPeriodLabel, lastClosedMonthsRange } from "../utils/period";
 import type { ParseResponse } from "../api/types";
 
 function ClientDropdown({
@@ -222,6 +223,79 @@ function parseMonthLabel(label: string): { month: string; year: string } {
   return { month: found || MESES_PT[0], year: match[2] };
 }
 
+/** Seletor de "Mês único"/"Período" da busca "Buscar do Projectile" —
+ * compartilhado pelos dois submodos ("Meu usuário"/"Por cliente"), que hoje
+ * têm o mesmo bloco de mês único duplicado. Lê/escreve direto na store (não
+ * recebe props) — o mês INICIAL sempre é `header.monthLabel` (igual antes
+ * desta feature); o mês final (só usado em modo "Período") é
+ * `importEndMonthLabel`, novo campo por guia (mesmo motivo dos outros
+ * campos de import já viverem na store, ver comentário acima deles).
+ * Não renderiza o `.db-search-date-block` em volta — quem chama decide
+ * (o modo "Por cliente" precisa do mesmo bloco envolvendo período+cliente
+ * juntos; o modo "Meu usuário" usa um bloco só pra período). */
+function PeriodPicker() {
+  const monthLabel = useReportStore((s) => s.header.monthLabel);
+  const setHeaderField = useReportStore((s) => s.setHeaderField);
+  const periodMode = useReportStore((s) => s.importPeriodMode);
+  const setPeriodMode = useReportStore((s) => s.setImportPeriodMode);
+  const endMonthLabel = useReportStore((s) => s.importEndMonthLabel);
+  const setEndMonthLabel = useReportStore((s) => s.setImportEndMonthLabel);
+
+  const { month: startMonth, year: startYear } = parseMonthLabel(monthLabel);
+  const { month: endMonth, year: endYear } = parseMonthLabel(endMonthLabel);
+
+  const applyRange = (sMonth: string, sYear: string, eMonth: string, eYear: string) => {
+    setHeaderField("monthLabel", buildPeriodLabel(sMonth, sYear, eMonth, eYear));
+    setEndMonthLabel(`${eMonth}/${eYear}`);
+  };
+
+  const applyLastClosedMonths = (n: number) => {
+    const r = lastClosedMonthsRange(n);
+    setPeriodMode("range");
+    applyRange(r.startMonth, r.startYear, r.endMonth, r.endYear);
+  };
+
+  return (
+    <>
+      <div className="source-switch source-switch-small">
+        <div className={`source-switch-indicator ${periodMode === "range" ? "right" : ""}`} aria-hidden="true" />
+        <button type="button" className={`source-switch-option ${periodMode === "single" ? "active" : ""}`} onClick={() => setPeriodMode("single")}>
+          Mês único
+        </button>
+        <button type="button" className={`source-switch-option ${periodMode === "range" ? "active" : ""}`} onClick={() => setPeriodMode("range")}>
+          Período
+        </button>
+      </div>
+
+      {periodMode === "single" ? (
+        <>
+          <label className="db-search-label">Mês de referência</label>
+          <div className="db-search-month-row">
+            <MonthDropdown value={startMonth} onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)} />
+            <YearStepper value={startYear} onChange={(y) => setHeaderField("monthLabel", `${startMonth}/${y}`)} />
+          </div>
+        </>
+      ) : (
+        <>
+          <label className="db-search-label">De</label>
+          <div className="db-search-month-row">
+            <MonthDropdown value={startMonth} onChange={(m) => applyRange(m, startYear, endMonth, endYear)} />
+            <YearStepper value={startYear} onChange={(y) => applyRange(startMonth, y, endMonth, endYear)} />
+          </div>
+          <label className="db-search-label" style={{ marginTop: 8 }}>Até</label>
+          <div className="db-search-month-row">
+            <MonthDropdown value={endMonth} onChange={(m) => applyRange(startMonth, startYear, m, endYear)} />
+            <YearStepper value={endYear} onChange={(y) => applyRange(startMonth, startYear, endMonth, y)} />
+          </div>
+          <button type="button" className="period-shortcut-btn" onClick={() => applyLastClosedMonths(3)}>
+            Últimos 3 meses
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
@@ -285,9 +359,7 @@ export function FileUpload() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabId]);
 
-  const { month: searchMonth, year: searchYear } = parseMonthLabel(monthLabel);
-  const setSearchMonth = (month: string) => setHeaderField("monthLabel", `${month}/${searchYear}`);
-  const setSearchYear = (year: string) => setHeaderField("monthLabel", `${searchMonth}/${year}`);
+  const importPeriodMode = useReportStore((s) => s.importPeriodMode);
 
   const applyFile = (file: File | null) => {
     setSelectedFile(file);
@@ -551,11 +623,7 @@ export function FileUpload() {
 
             {byClient ? (
               <div className="db-search-date-block">
-                <label className="db-search-label">Mês de referência</label>
-                <div className="db-search-month-row">
-                  <MonthDropdown value={searchMonth} onChange={setSearchMonth} />
-                  <YearStepper value={searchYear} onChange={setSearchYear} />
-                </div>
+                <PeriodPicker />
 
                 <label className="db-search-label" style={{ marginTop: 10 }}>Cliente</label>
                 <ClientDropdown
@@ -598,18 +666,16 @@ export function FileUpload() {
                 )}
 
                 <p className="db-search-hint">
-                  Busca as horas dos projetos escolhidos nesse mês, zipando um relatório por{" "}
+                  Busca as horas dos projetos escolhidos {importPeriodMode === "range" ? "no período selecionado" : "nesse mês"}, zipando um relatório por{" "}
                   {clientReportMode === "pacote" ? "pacote de trabalho" : "projeto"}.
                 </p>
               </div>
             ) : (
               <div className="db-search-date-block">
-                <label className="db-search-label">Mês de referência</label>
-                <div className="db-search-month-row">
-                  <MonthDropdown value={searchMonth} onChange={setSearchMonth} />
-                  <YearStepper value={searchYear} onChange={setSearchYear} />
-                </div>
-                <p className="db-search-hint">Busca as horas apontadas pelo seu usuário do Projectile nesse mês.</p>
+                <PeriodPicker />
+                <p className="db-search-hint">
+                  Busca as horas apontadas pelo seu usuário do Projectile {importPeriodMode === "range" ? "no período selecionado" : "nesse mês"}.
+                </p>
               </div>
             )}
 
