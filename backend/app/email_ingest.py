@@ -380,10 +380,11 @@ def _find_total_row(ws) -> tuple[int, str]:
     `read_pacote_scope` (mesma linha-âncora — a linha logo abaixo é
     `bruto_row`, ver `generator._build_totals_row`).
 
-    Aceita tanto "Total de horas" (PT) quanto "Total hours" (EN, ver
-    `generator._LABELS["en"]["total_hours"]`) — um relatório gerado com
-    `language="en"` pode voltar por e-mail pra alimentar o mesmo KPI."""
-    label_re = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):$")
+    Aceita "Total de horas" (PT), "Total hours" (EN) ou "Gesamtstunden" (DE,
+    ver `generator._LABELS["en"/"de"]["total_hours"]`) — um relatório gerado
+    com `language="en"`/`"de"` pode voltar por e-mail pra alimentar o mesmo
+    KPI."""
+    label_re = re.compile(r"^(?:Total de horas|Total hours|Gesamtstunden)\s+(.+?):$")
     for row in ws.iter_rows():
         for cell in row:
             if not isinstance(cell.value, str):
@@ -439,7 +440,7 @@ def read_project_identity(xlsx_path: str) -> tuple[str, str]:
 # bastante pro Excel não separar em linhas de texto distintas) e às vezes na
 # linha seguinte — sem o `$` no fim pra aceitar as duas formas (ver uso
 # abaixo, que tenta o resto da própria linha antes de olhar a próxima).
-_PDF_TEXT_TOTAL_HOURS_RE = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):", re.IGNORECASE)
+_PDF_TEXT_TOTAL_HOURS_RE = re.compile(r"^(?:Total de horas|Total hours|Gesamtstunden)\s+(.+?):", re.IGNORECASE)
 # "Relatório de Horas"/"Hours Report" (título do relatório, B4) — usado como
 # ÂNCORA de posição pro nome do projeto, não pelo texto em si: em qualquer
 # origem (nosso pdf_generator.py OU um `.xlsx` deste app exportado pelo
@@ -453,7 +454,7 @@ _PDF_TEXT_TOTAL_HOURS_RE = re.compile(r"^(?:Total de horas|Total hours)\s+(.+?):
 # visto tinha o título em "Relatório de Horas" (title case) em vez do
 # "RELATÓRIO DE HORAS" (caixa alta) que o código atual grava — de uma
 # versão anterior do app, mas não custa aceitar os dois.
-_PDF_TEXT_TITLE_RE = re.compile(r"relat[oó]rio de horas|hours report", re.IGNORECASE)
+_PDF_TEXT_TITLE_RE = re.compile(r"relat[oó]rio de horas|hours report|stundenbericht", re.IGNORECASE)
 
 
 def _parse_pt_br_hours(text: str) -> float:

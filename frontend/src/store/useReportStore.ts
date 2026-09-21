@@ -335,16 +335,20 @@ export interface StoreState {
     toGroupId: string,
     beforeActivityId: string | null
   ) => void;
-  // botão "EN" do preview — troca só `description` das atividades do pacote
-  // botão "EN" do preview — troca `name` de grupo e `description` de
+  // botões "EN"/"DE" do preview — troca `name` de grupo e `description` de
   // atividade, casando por `id` (nunca ambíguo, diferente de applyChatState,
   // que casa por nome/descrição porque lida com operações abertas). `id` de
   // grupo e de atividade nunca colidem entre si (mesmo gerador `genId()`,
   // mas espaços de uso disjuntos), então uma lista só serve pros dois tipos
   // — quem chama (Preview.tsx) nem precisa saber qual é qual. Marca
-  // `pkg.language = "en"`; quem chama já dá pushUndo() antes (mesmo padrão
-  // de applyChatState), então desfazer reverte dado e idioma juntos.
-  applyTranslation: (packageId: string, translations: Array<{ id: string; text: string }>) => void;
+  // `pkg.language` com o idioma-alvo escolhido; quem chama já dá pushUndo()
+  // antes (mesmo padrão de applyChatState), então desfazer reverte dado e
+  // idioma juntos.
+  applyTranslation: (
+    packageId: string,
+    translations: Array<{ id: string; text: string }>,
+    language: WorkPackage["language"]
+  ) => void;
   applyChatState: (newState: {
     packages: Array<{ key: string; projectCode: string; projectName: string; groups: Array<{ name: string; performance: number; activities: Array<{ description: string; hours: number | null }> }> }>;
     locationDate: string;
@@ -800,7 +804,7 @@ export const useReportStore = create<StoreState>()(
         else toGroup.activities.splice(insertAt, 0, ...orderedMoved);
         s.hasGeneratedOnce = false;
       }),
-    applyTranslation: (packageId, translations) =>
+    applyTranslation: (packageId, translations, language) =>
       set((s) => {
         const pkg = s.packages.find((p) => p.id === packageId);
         if (!pkg) return;
@@ -813,7 +817,7 @@ export const useReportStore = create<StoreState>()(
             if (translatedDesc !== undefined) a.description = translatedDesc;
           });
         });
-        pkg.language = "en";
+        pkg.language = language;
         s.hasGeneratedOnce = false;
       }),
     applyChatState: (newState) => {

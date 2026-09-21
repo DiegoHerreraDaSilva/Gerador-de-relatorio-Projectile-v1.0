@@ -72,6 +72,23 @@ def test_resolve_total_hours_multiple_groups_different_performance(tmp_path):
     assert month_label == "Julho/2026"
 
 
+def test_resolve_total_hours_reads_back_report_generated_in_german(tmp_path):
+    """Round-trip real via generator.generate_report(language="de") —
+    label_re precisa reconhecer "Gesamtstunden ...:" (rótulo alemão de
+    total_hours, ver generator._LABELS["de"]) pra ler de volta um relatório
+    que o próprio app gerou em alemão e recebeu por e-mail."""
+    groups = [GroupInput(name="Grupo Único", performance=1.0, activities=[ActivityInput("Ativ", 6.0)])]
+    path = make_report(tmp_path, month_label="Agosto/2026", groups=groups, language="de")
+
+    hours, month_label = resolve_total_hours(path)
+
+    assert hours == pytest.approx(6.0, abs=1e-3)
+    # o mês embutido no rótulo "Gesamtstunden ...:" sai traduzido pro alemão
+    # (_translate_month_label) — resolve_total_hours devolve exatamente o
+    # texto extraído da célula, não o header.month_label original.
+    assert month_label == "August/2026"
+
+
 def test_resolve_total_hours_group_without_real_activities_resolves_to_zero(tmp_path):
     """Grupo sem nenhuma atividade real dispara o fallback "(sem atividades
     apontadas)" em `generator._build_groups_xml` — esse grupo não entra na
@@ -293,6 +310,26 @@ def test_read_pdf_report_data_from_text_handles_value_on_separate_line_and_engli
         "1471.3.1-002",
         "TCI_Infraestrutura",
         "Total hours August/2026:",
+        "282,54 h",
+    ])
+
+    data = read_pdf_report_data(path)
+
+    assert data["project_name"] == "TCI_Infraestrutura"
+    assert data["month_label"] == "August/2026"
+    assert data["total_hours"] == pytest.approx(282.54, abs=1e-3)
+
+
+def test_read_pdf_report_data_from_text_handles_german_label(tmp_path):
+    """Mesma cobertura do caso EN acima, mas pro rótulo em alemão (relatório
+    gerado com language="de" — ver _PDF_TEXT_TOTAL_HOURS_RE/_PDF_TEXT_TITLE_RE
+    aceitando "Gesamtstunden"/"Stundenbericht")."""
+    path = str(tmp_path / "excel_export_de.pdf")
+    _write_excel_exported_pdf(path, [
+        "Stundenbericht",
+        "1471.3.1-002",
+        "TCI_Infraestrutura",
+        "Gesamtstunden August/2026:",
         "282,54 h",
     ])
 

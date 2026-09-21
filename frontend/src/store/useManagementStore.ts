@@ -49,6 +49,7 @@ type KpisResponse = {
   available_projects: string[];
   available_clients: string[];
   available_packages: string[];
+  available_persons: string[];
   project_codes: Record<string, string>;
   project_clients: Record<string, string>;
   nonbillable_breakdown: NonbillablePackageRow[];
@@ -67,6 +68,11 @@ interface ManagementState {
   availableProjects: string[];
   availableClients: string[];
   availablePackages: string[];
+  // pessoas disponíveis pro filtro — recomputado a cada busca (mesmo padrão
+  // de availablePackages, não trava por _optionsScopeKey): Faturado/
+  // Performance não têm dimensão de pessoa e saem `null` do backend quando
+  // esse filtro está ativo (ver MonthRow, já eram nullable).
+  availablePersons: string[];
   // nome do projeto -> código (prefixo do pacote de trabalho, ex: "1564" em
   // "1564.1.1-001 MBB_CAD_ACCELO..."), só pra prefixar a opção no dropdown
   // de Projeto — o Projectile não tem coluna de código separada.
@@ -109,6 +115,7 @@ interface ManagementState {
   clients: string[];
   projects: string[];
   packages: string[];
+  persons: string[];
 
   // busca os dados só na primeira vez que o painel é aberto — trocar de volta
   // pra "Geração de Relatório" e voltar não deve refazer a requisição, já que
@@ -125,6 +132,7 @@ interface ManagementState {
   setClients: (clients: string[]) => void;
   setProjects: (projects: string[]) => void;
   setPackages: (packages: string[]) => void;
+  setPersons: (persons: string[]) => void;
   setPeriod: (period: string) => void;
   resetFilters: () => void;
   loadClosedRegistry: (force?: boolean) => Promise<void>;
@@ -139,7 +147,7 @@ export function round2(n: number): number {
 function buildQuery(
   state: Pick<
     ManagementState,
-    "period" | "selectedMonths" | "costCenters" | "clients" | "projects" | "packages"
+    "period" | "selectedMonths" | "costCenters" | "clients" | "projects" | "packages" | "persons"
   >,
   bypassBackendCache: boolean
 ): string {
@@ -150,6 +158,7 @@ function buildQuery(
   state.clients.forEach((c) => params.append("clients", c));
   state.projects.forEach((p) => params.append("projects", p));
   state.packages.forEach((p) => params.append("packages", p));
+  state.persons.forEach((p) => params.append("persons", p));
   if (bypassBackendCache) params.set("force_refresh", "true");
   return params.toString();
 }
@@ -167,6 +176,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   availableProjects: [],
   availableClients: [],
   availablePackages: [],
+  availablePersons: [],
   projectCodes: {},
   projectClients: {},
   closedClients: [],
@@ -186,6 +196,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   clients: [],
   projects: [],
   packages: [],
+  persons: [],
 
   load: async (force = false, bypassBackendCache = false) => {
     if (get().loaded && !force) return;
@@ -216,6 +227,8 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
         // continuaria aplicado escondido, sem bater com nada.
         availablePackages: data.available_packages,
         packages: get().packages.filter((p) => data.available_packages.includes(p)),
+        availablePersons: data.available_persons,
+        persons: get().persons.filter((p) => data.available_persons.includes(p)),
         // só regrava as opções quando o RECORTE (Período+Competência) muda
         // (ver `_optionsScopeKey`) — uma busca disparada só por Cliente/
         // Projeto/Pacote/Centro de Custo mudando, com o MESMO recorte,
@@ -284,6 +297,10 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
     set({ packages });
     get().load(true);
   },
+  setPersons: (persons) => {
+    set({ persons });
+    get().load(true);
+  },
   setPeriod: (period) => {
     // muda o conjunto de meses inteiro — uma seleção de Competência antiga
     // (do período anterior) não bate com os meses novos e deixaria a tela
@@ -299,6 +316,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
       clients: [],
       projects: [],
       packages: [],
+      persons: [],
     });
     get().load(true);
   },

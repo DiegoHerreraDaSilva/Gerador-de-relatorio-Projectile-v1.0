@@ -284,6 +284,23 @@
   .gauge-svg { width: 100%; max-width: 180px; height: auto; }
   .gauge-value { font-size: 1.35rem; font-weight: 700; color: var(--text); margin-top: 2px; }
 
+  /* Gráfico evolutivo (Trabalhado/Faturado/Delta) — mesmo card-shell do resto
+     do painel, mais largo que um KpiCard (não entra na grade de auto-fit). */
+  .evolution-chart-card { max-width: 1150px; margin-inline: auto; margin-top: 16px; }
+  .evolution-chart { display: flex; flex-direction: column; gap: 8px; }
+  .evolution-chart-svg { width: 100%; height: auto; }
+  .evolution-chart-empty { padding: 24px 0; text-align: center; }
+  .evolution-chart-zero-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+  .evolution-chart-axis-label { fill: var(--text-muted); font-size: 9px; }
+  .evolution-chart-line { transition: stroke-width 0.15s ease; }
+  .evolution-chart-point { cursor: default; }
+  .evolution-chart-legend { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+  .evolution-chart-legend-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.82rem; color: var(--text-muted);
+  }
+  .evolution-chart-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
   /* ============================================================
      Dashboard de horas — página própria (prefixo .myh-), com seu próprio
      sistema de grade/card/tabela. Não reaproveita .card/.kpi-grid/.kpi-table
@@ -854,9 +871,9 @@
   @media (prefers-reduced-motion: reduce) {
     .diagnostics-card-head-actions button svg.spin { animation: none; }
   }
-  /* mesma largura pros dois cards (Amostras tem 7 colunas, E-mails pulados
-     só 2 — sem isso cada um encolhe pro próprio conteúdo e ficam com
-     tamanhos bem diferentes). */
+  /* mesma largura pros dois cards (Amostras tem 7 colunas, E-mails não
+     processados só 2 — sem isso cada um encolhe pro próprio conteúdo e
+     ficam com tamanhos bem diferentes). */
   .diagnostics-table-card { align-self: center; width: 100%; max-width: 1150px; }
   .diagnostics-samples-card { max-width: 1400px; }
   .diagnostics-table-card h3 { margin: 0; font-size: 1.05rem; }
@@ -2399,13 +2416,19 @@
     background: linear-gradient(135deg, var(--accent) 0%, var(--brand-600) 100%);
     color: #fff; border-color: transparent;
   }
-  /* botão "EN" — mesmo cartão dos outros toggles, só com o texto do idioma em
-     destaque (letter-spacing/peso), pra ler como um "selo" curto em vez de um
-     rótulo comprido como os outros botões da toolbar. */
+  /* botões "EN"/"DE" — mesmo cartão dos outros toggles, só com o texto do
+     idioma em destaque (letter-spacing/peso), pra ler como um "selo" curto em
+     vez de um rótulo comprido como os outros botões da toolbar. */
   .btn-translate {
     font-weight: 700;
     letter-spacing: 0.03em;
     min-width: 34px;
+  }
+  /* agrupa os botões de idioma coladinhos, sem o gap padrão de .preview-tools
+     entre eles — lidos como um par (EN/DE), não como dois toggles soltos. */
+  .btn-translate-group {
+    display: flex;
+    gap: 4px;
   }
   .preview-translate-error {
     font-size: 0.78rem;

@@ -22,9 +22,11 @@ export function ManagementFilters({
   const clients = useManagementStore((s) => s.clients);
   const projects = useManagementStore((s) => s.projects);
   const packages = useManagementStore((s) => s.packages);
+  const persons = useManagementStore((s) => s.persons);
   const availableClients = useManagementStore((s) => s.availableClients);
   const availableProjects = useManagementStore((s) => s.availableProjects);
   const availablePackages = useManagementStore((s) => s.availablePackages);
+  const availablePersons = useManagementStore((s) => s.availablePersons);
   const projectCodes = useManagementStore((s) => s.projectCodes);
   const projectClients = useManagementStore((s) => s.projectClients);
   const setPeriod = useManagementStore((s) => s.setPeriod);
@@ -33,6 +35,7 @@ export function ManagementFilters({
   const setClients = useManagementStore((s) => s.setClients);
   const setProjects = useManagementStore((s) => s.setProjects);
   const setPackages = useManagementStore((s) => s.setPackages);
+  const setPersons = useManagementStore((s) => s.setPersons);
   const resetFilters = useManagementStore((s) => s.resetFilters);
 
   const monthOptions = (rows ?? []).map((r) => r.month);
@@ -52,7 +55,8 @@ export function ManagementFilters({
     costCenters.length !== ALL_COST_CENTERS.length ||
     clients.length > 0 ||
     projects.length > 0 ||
-    packages.length > 0;
+    packages.length > 0 ||
+    persons.length > 0;
 
   return (
     <aside className="management-filters">
@@ -85,6 +89,13 @@ export function ManagementFilters({
         options={availableClients}
         selected={clients}
         onChange={setClients}
+        className="mgmt-filter-wide"
+      />
+      <MultiSelectDropdown
+        label="Pessoa"
+        options={availablePersons}
+        selected={persons}
+        onChange={setPersons}
         className="mgmt-filter-wide"
       />
       <MultiSelectDropdown

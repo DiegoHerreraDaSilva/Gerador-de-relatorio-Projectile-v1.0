@@ -493,34 +493,48 @@ def _resolve_period(months: int, year: int | None) -> tuple[date, date, list[str
     return range_start, range_end, month_keys
 
 
-def _build_month_row(month_key: str, bucket: dict | None, manual: dict, auto: dict | None) -> dict:
+def _build_month_row(
+    month_key: str, bucket: dict | None, manual: dict, auto: dict | None, persons_filter_active: bool = False
+) -> dict:
     """Monta a linha de resultado de um mês a partir do bucket agregado do
     banco (worked_hours/nonbillable_hours), do override manual do gerente e
     da amostra automática (`project_kpi_samples`) — mesma regra de
-    precedência de sempre: manual > auto > None."""
+    precedência de sempre: manual > auto > None.
+
+    `persons_filter_active=True` (filtro de Pessoa ativo no painel) força
+    `billed_hours`/`perf_hours`/`perf_kpi_pct`/`elaboration_days` pra `None`:
+    esses quatro vêm de e-mail/manual, por PROJETO — não têm dimensão de
+    pessoa nenhuma (`project_kpi_samples`/`manual_entries` não guardam quem
+    trabalhou). Sem isso, o número mostrado compararia o trabalhado de UMA
+    pessoa com o faturado/elaboração do TIME inteiro, o que não tem
+    significado nenhum (decisão confirmada com o usuário)."""
     bucket = bucket or {"worked_hours": 0.0, "nonbillable_hours": 0.0}
     worked_hours = round(bucket["worked_hours"], 2)
     nonbillable_hours = round(bucket["nonbillable_hours"], 2)
 
-    if manual.get("billed_hours") is not None:
-        billed_hours = manual.get("billed_hours")
-        billed_hours_source = "manual"
-    elif auto:
-        billed_hours = round(auto["billed_hours"], 2)
-        billed_hours_source = "auto"
+    if persons_filter_active:
+        billed_hours = billed_hours_source = None
+        elaboration_days = elaboration_days_source = None
     else:
-        billed_hours = None
-        billed_hours_source = None
+        if manual.get("billed_hours") is not None:
+            billed_hours = manual.get("billed_hours")
+            billed_hours_source = "manual"
+        elif auto:
+            billed_hours = round(auto["billed_hours"], 2)
+            billed_hours_source = "auto"
+        else:
+            billed_hours = None
+            billed_hours_source = None
 
-    if manual.get("elaboration_days") is not None:
-        elaboration_days = manual.get("elaboration_days")
-        elaboration_days_source = "manual"
-    elif auto and auto["days"]:
-        elaboration_days = round(sum(auto["days"]) / len(auto["days"]), 2)
-        elaboration_days_source = "auto"
-    else:
-        elaboration_days = None
-        elaboration_days_source = None
+        if manual.get("elaboration_days") is not None:
+            elaboration_days = manual.get("elaboration_days")
+            elaboration_days_source = "manual"
+        elif auto and auto["days"]:
+            elaboration_days = round(sum(auto["days"]) / len(auto["days"]), 2)
+            elaboration_days_source = "auto"
+        else:
+            elaboration_days = None
+            elaboration_days_source = None
 
     perf_hours = round(billed_hours - worked_hours, 2) if billed_hours is not None else None
     perf_kpi_pct = (perf_hours / worked_hours) if perf_hours is not None and worked_hours > 0 else None
@@ -548,6 +562,7 @@ def compute_monthly_kpis(
     projects: list[str] | None = None,
     packages: list[str] | None = None,
     selected_months: list[str] | None = None,
+    persons: list[str] | None = None,
     force_refresh: bool = False,
 ) -> dict:
     with _DATA_LOCK:
@@ -579,6 +594,11 @@ def compute_monthly_kpis(
         project_ids = client_project_ids if client_project_ids is not None else project_name_ids
     allowed_project_ids = set(project_ids) if project_ids is not None else None
     allowed_packages = set(packages) if packages else None
+    # Pessoa é um recorte de DIMENSÃO como Cliente/Projeto/Pacote, mas só
+    # existe no dado que vem do Projectile (worked_hours/nonbillable_hours) —
+    # billed_hours/perf_hours/elaboration_days não têm pessoa (ver
+    # _build_month_row) e saem None quando esse filtro está ativo.
+    allowed_persons = set(persons) if persons else None
     cost_center_keywords = [cc.casefold() for cc in active_cost_centers]
     # Competência (mês) — recorte de TEMPO, não de dimensão como
     # Cliente/Projeto/Pacote: as opções de filtro (available_projects/
@@ -620,6 +640,11 @@ def compute_monthly_kpis(
     # Custo/Cliente/Projeto já aplicado, mas ANTES do filtro de Pacote em si
     # (senão escolher um pacote faria os outros sumirem do dropdown).
     available_packages: set[str] = set()
+    # pessoas disponíveis pro filtro — mesmo recorte de Centro de Custo/
+    # Cliente/Projeto/Pacote já aplicado, mas ANTES do filtro de Pessoa em si
+    # (mesmo motivo de available_packages: senão escolher uma pessoa faria as
+    # outras sumirem do dropdown).
+    available_persons: set[str] = set()
     for row in all_rows:
         row_cost_center = (row.get("cost_center") or "").casefold()
         if not any(kw in row_cost_center for kw in cost_center_keywords):
@@ -634,6 +659,11 @@ def compute_monthly_kpis(
         if in_selected_months:
             available_packages.add(row_package)
         if allowed_packages is not None and row_package not in allowed_packages:
+            continue
+        row_person = html.unescape(str(row.get("person") or "")).strip() or "Sem nome"
+        if in_selected_months:
+            available_persons.add(row_person)
+        if allowed_persons is not None and row_person not in allowed_persons:
             continue
         hours = round(float(row.get("horas") or 0), 3)
         if project_id:
@@ -697,6 +727,7 @@ def compute_monthly_kpis(
             buckets.get(month_key),
             manual_entries.get(month_key) or {},
             auto_by_month.get(month_key),
+            persons_filter_active=allowed_persons is not None,
         )
         for month_key in month_keys
     ]
@@ -801,6 +832,7 @@ def compute_monthly_kpis(
         "available_projects": available_projects,
         "available_clients": available_clients,
         "available_packages": sorted(available_packages, key=lambda p: p.casefold()),
+        "available_persons": sorted(available_persons, key=lambda p: p.casefold()),
         "project_codes": project_codes,
         "project_clients": project_clients,
         "nonbillable_breakdown": nonbillable_breakdown,

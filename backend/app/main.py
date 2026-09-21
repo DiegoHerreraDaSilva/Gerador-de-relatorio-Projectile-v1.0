@@ -691,6 +691,7 @@ async def management_kpis_endpoint(
     projects: list[str] = Query(default=[]),
     packages: list[str] = Query(default=[]),
     selected_months: list[str] = Query(default=[]),
+    persons: list[str] = Query(default=[]),
     force_refresh: bool = False,
     _user: dict = Depends(require_manager),
 ):
@@ -703,6 +704,7 @@ async def management_kpis_endpoint(
             projects=projects or None,
             packages=packages or None,
             selected_months=selected_months or None,
+            persons=persons or None,
             force_refresh=force_refresh,
         )
     except ProjectileDbError as e:
@@ -940,7 +942,7 @@ class ReportPackagePayload(BaseModel):
     # traduz nomes de grupo/descrições de atividade via IA, antes de este
     # payload ser montado) — por isso já vale tanto pra /generate quanto
     # pra /send-report, sem precisar duplicar o campo em SendReportPayload.
-    language: Literal["pt", "en"] = "pt"
+    language: Literal["pt", "en", "de"] = "pt"
 
 
 class GeneratePayload(BaseModel):
@@ -1200,9 +1202,15 @@ class ChatState(BaseModel):
     signer2Company: str = ""
 
 
+class ChatHistoryTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+
+
 class ChatRequest(BaseModel):
     message: str
     state: ChatState
+    history: list[ChatHistoryTurn] = []
 
 
 class ChatResponse(BaseModel):
@@ -1213,7 +1221,11 @@ class ChatResponse(BaseModel):
 @app.post("/chat")
 async def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_session)):
     try:
-        summary, operations = call_chat(payload.message, payload.state.model_dump())
+        summary, operations = call_chat(
+            payload.message,
+            payload.state.model_dump(),
+            [turn.model_dump() for turn in payload.history],
+        )
     except ChatConfigError as e:
         raise HTTPException(500, str(e))
     except ChatUpstreamError as e:
@@ -1243,12 +1255,13 @@ class TranslatePayload(BaseModel):
     # nomes de grupo e descrições de atividade misturados numa lista só —
     # ver comentário em translate_ops.py sobre por que `id` nunca é ambíguo.
     items: list[TranslateItem] = Field(min_length=1)
+    target_language: Literal["en", "de"] = "en"
 
 
 @app.post("/translate-activities")
 async def translate_activities_endpoint(payload: TranslatePayload, _user: dict = Depends(require_translate_access)):
     try:
-        translations = call_translate([item.model_dump() for item in payload.items])
+        translations = call_translate([item.model_dump() for item in payload.items], payload.target_language)
     except ChatConfigError as e:
         raise HTTPException(500, str(e))
     except ChatUpstreamError as e:

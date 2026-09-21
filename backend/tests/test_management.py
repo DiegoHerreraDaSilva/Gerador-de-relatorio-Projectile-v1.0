@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from datetime import date
 
+import pytest
+
 from backend.app import management
 
 
@@ -49,7 +51,7 @@ def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1", sour
     return sample
 
 
-def _row(project_id, pacote, hours, day=1):
+def _row(project_id, pacote, hours, day=1, person=None):
     return {
         "data": date(2026, 8, day),
         "horas": hours,
@@ -57,6 +59,7 @@ def _row(project_id, pacote, hours, day=1):
         "project_id": project_id,
         "cost_center": "CAD",
         "external": "1",
+        "person": person,
     }
 
 
@@ -501,6 +504,101 @@ def test_deleting_original_sample_promotes_next_to_non_duplicate(tmp_path, monke
     remaining = management.list_samples()["samples"]
     assert len(remaining) == 1
     assert _find_sample(remaining, "m2")["is_duplicate"] is False
+
+
+# ---------------------------------------------------------------------------
+# persons — filtro por pessoa (só afeta worked_hours/nonbillable_hours, que
+# vêm do Projectile; billed_hours/perf_hours/perf_kpi_pct/elaboration_days
+# não têm dimensão de pessoa — ver docstring de _build_month_row).
+# ---------------------------------------------------------------------------
+
+def test_persons_filter_scopes_worked_hours(monkeypatch, tmp_path):
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [
+        _row("P1", "Pacote A", 10.0, person="Ana"),
+        _row("P1", "Pacote A", 4.0, person="Beto"),
+    ])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
+
+    months_by_key = {m["month"]: m for m in result["months"]}
+    assert months_by_key["2026-08"]["worked_hours"] == 10.0
+
+
+def test_persons_filter_nulls_billed_and_performance(monkeypatch, tmp_path):
+    """Faturado/Performance vêm de e-mail/manual, por PROJETO — não têm como
+    saber quanto disso é de UMA pessoa, então saem None em vez de comparar o
+    trabalhado de uma pessoa com o faturado do time inteiro (decisão
+    confirmada com o usuário)."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0, person="Ana")])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=12.0)])
+
+    without_filter = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    with_filter = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
+
+    row_without = {m["month"]: m for m in without_filter["months"]}["2026-08"]
+    row_with = {m["month"]: m for m in with_filter["months"]}["2026-08"]
+    assert row_without["billed_hours"] == 12.0
+    assert row_without["perf_hours"] is not None
+    assert row_with["billed_hours"] is None
+    assert row_with["perf_hours"] is None
+    assert row_with["perf_kpi_pct"] is None
+    # worked_hours continua calculado normalmente, só billed/perf somem
+    assert row_with["worked_hours"] == 10.0
+
+
+def test_persons_filter_does_not_affect_nonbillable(monkeypatch, tmp_path):
+    """nonbillable_hours/nonbillable_kpi_pct são só de horas trabalhadas
+    (tjob.pExternal='0') — não misturam com faturado, então continuam
+    normalmente com o filtro de pessoa ativo."""
+    data_file = tmp_path / "management_kpi.json"
+    row = {**_row("P1", "Pacote A", 10.0, person="Ana"), "external": "0"}
+    _patch_projectile(monkeypatch, [row])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
+
+    row_result = {m["month"]: m for m in result["months"]}["2026-08"]
+    assert row_result["nonbillable_hours"] == 10.0
+    assert row_result["nonbillable_kpi_pct"] == 1.0
+
+
+def test_available_persons_ignores_own_filter(monkeypatch, tmp_path):
+    """`available_persons` reflete todo mundo que apontou no recorte de
+    Centro de Custo/Cliente/Projeto/Pacote — não esvazia pras outras opções
+    quando uma pessoa já está selecionada (mesmo padrão de available_packages)."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [
+        _row("P1", "Pacote A", 10.0, person="Ana"),
+        _row("P1", "Pacote A", 4.0, person="Beto"),
+    ])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
+
+    assert result["available_persons"] == ["Ana", "Beto"]
+
+
+def test_no_persons_filter_behaves_exactly_like_before(monkeypatch, tmp_path):
+    """Regressão: sem `persons` (None, o padrão), billed_hours/perf_hours
+    continuam calculados normalmente — a feature não muda nada pra quem não
+    usa o filtro."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0, person="Ana")])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=12.0)])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+
+    row = {m["month"]: m for m in result["months"]}["2026-08"]
+    assert row["billed_hours"] == 12.0
+    assert row["perf_hours"] == pytest.approx(2.0)
 
 
 def test_duplicate_excluded_from_billed_hours_sum(monkeypatch, tmp_path):

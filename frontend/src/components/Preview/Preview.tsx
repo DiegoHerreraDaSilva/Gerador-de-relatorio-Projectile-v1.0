@@ -72,7 +72,7 @@ export function Preview() {
   const pushUndo = useReportStore((s) => s.pushUndo);
   const applyTranslation = useReportStore((s) => s.applyTranslation);
   const translateAllowed = useAuthStore((s) => s.user?.translateAllowed ?? false);
-  const [translating, setTranslating] = useState(false);
+  const [translating, setTranslating] = useState<"en" | "de" | null>(null);
   const [translateError, setTranslateError] = useState("");
 
   const hasPackages = packages.length > 0;
@@ -83,7 +83,7 @@ export function Preview() {
   const primaryPaneId = activeId;
   const secondaryPaneId = isSplit ? (paneBPackage?.id ?? null) : null;
 
-  const handleTranslate = async () => {
+  const handleTranslate = async (targetLanguage: "en" | "de") => {
     if (!activePkg) return;
     // nomes de grupo + descrições de atividade numa lista só — id nunca é
     // ambíguo entre os dois tipos (ver comentário em applyTranslation).
@@ -93,13 +93,13 @@ export function Preview() {
     ]);
     if (items.length === 0) return;
     setTranslateError("");
-    setTranslating(true);
+    setTranslating(targetLanguage);
     pushUndo();
     try {
       const res = await fetch("/translate-activities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, target_language: targetLanguage }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
@@ -108,12 +108,12 @@ export function Preview() {
         return;
       }
       const data = await res.json();
-      applyTranslation(activePkg.id, data.translations ?? []);
+      applyTranslation(activePkg.id, data.translations ?? [], targetLanguage);
     } catch {
       setTranslateError("Não foi possível traduzir. Verifique sua conexão e tente de novo.");
       revertPushedUndo();
     } finally {
-      setTranslating(false);
+      setTranslating(null);
     }
   };
 
@@ -153,7 +153,10 @@ export function Preview() {
               </button>
               <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">⇆ Dividir tela</button>
               {translateAllowed && (
-                <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir as descrições de atividade deste relatório para inglês" aria-label="Traduzir atividades para inglês">EN</button>
+                <div className="btn-translate-group">
+                  <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir este relatório para inglês" aria-label="Traduzir atividades para inglês">EN</button>
+                  <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir este relatório para alemão" aria-label="Traduzir atividades para alemão">DE</button>
+                </div>
               )}
               <button type="button" onClick={() => setZoom(previewZoom - 10)}>−</button>
               <span id="zoomLabel">{previewZoom}%</span>
@@ -208,16 +211,28 @@ export function Preview() {
               ⇆ Dividir tela
             </button>
             {translateAllowed && (
-              <button
-                type="button"
-                className="btn-toggle btn-translate"
-                disabled={translating}
-                onClick={handleTranslate}
-                title="Traduzir as descrições de atividade deste relatório para inglês"
-                aria-label="Traduzir atividades para inglês"
-              >
-                {translating ? "..." : "EN"}
-              </button>
+              <div className="btn-translate-group">
+                <button
+                  type="button"
+                  className="btn-toggle btn-translate"
+                  disabled={translating !== null}
+                  onClick={() => handleTranslate("en")}
+                  title="Traduzir este relatório para inglês"
+                  aria-label="Traduzir atividades para inglês"
+                >
+                  {translating === "en" ? "..." : "EN"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-toggle btn-translate"
+                  disabled={translating !== null}
+                  onClick={() => handleTranslate("de")}
+                  title="Traduzir este relatório para alemão"
+                  aria-label="Traduzir atividades para alemão"
+                >
+                  {translating === "de" ? "..." : "DE"}
+                </button>
+              </div>
             )}
             {translateError && <span className="preview-translate-error">{translateError}</span>}
             <button type="button" onClick={() => setZoom(previewZoom - 10)} aria-label="Diminuir zoom">−</button>

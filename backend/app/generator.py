@@ -108,12 +108,29 @@ _LABELS = {
         "total_hours": "Total hours {month}:",
         "no_activities": "(no activities logged)",
     },
+    "de": {
+        "title": "STUNDENBERICHT",
+        "subtitle": "Stundenbericht für den Monat {month}",
+        "activity_description": "Tätigkeitsbeschreibung",
+        "hours": "Stunden",
+        "bruto": "Brutto",
+        "performance": "Performance",
+        "total_hours": "Gesamtstunden {month}:",
+        "no_activities": "(keine Tätigkeiten erfasst)",
+    },
 }
 
-_MONTH_NAMES_EN = {
-    "janeiro": "January", "fevereiro": "February", "março": "March", "abril": "April",
-    "maio": "May", "junho": "June", "julho": "July", "agosto": "August",
-    "setembro": "September", "outubro": "October", "novembro": "November", "dezembro": "December",
+_MONTH_NAMES = {
+    "en": {
+        "janeiro": "January", "fevereiro": "February", "março": "March", "abril": "April",
+        "maio": "May", "junho": "June", "julho": "July", "agosto": "August",
+        "setembro": "September", "outubro": "October", "novembro": "November", "dezembro": "December",
+    },
+    "de": {
+        "janeiro": "Januar", "fevereiro": "Februar", "março": "März", "abril": "April",
+        "maio": "Mai", "junho": "Juni", "julho": "Juli", "agosto": "August",
+        "setembro": "September", "outubro": "Oktober", "novembro": "November", "dezembro": "Dezember",
+    },
 }
 
 
@@ -123,14 +140,15 @@ def _labels(language: str) -> dict:
 
 def _translate_month_label(month_label: str, language: str) -> str:
     """`month_label` vem como "Mês/AAAA" (ex: "Agosto/2026") — só o NOME do
-    mês é traduzido quando `language="en"`, sem mexer no ano/formato. Não
-    altera `header.month_label` em si (usado por email_ingest.py/
-    management.py em outro formato) — é uma tradução só pro texto embutido
-    nos rótulos fixos do arquivo gerado."""
-    if language != "en":
+    mês é traduzido quando `language` tem um dicionário em `_MONTH_NAMES`
+    ("en"/"de"), sem mexer no ano/formato. Não altera `header.month_label`
+    em si (usado por email_ingest.py/management.py em outro formato) — é uma
+    tradução só pro texto embutido nos rótulos fixos do arquivo gerado."""
+    month_names = _MONTH_NAMES.get(language)
+    if month_names is None:
         return month_label
     name, sep, year = month_label.partition("/")
-    translated = _MONTH_NAMES_EN.get(name.strip().lower())
+    translated = month_names.get(name.strip().lower())
     return f"{translated}{sep}{year}" if translated else month_label
 
 
@@ -226,25 +244,30 @@ _MESES_PT = [
     "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ]
-# nomes de mês em inglês, minúsculos — usado só como fallback em
-# `parse_month_label` pra reconhecer o `month_label` extraído de volta de um
-# relatório GERADO EM INGLÊS (ver `_MONTH_NAMES_EN`/`_translate_month_label`
-# acima); nunca é o texto que o app grava, só o que ele pode precisar LER de
-# volta de um .xlsx/.pdf que o próprio app gerou em EN e recebeu por e-mail.
-_MESES_EN = [name.lower() for name in _MONTH_NAMES_EN.values()]
 
 
 def _strip_accents(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
 
 
+# nomes de mês em inglês/alemão, minúsculos e sem acento — usado só como
+# fallback em `parse_month_label` pra reconhecer o `month_label` extraído de
+# volta de um relatório GERADO EM EN/DE (ver `_MONTH_NAMES`/
+# `_translate_month_label` acima); nunca é o texto que o app grava, só o que
+# ele pode precisar LER de volta de um .xlsx/.pdf que o próprio app gerou
+# nesses idiomas e recebeu por e-mail.
+_MESES_EN = [_strip_accents(name.lower()) for name in _MONTH_NAMES["en"].values()]
+_MESES_DE = [_strip_accents(name.lower()) for name in _MONTH_NAMES["de"].values()]
+
+
 def parse_month_label(label: str) -> tuple[int, int] | None:
     """'Julho/2026' -> (2026, 7). Também reconhece o nome do mês em inglês
-    ('August/2026') — necessário pra ler de volta relatórios que o próprio
-    app gerou com `language="en"` (ver email_ingest._find_total_row/
-    resolve_total_hours, que chamam esta função com o texto extraído do
-    arquivo, seja qual for o idioma em que ele foi gerado). Retorna None se
-    o texto não seguir esse padrão nem bater com nenhum dos dois idiomas."""
+    ('August/2026') ou alemão ('August/2026', 'März/2026') — necessário pra
+    ler de volta relatórios que o próprio app gerou com `language="en"`/`"de"`
+    (ver email_ingest._find_total_row/resolve_total_hours, que chamam esta
+    função com o texto extraído do arquivo, seja qual for o idioma em que ele
+    foi gerado). Retorna None se o texto não seguir esse padrão nem bater com
+    nenhum dos três idiomas."""
     match = re.match(r"\s*([^/]+?)\s*/\s*(\d{4})\s*$", label or "")
     if not match:
         return None
@@ -253,6 +276,8 @@ def parse_month_label(label: str) -> tuple[int, int] | None:
         month = _MESES_PT.index(month_name) + 1
     elif month_name in _MESES_EN:
         month = _MESES_EN.index(month_name) + 1
+    elif month_name in _MESES_DE:
+        month = _MESES_DE.index(month_name) + 1
     else:
         return None
     return int(match.group(2)), month

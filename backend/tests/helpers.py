@@ -16,6 +16,7 @@ def make_report(
     filename: str = "relatorio.xlsx",
     pacote_scope: str | None = None,
     include_performance: bool = False,
+    language: str = "pt",
 ) -> str:
     """Gera um .xlsx de fixture real via `generator.generate_report` — o
     mesmo caminho de código de produção usado pelo app de verdade — em vez de
@@ -30,7 +31,10 @@ def make_report(
         month_label=month_label,
     )
     output_path = str(tmp_path / filename)
-    generate_report(header, groups, output_path, pacote_scope=pacote_scope, include_performance=include_performance)
+    generate_report(
+        header, groups, output_path,
+        pacote_scope=pacote_scope, include_performance=include_performance, language=language,
+    )
     return output_path
 
 
@@ -44,6 +48,7 @@ def make_report_pdf(
     filename: str = "relatorio.pdf",
     pacote_scope: str | None = None,
     include_performance: bool = False,
+    language: str = "pt",
 ) -> str:
     """Mesma ideia de `make_report`, gerando um .pdf real via
     `pdf_generator.generate_report_pdf` em vez do .xlsx."""
@@ -55,6 +60,7 @@ def make_report_pdf(
     )
     output_path = str(tmp_path / filename)
     generate_report_pdf(
-        header, groups, output_path, pacote_scope=pacote_scope, include_performance=include_performance
+        header, groups, output_path,
+        pacote_scope=pacote_scope, include_performance=include_performance, language=language,
     )
     return output_path

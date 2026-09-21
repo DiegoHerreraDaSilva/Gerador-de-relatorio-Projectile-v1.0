@@ -28,7 +28,7 @@ truststore.inject_into_ssl()
 from anthropic import Anthropic
 
 from .chat_ops import TOOL_NAME, TOOL_SCHEMA, SYSTEM_PROMPT
-from .translate_ops import TRANSLATE_TOOL_NAME, TRANSLATE_TOOL_SCHEMA, TRANSLATE_SYSTEM_PROMPT
+from .translate_ops import TRANSLATE_TOOL_NAME, TRANSLATE_TOOL_SCHEMA, translate_system_prompt
 
 
 class ChatConfigError(RuntimeError):
@@ -57,8 +57,16 @@ def _get_client() -> Anthropic:
     return _client
 
 
-def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
-    """Manda a instrução + estado atual pra Claude, devolve (summary, operations).
+def call_chat(message: str, state: dict, history: list[dict] | None = None) -> tuple[str, list[dict]]:
+    """Manda o histórico da conversa + a instrução + estado atual pra Claude,
+    devolve (summary, operations).
+
+    `history` é a lista de turnos anteriores (`{"role": "user"|"assistant", "text": ...}`,
+    mais recente por último) que o usuário já trocou com o assistente nesta
+    sessão de edição — sem ela, cada chamada era completamente sem memória
+    (só via a mensagem atual + o estado do relatório), então um pedido como
+    "não, o OUTRO grupo" não tinha como ser entendido. `system`/`tools`
+    continuam fixos (cache de prompt intacto); só `messages` cresce.
 
     `operations` segue o catálogo de chat_ops.py — quem chama é responsável por
     aplicar (chat_ops.apply_operations) e validar o resultado (ChatState em
@@ -67,6 +75,8 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
     """
     client = _get_client()
     model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+
+    history_messages = [{"role": turn["role"], "content": turn["text"]} for turn in (history or [])]
 
     try:
         response = client.messages.create(
@@ -88,10 +98,11 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
             # se a IA começar a errar referências de grupo/atividade com frequência
             output_config={"effort": "low"},
             messages=[
+                *history_messages,
                 {
                     "role": "user",
                     "content": f"Estado atual:\n{state}\n\nPedido do usuário: {message}",
-                }
+                },
             ],
         )
     except Exception as e:
@@ -107,14 +118,14 @@ def call_chat(message: str, state: dict) -> tuple[str, list[dict]]:
     return summary, operations
 
 
-def call_translate(items: list[dict]) -> list[dict]:
+def call_translate(items: list[dict], target_language: str = "en") -> list[dict]:
     """Traduz `items` (lista de `{id, text}` — nomes de grupo e descrições de
-    atividade misturados, ver translate_ops.py) pro inglês — usado pelo botão
-    "EN" do preview. Mesmo cliente/modelo de `call_chat`, mas com um schema
-    dedicado: aqui a tarefa é sempre a mesma, então o casamento de cada item
-    na resposta é por `id` — quem chama é responsável por aplicar só os ids
-    que efetivamente vieram de volta, sem assumir que a lista bate 1:1 com a
-    enviada."""
+    atividade misturados, ver translate_ops.py) pro idioma-alvo (`"en"`/`"de"`)
+    — usado pelos botões "EN"/"DE" do preview. Mesmo cliente/modelo de
+    `call_chat`, mas com um schema dedicado: aqui a tarefa é sempre a mesma,
+    então o casamento de cada item na resposta é por `id` — quem chama é
+    responsável por aplicar só os ids que efetivamente vieram de volta, sem
+    assumir que a lista bate 1:1 com a enviada."""
     client = _get_client()
     model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
@@ -122,7 +133,7 @@ def call_translate(items: list[dict]) -> list[dict]:
         response = client.messages.create(
             model=model,
             max_tokens=4096,
-            system=[{"type": "text", "text": TRANSLATE_SYSTEM_PROMPT}],
+            system=[{"type": "text", "text": translate_system_prompt(target_language)}],
             tools=[{**TRANSLATE_TOOL_SCHEMA, "cache_control": {"type": "ephemeral"}}],
             tool_choice={"type": "tool", "name": TRANSLATE_TOOL_NAME},
             output_config={"effort": "low"},

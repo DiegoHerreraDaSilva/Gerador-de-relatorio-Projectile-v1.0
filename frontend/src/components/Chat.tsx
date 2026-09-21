@@ -45,6 +45,18 @@ export function Chat() {
     });
   };
 
+  // Últimos 10 turnos de verdade (user/assistant, sem "error"/"pending")
+  // mandados pro backend como memória da conversa — sem isso cada chamada
+  // era sem contexto nenhum do que já foi dito, só via a mensagem atual +
+  // o estado do relatório (ver POST /chat em backend/app/main.py). Deriva
+  // de `messages` (já é o histórico exibido em tela), então reseta junto
+  // com ele quando um arquivo novo é importado (efeito acima).
+  const buildHistory = () =>
+    messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-10)
+      .map((m) => ({ role: m.role as "user" | "assistant", text: m.text }));
+
   const buildChatState = () => {
     const activeIndex = packages.findIndex((p) => p.id === activeId);
     return {
@@ -81,7 +93,7 @@ export function Chat() {
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, state: buildChatState() }),
+        body: JSON.stringify({ message: text, state: buildChatState(), history: buildHistory() }),
       });
       const data = await res.json().catch(() => null);
       setMessages((prev) => prev.filter((m) => m.role !== "pending"));

@@ -1,5 +1,5 @@
-"""Prompt e schema do botão "EN" do preview — traduz nomes de grupo e
-descrições de atividade do relatório para inglês.
+"""Prompt e schema dos botões "EN"/"DE" do preview — traduz nomes de grupo e
+descrições de atividade do relatório para o idioma-alvo escolhido.
 
 Separado de chat_ops.py de propósito: aqui a tarefa é sempre a mesma (traduzir
 uma lista de textos), nunca uma "operação" aberta escolhida pela IA — então o
@@ -17,12 +17,23 @@ from __future__ import annotations
 
 TRANSLATE_TOOL_NAME = "translate_report_texts"
 
-TRANSLATE_SYSTEM_PROMPT = """Você traduz textos de um relatório de horas de engenharia, \
-do português para o inglês técnico — tanto NOMES DE GRUPO (categorias de trabalho, ex: \
+# nome do idioma-alvo por extenso, como aparece no prompt — só os dois
+# idiomas com botão de tradução no preview (ver Preview.tsx); "pt" nunca
+# aparece aqui porque não existe botão de tradução PARA português.
+_TARGET_LANGUAGE_LABEL = {
+    "en": "inglês técnico",
+    "de": "alemão técnico",
+}
+
+
+def translate_system_prompt(target_language: str) -> str:
+    language_label = _TARGET_LANGUAGE_LABEL.get(target_language, _TARGET_LANGUAGE_LABEL["en"])
+    return f"""Você traduz textos de um relatório de horas de engenharia, \
+do português para o {language_label} — tanto NOMES DE GRUPO (categorias de trabalho, ex: \
 "Geral", "Encapsulamento Estrutural") quanto DESCRIÇÕES DE ATIVIDADE.
 
-Você recebe uma lista de itens `{id, text}`. Devolva a tradução de CADA texto \
-para inglês, mantendo o `id` original de cada item — a lista de saída precisa \
+Você recebe uma lista de itens `{{id, text}}`. Devolva a tradução de CADA texto \
+para {language_label}, mantendo o `id` original de cada item — a lista de saída precisa \
 ter exatamente um item para cada id recebido.
 
 Regras:
@@ -31,7 +42,7 @@ Regras:
 2. Preserve exatamente como estão: siglas/códigos técnicos (ex: "CAD", "ENG",
    "QA" — inclusive quando a sigla É o próprio nome do grupo, não só dentro
    de uma descrição), números, nomes próprios de projeto/cliente/pessoa.
-3. Se o texto já estiver em inglês, ou vier vazio, devolva sem mudar.
+3. Se o texto já estiver no idioma-alvo, ou vier vazio, devolva sem mudar.
 4. Nunca pule um id da lista recebida.
 """
 

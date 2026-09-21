@@ -322,11 +322,13 @@ def fetch_engineering_hours(
     acima, que só existe porque não havia necessidade de filtrar por centro
     de custo até agora.
 
-    Devolve TODAS as linhas de CAD+CAE (com `cost_center`, `project_id` e
+    Devolve TODAS as linhas de CAD+CAE (com `cost_center`, `project_id`,
     `external` — `tjob.pExternal`, usado por `management.py` pra decidir
-    faturável/não faturável, ver seu docstring pra validação desse campo) pra
-    `management.py` cachear e filtrar por Centro de Custo/Cliente/Projeto em
-    Python — evita repetir essa query a cada troca de filtro. NUNCA faz join
+    faturável/não faturável, ver seu docstring pra validação desse campo — e
+    `person`, `tjob.capEmployee`, pra alimentar o filtro por pessoa do painel)
+    pra `management.py` cachear e filtrar por Centro de Custo/Cliente/
+    Projeto/Pessoa em Python — evita repetir essa query a cada troca de
+    filtro. NUNCA faz join
     direto com `tproject` aqui: já medido que isso
     faz o otimizador escanear tudo e leva minutos — resolver cliente/projeto
     por `pProject IN (...)` à parte (ver
@@ -349,7 +351,7 @@ def fetch_engineering_hours(
                 """
                 SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
                        tj.pProject AS project_id, te.pCostCenter AS cost_center,
-                       tj.pExternal AS external
+                       tj.pExternal AS external, tj.capEmployee AS person
                 FROM ttimebit tb
                 JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
                 JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId

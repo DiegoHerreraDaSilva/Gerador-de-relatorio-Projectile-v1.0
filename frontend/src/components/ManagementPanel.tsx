@@ -3,6 +3,7 @@ import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus, Lock 
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
 import { ClosedRegistryPopup } from "./ClosedRegistryPopup";
+import { EvolutionChart } from "./EvolutionChart";
 import { SortableTh } from "./SortableTh";
 import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
@@ -36,6 +37,12 @@ function fmtPct(value: number | null): string {
   return value === null ? "—" : `${fmtNum(value * 100)}%`;
 }
 
+// Faturado/Performance/Elaboração vêm de e-mail/manual, por PROJETO — sem
+// dimensão de pessoa (ver _build_month_row no backend). Quando o filtro de
+// Pessoa está ativo, o backend já manda esses campos como `null`; aqui só
+// explicamos o "—" resultante em vez de deixá-lo parecer "sem dado".
+const NO_PERSON_DIMENSION_TITLE = "Faturado/Performance não têm recorte por pessoa — são por projeto inteiro.";
+
 type CheckEmailsResult = { messages_found: number; samples_added: number; duplicates_found: number; skipped: number };
 
 async function checkEmails(): Promise<CheckEmailsResult> {
@@ -49,6 +56,7 @@ export function ManagementPanel() {
   const nonbillableBreakdown = useManagementStore((s) => s.nonbillableBreakdown);
   const projectSendStatus = useManagementStore((s) => s.projectSendStatus);
   const selectedMonths = useManagementStore((s) => s.selectedMonths);
+  const persons = useManagementStore((s) => s.persons);
   const error = useManagementStore((s) => s.error);
   const refreshing = useManagementStore((s) => s.refreshing);
   const load = useManagementStore((s) => s.load);
@@ -136,6 +144,13 @@ export function ManagementPanel() {
   const totalBilled = round2(enteredBilled.reduce((s, r) => s + (r.billed_hours ?? 0), 0));
   const totalPerf = round2(totalBilled - totalWorkedForPerf);
   const totalPerfPct = totalWorkedForPerf > 0 ? totalPerf / totalWorkedForPerf : null;
+
+  // Faturado/Performance/Elaboração ficam `null` em TODA linha quando o
+  // filtro de Pessoa está ativo (ver _build_month_row no backend) — nesse
+  // caso os totais acima (enteredBilled vazio) colapsam pra 0 em vez de
+  // "sem dado", o que mostraria um "0" enganoso na linha de Total. Usa esse
+  // flag pra mostrar "—" em vez do 0 calculado, e pro tooltip explicativo.
+  const personsFilterActive = persons.length > 0;
 
   const enteredDays = displayRows.filter((r) => r.elaboration_days !== null);
   const avgDays = enteredDays.length ? enteredDays.reduce((s, r) => s + (r.elaboration_days ?? 0), 0) / enteredDays.length : null;
@@ -260,9 +275,18 @@ export function ManagementPanel() {
               <tr key={r.month}>
                 <td>{r.month}</td>
                 <td>{fmtNum(r.worked_hours)}</td>
-                <td>{r.billed_hours === null ? "—" : fmtNum(r.billed_hours)}</td>
-                <td>{r.perf_hours === null ? "—" : fmtNum(r.perf_hours)}</td>
-                <td className={`kpi-pct ${pctClass(r.perf_kpi_pct, 10, "min")}`}>{fmtPct(r.perf_kpi_pct)}</td>
+                <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
+                  {r.billed_hours === null ? "—" : fmtNum(r.billed_hours)}
+                </td>
+                <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
+                  {r.perf_hours === null ? "—" : fmtNum(r.perf_hours)}
+                </td>
+                <td
+                  className={`kpi-pct ${pctClass(r.perf_kpi_pct, 10, "min")}`}
+                  title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}
+                >
+                  {fmtPct(r.perf_kpi_pct)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -270,9 +294,18 @@ export function ManagementPanel() {
             <tr>
               <td>Total</td>
               <td>{fmtNum(totalWorkedForPerf)}</td>
-              <td>{fmtNum(totalBilled)}</td>
-              <td>{fmtNum(totalPerf)}</td>
-              <td className={`kpi-pct ${pctClass(totalPerfPct, 10, "min")}`}>{fmtPct(totalPerfPct)}</td>
+              <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
+                {personsFilterActive ? "—" : fmtNum(totalBilled)}
+              </td>
+              <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
+                {personsFilterActive ? "—" : fmtNum(totalPerf)}
+              </td>
+              <td
+                className={`kpi-pct ${pctClass(totalPerfPct, 10, "min")}`}
+                title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}
+              >
+                {fmtPct(totalPerfPct)}
+              </td>
             </tr>
           </tfoot>
         </KpiCard>
@@ -299,12 +332,19 @@ export function ManagementPanel() {
             {elaborationSort.sortedRows.map((r) => (
               <tr key={r.month}>
                 <td>{r.month}</td>
-                <td>{r.elaboration_days === null ? "—" : fmtNum(r.elaboration_days)}</td>
+                <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
+                  {r.elaboration_days === null ? "—" : fmtNum(r.elaboration_days)}
+                </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr><td>Total</td><td>{avgDays === null ? "—" : fmtNum(avgDays)}</td></tr>
+            <tr>
+              <td>Total</td>
+              <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
+                {avgDays === null ? "—" : fmtNum(avgDays)}
+              </td>
+            </tr>
           </tfoot>
         </KpiCard>
 
@@ -347,6 +387,16 @@ export function ManagementPanel() {
             </tr>
           </tfoot>
         </KpiCard>
+      </div>
+
+      <div className="card evolution-chart-card">
+        <div className="kpi-card-head">
+          <Clock size={18} strokeWidth={1.8} />
+          <div>
+            <h3>Evolução: Trabalhado, Faturado e Delta</h3>
+          </div>
+        </div>
+        <EvolutionChart rows={displayRows} />
       </div>
 
       <div className="side-by-side-cards">

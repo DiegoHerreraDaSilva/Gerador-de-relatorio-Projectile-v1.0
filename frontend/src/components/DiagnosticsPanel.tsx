@@ -564,7 +564,7 @@ export function DiagnosticsPanel() {
       </div>
 
       <div className="card diagnostics-table-card">
-        <h3>E-mails pulados</h3>
+        <h3>E-mails não processados</h3>
         <div className="kpi-table-wrap diagnostics-table-wrap">
           <table className="kpi-table">
             <thead>
@@ -574,7 +574,7 @@ export function DiagnosticsPanel() {
               </tr>
             </thead>
             <tbody>
-              {displaySkipped.length === 0 && <tr><td colSpan={2} className="muted">Nenhum e-mail pulado nesse período.</td></tr>}
+              {displaySkipped.length === 0 && <tr><td colSpan={2} className="muted">Nenhum e-mail não processado nesse período.</td></tr>}
               {skippedSort.sortedRows.map((s, i) => (
                 <tr key={`${s.message_id}-${i}`}>
                   <td>{s.received_at ? s.received_at.slice(0, 10) : "—"}</td>

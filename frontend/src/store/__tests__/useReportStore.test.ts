@@ -240,11 +240,15 @@ describe("applyTranslation", () => {
     const g = group("g1", [a, b], { name: "Geral", performance: 1.2 });
     useReportStore.setState({ packages: [pkg("p1", [g])] });
 
-    useReportStore.getState().applyTranslation("p1", [
-      { id: "g1", text: "General" },
-      { id: "a", text: "Activity A" },
-      { id: "b", text: "Activity B" },
-    ]);
+    useReportStore.getState().applyTranslation(
+      "p1",
+      [
+        { id: "g1", text: "General" },
+        { id: "a", text: "Activity A" },
+        { id: "b", text: "Activity B" },
+      ],
+      "en"
+    );
 
     const result = useReportStore.getState().packages[0].groups[0];
     expect(result.name).toBe("General");
@@ -254,13 +258,13 @@ describe("applyTranslation", () => {
     expect(result.activities.map((x) => x.hours)).toEqual([1, 2]);
   });
 
-  it("marca o pacote como language=\"en\"", () => {
+  it.each(["en", "de"] as const)("marca o pacote como language=\"%s\"", (language) => {
     const a = activity({ id: "a", description: "Atividade A" });
     useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])], { language: "pt" })] });
 
-    useReportStore.getState().applyTranslation("p1", [{ id: "a", text: "Activity A" }]);
+    useReportStore.getState().applyTranslation("p1", [{ id: "a", text: "Activity A" }], language);
 
-    expect(useReportStore.getState().packages[0].language).toBe("en");
+    expect(useReportStore.getState().packages[0].language).toBe(language);
   });
 
   it("ignora ids que não vieram na tradução, mantendo o texto original", () => {
@@ -270,7 +274,7 @@ describe("applyTranslation", () => {
 
     // só "a" veio traduzida — "b" fica como estava (ver comentário no endpoint
     // /translate-activities: a IA pode não devolver todos os ids pedidos)
-    useReportStore.getState().applyTranslation("p1", [{ id: "a", text: "Activity A" }]);
+    useReportStore.getState().applyTranslation("p1", [{ id: "a", text: "Activity A" }], "en");
 
     const activities = useReportStore.getState().packages[0].groups[0].activities;
     expect(activities.map((x) => x.description)).toEqual(["Activity A", "Atividade B"]);
@@ -280,7 +284,7 @@ describe("applyTranslation", () => {
     const a = activity({ id: "a", description: "Atividade A" });
     useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])], { language: "pt" })] });
 
-    useReportStore.getState().applyTranslation("pacote-inexistente", [{ id: "a", text: "Activity A" }]);
+    useReportStore.getState().applyTranslation("pacote-inexistente", [{ id: "a", text: "Activity A" }], "en");
 
     const result = useReportStore.getState().packages[0];
     expect(result.groups[0].activities[0].description).toBe("Atividade A");
