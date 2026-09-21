@@ -51,7 +51,7 @@ export function EvolutionChart({ rows }: Props) {
 
   const series: Series[] = [
     { key: "worked", label: "Trabalhado", color: "var(--accent)", values: rows.map((r) => r.worked_hours) },
-    { key: "billed", label: "Faturado", color: "var(--brand-strong)", values: rows.map((r) => r.billed_hours) },
+    { key: "billed", label: "Faturado", color: "var(--ok)", values: rows.map((r) => r.billed_hours) },
     { key: "delta", label: "Delta (Performance)", color: "var(--warn)", values: rows.map((r) => r.perf_hours) },
   ];
 
