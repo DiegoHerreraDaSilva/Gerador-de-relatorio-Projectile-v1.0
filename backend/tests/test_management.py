@@ -11,24 +11,26 @@ from datetime import date
 from backend.app import management
 
 
-def _write_samples(data_file, samples):
+def _write_samples(data_file, samples, closed_clients=None, closed_projects=None):
     data_file.write_text(
         json.dumps({
             "manual_entries": {},
             "project_kpi_samples": samples,
             "processed_message_ids": [],
             "skipped_messages": [],
+            "closed_clients": closed_clients or [],
+            "closed_projects": closed_projects or [],
         }),
         encoding="utf-8",
     )
 
 
-def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1"):
+def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1", source="email", sample_id=None, business_days=1):
     # aceita tanto uma string única (a maioria dos testes, mais legível) quanto
     # já uma lista/None — `pacote_scope` internamente é sempre list|None
     # (ver management._load_data, migração retroativa do formato antigo).
     scope = [pacote_scope] if isinstance(pacote_scope, str) else pacote_scope
-    return {
+    sample = {
         "email_message_id": msg_id,
         "received_at": "2026-09-01T00:00:00Z",
         "sender": "diego.herrera@schwaben.com.br",
@@ -38,9 +40,13 @@ def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1"):
         "match_score": 1.0,
         "month": month,
         "billed_hours": billed_hours,
-        "business_days": 1,
+        "business_days": business_days,
         "pacote_scope": scope,
+        "source": source,
     }
+    if sample_id:
+        sample["sample_id"] = sample_id
+    return sample
 
 
 def _row(project_id, pacote, hours, day=1):
@@ -199,6 +205,192 @@ def test_list_pacotes_for_project_filters_by_project(monkeypatch):
     pacotes = management.list_pacotes_for_project("P1", "2026-08", force_refresh=True)
 
     assert pacotes == ["Pacote A", "Pacote B"]
+
+
+def test_list_pacotes_for_project_month_none_ignores_month_filter(monkeypatch):
+    """Popup de "Fechados": fechar é permanente, o gerente precisa ver
+    pacotes de QUALQUER mês, não só do que estiver selecionado no painel —
+    `month=None` usa um intervalo bem amplo (_ALL_TIME_START) em vez do mês
+    específico. Mock de fetch_engineering_hours já ignora o intervalo
+    recebido (mesma ressalva do teste acima), então isso só prova que a
+    chamada não quebra e ainda filtra por projeto certo."""
+    _patch_projectile(monkeypatch, [
+        _row("P1", "Pacote Antigo", 1.0, day=1),
+        _row("P1", "Pacote Novo", 2.0, day=15),
+        _row("P2", "Pacote Outro Projeto", 3.0),
+    ])
+
+    pacotes = management.list_pacotes_for_project("P1", None, force_refresh=True)
+
+    assert pacotes == ["Pacote Antigo", "Pacote Novo"]
+
+
+def test_closed_project_status_overrides_none(monkeypatch, tmp_path):
+    """Projeto fechado nunca aparece como "Não enviado" — mesmo com horas
+    reais e nenhuma amostra, o status vira "closed"."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [], closed_projects=["P1"])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["status"] == "closed"
+    assert row["missing_pacotes"] == []
+
+
+def test_closed_client_cascades_to_all_its_projects(monkeypatch, tmp_path):
+    """Fechar um CLIENTE fecha todos os projetos dele, sem precisar listar
+    cada project_id em closed_projects."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P2", "Pacote B", 5.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [], closed_clients=["Cliente Teste"])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+
+    assert _find_status(result, "P1")["status"] == "closed"
+    assert _find_status(result, "P2")["status"] == "closed"
+
+
+def test_closed_client_matches_empty_client_via_sem_cliente_fallback(monkeypatch, tmp_path):
+    """`fetch_project_details` pode devolver client="" (Projectile sem
+    cliente cadastrado) — compute_monthly_kpis normaliza isso pra "Sem
+    cliente" tanto no campo "client" da linha quanto na comparação contra
+    closed_clients, então fechar "Sem cliente" fecha esses projetos."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
+    monkeypatch.setattr(management, "fetch_project_details", lambda ids, conn=None: {pid: {"name": f"Projeto {pid}", "client": ""} for pid in ids})
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [], closed_clients=["Sem cliente"])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["client"] == "Sem cliente"
+    assert row["status"] == "closed"
+
+
+def test_closed_overrides_even_a_genuinely_sent_month(monkeypatch, tmp_path):
+    """Fechar sobrepõe QUALQUER resultado automático, inclusive um "sent"
+    de verdade — decisão confirmada com o usuário (100% reversível, não
+    mexe em nenhuma amostra)."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0)], closed_projects=["P1"])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["status"] == "closed"
+
+
+def test_manual_send_marker_created_and_detected(monkeypatch, tmp_path):
+    """Amostra manual 0h/0dias (checkbox "Enviado" clicado numa linha
+    "none"/"partial") é detectada como manual_send_marker_id, e como não há
+    nenhuma outra evidência, é removível."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [
+        _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
+    ])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["status"] == "sent"
+    assert row["manual_send_marker_id"] == "marker-1"
+    assert row["manual_send_marker_removable"] is True
+
+
+def test_manual_send_marker_not_removable_when_real_evidence_covers_row(monkeypatch, tmp_path):
+    """Se apagar o marcador AINDA deixaria a linha "sent" por evidência de
+    e-mail real, ele não é removível (não faz sentido "desmarcar" algo que
+    já está genuinamente enviado)."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [
+        _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1", source="email"),
+        _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
+    ])
+
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["status"] == "sent"
+    assert row["manual_send_marker_id"] == "marker-1"
+    assert row["manual_send_marker_removable"] is False
+
+
+def test_deleting_manual_send_marker_reverts_partial_status(monkeypatch, tmp_path):
+    """Apagar o marcador manual (via delete_project_kpi_sample, mesmo
+    endpoint que o botão "desmarcar" chama) reverte a linha pro status real
+    calculado a partir das amostras que sobraram."""
+    data_file = tmp_path / "management_kpi.json"
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [
+        _sample("P1", "2026-08", pacote_scope=["Pacote A"], billed_hours=10.0, msg_id="m1", source="email"),
+        _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
+    ])
+
+    management.delete_project_kpi_sample("marker-1")
+    result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
+    row = _find_status(result, "P1")
+
+    assert row["status"] == "partial"
+    assert row["missing_pacotes"] == ["Pacote B"]
+    assert row["manual_send_marker_id"] is None
+
+
+def test_set_client_closed_and_reopen_round_trip(tmp_path, monkeypatch):
+    data_file = tmp_path / "management_kpi.json"
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    management.set_client_closed("Cliente A", True)
+    assert management.get_closed_registry()["closed_clients"] == ["Cliente A"]
+
+    management.set_client_closed("Cliente A", True)  # idempotente
+    assert management.get_closed_registry()["closed_clients"] == ["Cliente A"]
+
+    management.set_client_closed("Cliente A", False)
+    assert management.get_closed_registry()["closed_clients"] == []
+
+
+def test_set_project_closed_and_reopen_round_trip(tmp_path, monkeypatch):
+    data_file = tmp_path / "management_kpi.json"
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    _write_samples(data_file, [])
+
+    management.set_project_closed("P1", True)
+    assert management.get_closed_registry()["closed_projects"] == ["P1"]
+
+    management.set_project_closed("P1", False)
+    assert management.get_closed_registry()["closed_projects"] == []
+
+
+def test_load_data_migrates_closed_keys_for_old_json_files(tmp_path, monkeypatch):
+    """Arquivo management_kpi.json de antes dessa funcionalidade existir não
+    tem closed_clients/closed_projects — _load_data precisa preencher com
+    listas vazias sem quebrar nada."""
+    data_file = tmp_path / "management_kpi.json"
+    data_file.write_text(
+        json.dumps({
+            "manual_entries": {},
+            "project_kpi_samples": [],
+            "processed_message_ids": [],
+            "skipped_messages": [],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+
+    assert management.get_closed_registry() == {"closed_clients": [], "closed_projects": []}
 
 
 def test_null_pacote_scope_covers_whole_project(monkeypatch, tmp_path):

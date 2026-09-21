@@ -114,6 +114,22 @@ ENGINEERING_COST_CENTERS = ["CAD", "CAE"]
 # pacote de verdade, ver compute_monthly_kpis.
 _PACOTE_SCOPE_ALL = "__ALL__"
 
+
+def _is_manual_send_marker(sample: dict) -> bool:
+    """Amostra criada pelo checkbox "Enviado" (ManagementPanel.tsx) pra
+    marcar manualmente um projeto/mês como enviado, sem passar pela
+    automação de e-mail — reaproveita POST /management/kpis/samples com
+    0 horas/0 dias, então essa é a assinatura exata dela. Indistinguível,
+    de propósito, de um cadastro manual "de verdade" com 0h/0dias feito no
+    Diagnóstico — ambiguidade rara, aceita: a amostra sempre aparece lá
+    pra corrigir/apagar na mão se isso colidir."""
+    return (
+        sample.get("source") == "manual"
+        and not sample.get("pacote_scope")
+        and float(sample.get("billed_hours") or 0) == 0
+        and float(sample.get("business_days") or 0) == 0
+    )
+
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 _DATA_FILE = os.path.join(_DATA_DIR, "management_kpi.json")
 
@@ -135,6 +151,8 @@ _DEFAULT_DATA = {
     "project_kpi_samples": [],
     "processed_message_ids": [],
     "skipped_messages": [],
+    "closed_clients": [],
+    "closed_projects": [],
 }
 
 # cache em memória das linhas cruas de `fetch_engineering_hours` por
@@ -164,6 +182,8 @@ def _load_data() -> dict:
             "project_kpi_samples": [],
             "processed_message_ids": [],
             "skipped_messages": [],
+            "closed_clients": [],
+            "closed_projects": [],
         }
     with open(_DATA_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -171,6 +191,11 @@ def _load_data() -> dict:
     data.setdefault("project_kpi_samples", [])
     data.setdefault("processed_message_ids", [])
     data.setdefault("skipped_messages", [])
+    # "fechado" (clientes/projetos que nunca enviam relatório por e-mail) é
+    # permanente, não por competência — registro simples, sem migração de
+    # amostra nenhuma por trás, ver get_closed_registry/set_*_closed.
+    data.setdefault("closed_clients", [])
+    data.setdefault("closed_projects", [])
 
     # migração retroativa: amostras gravadas antes da tela de Diagnóstico
     # existir não têm `sample_id`/`source`/`edited` — sem um id estável não
@@ -363,6 +388,53 @@ def delete_project_kpi_sample(sample_id: str) -> bool:
         data["project_kpi_samples"] = remaining
         _save_data(data)
         return True
+
+
+def get_closed_registry() -> dict:
+    """Lê o registro permanente de clientes/projetos "fechados" (nunca
+    enviam relatório por e-mail pro cliente) — usado pelo popup de
+    "Fechados" do Painel de Gerência e, indiretamente via `_load_data`,
+    por `compute_monthly_kpis`. Devolve cópias, não a lista viva do dict
+    interno (quem chama não pode mutar isso por engano)."""
+    with _DATA_LOCK:
+        data = _load_data()
+        return {
+            "closed_clients": list(data.get("closed_clients", [])),
+            "closed_projects": list(data.get("closed_projects", [])),
+        }
+
+
+def set_client_closed(client: str, closed: bool) -> None:
+    """Marca/desmarca um CLIENTE inteiro como fechado — todo projeto desse
+    cliente, em qualquer mês passado ou futuro, passa a ter status
+    "closed" em `compute_monthly_kpis` (comparado por nome de cliente
+    exibido, ver `client_display` lá). Toggle idempotente: fechar 2x não
+    duplica, desfechar um cliente já aberto não é erro."""
+    with _DATA_LOCK:
+        data = _load_data()
+        closed_clients = set(data.get("closed_clients", []))
+        if closed:
+            closed_clients.add(client)
+        else:
+            closed_clients.discard(client)
+        data["closed_clients"] = sorted(closed_clients)
+        _save_data(data)
+
+
+def set_project_closed(project_id: str, closed: bool) -> None:
+    """Mesma ideia de `set_client_closed`, granularidade de projeto
+    individual — nunca de pacote de trabalho (decisão do usuário: fechar é
+    só cliente inteiro ou projeto inteiro, pacote nunca é fechável
+    isoladamente)."""
+    with _DATA_LOCK:
+        data = _load_data()
+        closed_projects = set(data.get("closed_projects", []))
+        if closed:
+            closed_projects.add(project_id)
+        else:
+            closed_projects.discard(project_id)
+        data["closed_projects"] = sorted(closed_projects)
+        _save_data(data)
 
 
 def create_manual_project_kpi_sample(
@@ -646,13 +718,31 @@ def compute_monthly_kpis(
     # não só qualquer um (era o bug original: mandar 1 pacote marcava o
     # projeto inteiro como enviado).
     sent_scopes_by_project_month: dict[tuple[str, str], set[str]] = {}
+    # igual a sent_scopes_by_project_month, mas SEM a contribuição de
+    # marcadores manuais de "Enviado" (checkbox do ManagementPanel.tsx, ver
+    # _is_manual_send_marker) — usado só pra saber se dá pra apagar o
+    # marcador sem "desenviar" a linha por evidência real (ver
+    # manual_send_marker_removable abaixo).
+    sent_scopes_excl_marker_by_pm: dict[tuple[str, str], set[str]] = {}
+    # (mês, project_id) -> sample_id do PRIMEIRO marcador manual de
+    # "Enviado" encontrado — exposto pro frontend saber o que apagar ao
+    # desmarcar.
+    manual_marker_id_by_pm: dict[tuple[str, str], str] = {}
     for sample in data.get("project_kpi_samples", []):
         sample_month = sample.get("month")
         sample_project_id = sample.get("project_id")
         if not sample_month or not sample_project_id:
             continue
         scopes = sample.get("pacote_scope") or [_PACOTE_SCOPE_ALL]
-        sent_scopes_by_project_month.setdefault((sample_month, sample_project_id), set()).update(scopes)
+        key = (sample_month, sample_project_id)
+        sent_scopes_by_project_month.setdefault(key, set()).update(scopes)
+        if _is_manual_send_marker(sample):
+            manual_marker_id_by_pm.setdefault(key, sample["sample_id"])
+        else:
+            sent_scopes_excl_marker_by_pm.setdefault(key, set()).update(scopes)
+
+    closed_clients = set(data.get("closed_clients", []))
+    closed_projects = set(data.get("closed_projects", []))
 
     project_send_status = []
     for (month_key, project_id), hours in project_month_hours.items():
@@ -661,8 +751,10 @@ def compute_monthly_kpis(
         details = project_details.get(project_id)
         if not details:
             continue
-        sent_scopes = sent_scopes_by_project_month.get((month_key, project_id), set())
-        all_pacotes = project_month_pacotes.get((month_key, project_id), set())
+        client_display = details["client"] or "Sem cliente"
+        pm_key = (month_key, project_id)
+        sent_scopes = sent_scopes_by_project_month.get(pm_key, set())
+        all_pacotes = project_month_pacotes.get(pm_key, set())
         if _PACOTE_SCOPE_ALL in sent_scopes or (all_pacotes and all_pacotes.issubset(sent_scopes)):
             status = "sent"
             missing_pacotes: list[str] = []
@@ -672,13 +764,35 @@ def compute_monthly_kpis(
         else:
             status = "none"
             missing_pacotes = []
+
+        manual_marker_id = manual_marker_id_by_pm.get(pm_key)
+        manual_send_marker_removable = False
+        if manual_marker_id:
+            scopes_excl_marker = sent_scopes_excl_marker_by_pm.get(pm_key, set())
+            still_sent_without_marker = _PACOTE_SCOPE_ALL in scopes_excl_marker or (
+                all_pacotes and all_pacotes.issubset(scopes_excl_marker)
+            )
+            manual_send_marker_removable = not still_sent_without_marker
+
+        # "Fechado" (permanente, ver get_closed_registry/set_*_closed) tem
+        # prioridade sobre QUALQUER resultado automático acima, inclusive
+        # um "sent" de verdade num mês histórico — decisão confirmada com
+        # o usuário: fechar significa "pare de me cobrar sobre isso", 100%
+        # reversível (nenhuma amostra é tocada, é só um filtro de exibição
+        # recalculado do zero a cada request).
+        if project_id in closed_projects or client_display in closed_clients:
+            status = "closed"
+            missing_pacotes = []
+
         project_send_status.append({
             "month": month_key,
             "project_id": project_id,
             "project_name": details["name"] or "Sem nome",
-            "client": details["client"] or "Sem cliente",
+            "client": client_display,
             "status": status,
             "missing_pacotes": missing_pacotes,
+            "manual_send_marker_id": manual_marker_id,
+            "manual_send_marker_removable": manual_send_marker_removable,
         })
 
     return {
@@ -694,21 +808,36 @@ def compute_monthly_kpis(
     }
 
 
-def list_pacotes_for_project(project_id: str, month: str, force_refresh: bool = False) -> list[str]:
+# data de início bem anterior a qualquer dado real do Projectile — usada só
+# quando list_pacotes_for_project(month=None) precisa varrer TODO o
+# histórico do projeto (popup de "Fechados"), em vez de um mês específico.
+_ALL_TIME_START = "2000-01-01"
+
+
+def list_pacotes_for_project(project_id: str, month: str | None, force_refresh: bool = False) -> list[str]:
     """Pacotes de trabalho com apontamento de horas de verdade no Projectile
-    pra um projeto num mês específico — usado pela edição manual de amostra
-    no Diagnóstico (`GET /management/projects/{project_id}/packages`), pra
-    oferecer só pacotes que EXISTEM naquele projeto/mês, em vez de deixar o
-    gerente digitar texto livre (que poderia nunca bater com nada real e
-    nunca fechar como "enviado" em `compute_monthly_kpis`).
+    pra um projeto — usado pela edição manual de amostra no Diagnóstico
+    (`GET /management/projects/{project_id}/packages?month=...`, sempre com
+    `month`) e pelo popup de "Fechados" (`GET
+    /management/projects/{project_id}/all-packages`, `month=None` — lista
+    TODO o histórico do projeto, não só um mês, já que fechar é permanente
+    e o gerente precisa ver todos os pacotes que já existiram antes de
+    decidir fechar o projeto inteiro), pra oferecer só pacotes que EXISTEM
+    de verdade, em vez de deixar o gerente digitar texto livre (que
+    poderia nunca bater com nada real e nunca fechar como "enviado" em
+    `compute_monthly_kpis`).
 
     Mesma extração/normalização de `compute_monthly_kpis` (`row_package`),
     mas sem nenhum filtro de Centro de Custo/Cliente — aqui já se sabe
     exatamente o projeto, não faz sentido esconder um pacote só porque foi
     apontado num centro de custo fora do recorte padrão do painel."""
-    first_day = date(*map(int, month.split("-")), 1)
-    last_day = date(first_day.year, first_day.month, calendar.monthrange(first_day.year, first_day.month)[1])
-    rows = _get_cached_rows(first_day.isoformat(), last_day.isoformat(), force_refresh)
+    if month is None:
+        start_date, end_date = _ALL_TIME_START, date.today().isoformat()
+    else:
+        first_day = date(*map(int, month.split("-")), 1)
+        last_day = date(first_day.year, first_day.month, calendar.monthrange(first_day.year, first_day.month)[1])
+        start_date, end_date = first_day.isoformat(), last_day.isoformat()
+    rows = _get_cached_rows(start_date, end_date, force_refresh)
     pacotes = {
         html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
         for row in rows

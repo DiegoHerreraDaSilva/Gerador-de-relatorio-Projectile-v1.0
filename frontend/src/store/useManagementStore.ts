@@ -21,7 +21,7 @@ export type NonbillablePackageRow = {
   hours: number;
 };
 
-export type ProjectSendStatus = "sent" | "partial" | "none";
+export type ProjectSendStatus = "sent" | "partial" | "none" | "closed";
 
 export type ProjectSendStatusRow = {
   month: string;
@@ -32,7 +32,16 @@ export type ProjectSendStatusRow = {
   // pacotes de trabalho com hora naquele mês que ainda não foram enviados —
   // só preenchido quando status === "partial", pro tooltip do badge.
   missing_pacotes: string[];
+  // id da amostra manual (0h/0dias) criada pelo checkbox "Enviado" — null
+  // quando a linha nunca foi marcada manualmente. Existir não significa
+  // necessariamente que dá pra apagar (ver manual_send_marker_removable).
+  manual_send_marker_id: string | null;
+  // true só quando apagar o marcador NÃO deixaria a linha "sent" por
+  // evidência real (e-mail) — controla se o botão "desmarcar" aparece.
+  manual_send_marker_removable: boolean;
 };
+
+export type ClosedRegistryProject = { id: string; name: string; client: string };
 
 type KpisResponse = {
   months: MonthRow[];
@@ -65,6 +74,16 @@ interface ManagementState {
   // nome do projeto -> cliente, pro dropdown de Projeto só listar quem
   // pertence ao(s) cliente(s) marcado(s) no filtro de Cliente.
   projectClients: Record<string, string>;
+  // clientes/projetos "fechados" (nunca enviam relatório por e-mail pro
+  // cliente — permanente, não por competência) — carregado à parte de
+  // `load()` porque o popup de "Fechados" precisa de TODOS os projetos do
+  // Projectile, sem o recorte de Período/Competência do resto do painel.
+  closedClients: string[];
+  closedProjects: string[];
+  closedRegistryProjects: ClosedRegistryProject[];
+  closedRegistryLoaded: boolean;
+  closedRegistryLoading: boolean;
+
   error: string;
   loaded: boolean;
   refreshing: boolean;
@@ -108,6 +127,9 @@ interface ManagementState {
   setPackages: (packages: string[]) => void;
   setPeriod: (period: string) => void;
   resetFilters: () => void;
+  loadClosedRegistry: (force?: boolean) => Promise<void>;
+  toggleClosedClient: (client: string, closed: boolean) => Promise<void>;
+  toggleClosedProject: (projectId: string, closed: boolean) => Promise<void>;
 }
 
 export function round2(n: number): number {
@@ -147,6 +169,11 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   availablePackages: [],
   projectCodes: {},
   projectClients: {},
+  closedClients: [],
+  closedProjects: [],
+  closedRegistryProjects: [],
+  closedRegistryLoaded: false,
+  closedRegistryLoading: false,
   error: "",
   loaded: false,
   refreshing: false,
@@ -274,5 +301,59 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
       packages: [],
     });
     get().load(true);
+  },
+
+  loadClosedRegistry: async (force = false) => {
+    if (get().closedRegistryLoaded && !force) return;
+    set({ closedRegistryLoading: true });
+    try {
+      const res = await fetch("/management/closed-registry");
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      const data: { closed_clients: string[]; closed_projects: string[]; projects: ClosedRegistryProject[] } =
+        await res.json();
+      set({
+        closedClients: data.closed_clients,
+        closedProjects: data.closed_projects,
+        closedRegistryProjects: data.projects,
+        closedRegistryLoaded: true,
+      });
+    } catch {
+      set({ error: "Não consegui carregar o registro de fechados. Tenta de novo em instantes." });
+    } finally {
+      set({ closedRegistryLoading: false });
+    }
+  },
+
+  toggleClosedClient: async (client, closed) => {
+    // otimista: reflete o clique na hora, sem esperar a rede — desfaz se a
+    // requisição falhar. O status de envio em si (project_send_status) só
+    // é 100% recalculado no backend, por isso o load(true, true) no fim.
+    const previous = get().closedClients;
+    const next = closed ? [...previous, client] : previous.filter((c) => c !== client);
+    set({ closedClients: next });
+    try {
+      const res = await fetch(`/management/closed-registry/clients/${encodeURIComponent(client)}`, {
+        method: closed ? "POST" : "DELETE",
+      });
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      await get().load(true, true);
+    } catch {
+      set({ closedClients: previous, error: "Não consegui atualizar o cliente fechado. Tenta de novo." });
+    }
+  },
+
+  toggleClosedProject: async (projectId, closed) => {
+    const previous = get().closedProjects;
+    const next = closed ? [...previous, projectId] : previous.filter((p) => p !== projectId);
+    set({ closedProjects: next });
+    try {
+      const res = await fetch(`/management/closed-registry/projects/${encodeURIComponent(projectId)}`, {
+        method: closed ? "POST" : "DELETE",
+      });
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      await get().load(true, true);
+    } catch {
+      set({ closedProjects: previous, error: "Não consegui atualizar o projeto fechado. Tenta de novo." });
+    }
   },
 }));

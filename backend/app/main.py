@@ -92,9 +92,12 @@ from .management import (
     compute_monthly_kpis,
     create_manual_project_kpi_sample,
     delete_project_kpi_sample,
+    get_closed_registry,
     list_pacotes_for_project,
     list_samples,
+    set_client_closed,
     set_manual_entry,
+    set_project_closed,
     update_project_kpi_sample,
 )
 from .parser import parse_projectile_export
@@ -819,6 +822,58 @@ async def management_project_packages_endpoint(
         return {"packages": list_pacotes_for_project(project_id, month)}
     except ProjectileDbError as e:
         raise _log_and_generic_error(e)
+
+
+@app.get("/management/projects/{project_id}/all-packages")
+async def management_project_all_packages_endpoint(project_id: str, _user: dict = Depends(require_manager)):
+    """Todo o histórico de pacotes de trabalho desse projeto (sem recorte de
+    mês) — alimenta a lista só-leitura de pacotes ao expandir um projeto no
+    popup de "Fechados": fechar é permanente, então o gerente precisa ver
+    todos os pacotes que já existiram, não só os do mês/Período em vista no
+    painel no momento (ver `list_pacotes_for_project(month=None)`)."""
+    try:
+        return {"packages": list_pacotes_for_project(project_id, None)}
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+
+
+@app.get("/management/closed-registry")
+async def management_closed_registry_endpoint(_user: dict = Depends(require_manager)):
+    """Popup de "Fechados" do Painel de Gerência: todos os projetos do
+    Projectile (fechar é permanente/atemporal, não só do período em vista
+    no painel, ao contrário do resto da tela) junto com o registro atual de
+    clientes/projetos fechados."""
+    try:
+        projects = fetch_all_projects_with_details()
+    except ProjectileDbError as e:
+        raise _log_and_generic_error(e)
+    for p in projects:
+        p["client"] = p["client"] or "Sem cliente"
+    return {**get_closed_registry(), "projects": projects}
+
+
+@app.post("/management/closed-registry/clients/{client}")
+async def management_close_client_endpoint(client: str, _user: dict = Depends(require_manager)):
+    set_client_closed(client, True)
+    return {"ok": True}
+
+
+@app.delete("/management/closed-registry/clients/{client}")
+async def management_reopen_client_endpoint(client: str, _user: dict = Depends(require_manager)):
+    set_client_closed(client, False)
+    return {"ok": True}
+
+
+@app.post("/management/closed-registry/projects/{project_id}")
+async def management_close_project_endpoint(project_id: str, _user: dict = Depends(require_manager)):
+    set_project_closed(project_id, True)
+    return {"ok": True}
+
+
+@app.delete("/management/closed-registry/projects/{project_id}")
+async def management_reopen_project_endpoint(project_id: str, _user: dict = Depends(require_manager)):
+    set_project_closed(project_id, False)
+    return {"ok": True}
 
 
 @app.delete("/management/kpis/samples/{sample_id}")

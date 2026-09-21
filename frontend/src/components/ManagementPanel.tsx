@@ -1,12 +1,27 @@
 import { Fragment, useEffect, useState } from "react";
-import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus } from "lucide-react";
+import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus, Lock } from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
+import { ClosedRegistryPopup } from "./ClosedRegistryPopup";
 import { SortableTh } from "./SortableTh";
 import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
 import { useManagementStore, round2 } from "../store/useManagementStore";
 import type { MonthRow, ProjectSendStatusRow } from "../store/useManagementStore";
+
+async function markAsSent(projectId: string, month: string): Promise<void> {
+  const res = await fetch("/management/kpis/samples", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId, month, billed_hours: 0, business_days: 0 }),
+  });
+  if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
+}
+
+async function unmarkSent(sampleId: string): Promise<void> {
+  const res = await fetch(`/management/kpis/samples/${sampleId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
+}
 
 function pctClass(value: number | null, metaValue: number, metaType: "min" | "max"): string {
   if (value === null) return "";
@@ -42,8 +57,10 @@ export function ManagementPanel() {
   const [checkingEmails, setCheckingEmails] = useState(false);
   const [checkEmailsMessage, setCheckEmailsMessage] = useState("");
   const [sendStatusSearch, setSendStatusSearch] = useState("");
-  const [sendStatusTab, setSendStatusTab] = useState<"all" | "sent" | "partial" | "none">("all");
+  const [sendStatusTab, setSendStatusTab] = useState<"all" | "sent" | "partial" | "none" | "closed">("all");
   const [expandedSendStatusRow, setExpandedSendStatusRow] = useState<string | null>(null);
+  const [showClosedRegistry, setShowClosedRegistry] = useState(false);
+  const [sendStatusActionError, setSendStatusActionError] = useState("");
 
   useEffect(() => {
     load();
@@ -70,6 +87,26 @@ export function ManagementPanel() {
       setCheckEmailsMessage("Não consegui verificar os e-mails agora. Tenta de novo em instantes.");
     } finally {
       setCheckingEmails(false);
+    }
+  };
+
+  const handleMarkAsSent = async (projectId: string, month: string) => {
+    setSendStatusActionError("");
+    try {
+      await markAsSent(projectId, month);
+      await load(true, true);
+    } catch {
+      setSendStatusActionError("Não consegui marcar como enviado. Tenta de novo em instantes.");
+    }
+  };
+
+  const handleUnmarkSent = async (sampleId: string) => {
+    setSendStatusActionError("");
+    try {
+      await unmarkSent(sampleId);
+      await load(true, true);
+    } catch {
+      setSendStatusActionError("Não consegui desmarcar. Tenta de novo em instantes.");
     }
   };
 
@@ -133,6 +170,7 @@ export function ManagementPanel() {
   const sendStatusSentCount = sendStatusRowsInPeriod.filter((r) => r.status === "sent").length;
   const sendStatusPartialCount = sendStatusRowsInPeriod.filter((r) => r.status === "partial").length;
   const sendStatusNoneCount = sendStatusRowsInPeriod.filter((r) => r.status === "none").length;
+  const sendStatusClosedCount = sendStatusRowsInPeriod.filter((r) => r.status === "closed").length;
   const sendStatusRows = sendStatusRowsInPeriod.filter((r) => (sendStatusTab === "all" ? true : r.status === sendStatusTab));
 
   // ordenação clicável de cabeçalho — cada tabela tem seu próprio estado
@@ -352,6 +390,11 @@ export function ManagementPanel() {
         </div>
 
         <div className="card send-status-card">
+          <div className="send-status-card-toolbar">
+            <button type="button" className="btn-secondary" onClick={() => setShowClosedRegistry(true)}>
+              <Lock size={14} strokeWidth={2} /> Fechados
+            </button>
+          </div>
           <div className="kpi-card-head">
             <MailSearch size={18} strokeWidth={1.8} />
             <div>
@@ -359,6 +402,7 @@ export function ManagementPanel() {
               <p className="muted">Marcado automaticamente quando o e-mail do relatório chega</p>
             </div>
           </div>
+          {sendStatusActionError && <p className="error-text">{sendStatusActionError}</p>}
           <div className="send-status-tabs">
             <button type="button" className={sendStatusTab === "all" ? "active" : ""} onClick={() => setSendStatusTab("all")}>
               Todos <span className="send-status-tab-count">{sendStatusRowsInPeriod.length}</span>
@@ -371,6 +415,9 @@ export function ManagementPanel() {
             </button>
             <button type="button" className={sendStatusTab === "none" ? "active" : ""} onClick={() => setSendStatusTab("none")}>
               Não enviados <span className="send-status-tab-count">{sendStatusNoneCount}</span>
+            </button>
+            <button type="button" className={sendStatusTab === "closed" ? "active" : ""} onClick={() => setSendStatusTab("closed")}>
+              Fechados <span className="send-status-tab-count">{sendStatusClosedCount}</span>
             </button>
           </div>
           <div className="send-status-search">
@@ -409,7 +456,9 @@ export function ManagementPanel() {
                             ? "Nenhum relatório parcialmente enviado no período selecionado."
                             : sendStatusTab === "none"
                               ? "Todos os relatórios do período já foram enviados."
-                              : "Nenhum projeto com horas no período selecionado."}
+                              : sendStatusTab === "closed"
+                                ? "Nenhum cliente/projeto fechado no período selecionado."
+                                : "Nenhum projeto com horas no período selecionado."}
                     </td>
                   </tr>
                 )}
@@ -423,7 +472,16 @@ export function ManagementPanel() {
                         <td>{r.project_name}</td>
                         <td>{r.month}</td>
                         <td>
-                          {r.status === "partial" ? (
+                          {r.status === "closed" ? (
+                            <span
+                              className="send-status-badge closed"
+                              role="img"
+                              aria-label="Cliente/projeto fechado"
+                              title="Fechado — não precisa de relatório por e-mail (ver botão Fechados)"
+                            >
+                              <Lock size={12} strokeWidth={2.5} />
+                            </span>
+                          ) : r.status === "partial" ? (
                             <button
                               type="button"
                               className="send-status-badge-btn"
@@ -437,19 +495,36 @@ export function ManagementPanel() {
                                 <Minus size={14} strokeWidth={3} />
                               </span>
                             </button>
-                          ) : (
-                            <span
-                              className={`send-status-badge ${r.status}`}
-                              role="img"
-                              aria-label={r.status === "sent" ? "Relatório enviado" : "Relatório não enviado"}
-                              title={
-                                r.status === "sent"
-                                  ? "Todos os pacotes de trabalho com hora no mês foram recebidos por e-mail"
-                                  : "Ainda sem e-mail com o relatório"
-                              }
+                          ) : r.status === "sent" && r.manual_send_marker_id && r.manual_send_marker_removable ? (
+                            <button
+                              type="button"
+                              className="send-status-badge-btn"
+                              onClick={() => handleUnmarkSent(r.manual_send_marker_id!)}
                             >
-                              {r.status === "sent" && <Check size={14} strokeWidth={3} />}
+                              <span
+                                className="send-status-badge sent manual"
+                                title="Marcado manualmente como enviado — clique pra desmarcar"
+                              >
+                                <Check size={14} strokeWidth={3} />
+                              </span>
+                            </button>
+                          ) : r.status === "sent" ? (
+                            <span
+                              className="send-status-badge sent"
+                              role="img"
+                              aria-label="Relatório enviado"
+                              title="Todos os pacotes de trabalho com hora no mês foram recebidos por e-mail"
+                            >
+                              <Check size={14} strokeWidth={3} />
                             </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="send-status-badge-btn"
+                              onClick={() => handleMarkAsSent(r.project_id, r.month)}
+                            >
+                              <span className="send-status-badge none" title="Clique pra marcar como enviado manualmente" />
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -463,6 +538,13 @@ export function ManagementPanel() {
                                   <li key={pacote}>{pacote}</li>
                                 ))}
                               </ul>
+                              <button
+                                type="button"
+                                className="btn-secondary send-status-force-sent-btn"
+                                onClick={() => handleMarkAsSent(r.project_id, r.month)}
+                              >
+                                Marcar como enviado mesmo assim
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -476,6 +558,7 @@ export function ManagementPanel() {
         </div>
       </div>
       </div>
+      {showClosedRegistry && <ClosedRegistryPopup onClose={() => setShowClosedRegistry(false)} />}
     </div>
   );
 }

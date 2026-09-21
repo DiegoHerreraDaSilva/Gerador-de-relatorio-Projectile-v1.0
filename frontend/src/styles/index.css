@@ -819,6 +819,32 @@
   .send-status-missing-label { font-size: 12.5px; font-weight: 600; color: var(--warn); }
   .send-status-missing-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .send-status-missing-panel li { font-size: 13px; color: var(--text); }
+  .send-status-force-sent-btn { align-self: flex-start; font-size: 0.78rem; padding: 5px 10px; }
+
+  /* "Fechado" (cliente/projeto que nunca envia relatório) — bem diferente
+     visualmente do check verde de "Enviado", cadeado apagado/cinza. */
+  .send-status-badge.closed {
+    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+    border-color: var(--text-muted);
+    color: var(--text-muted);
+  }
+  /* "Não enviado" clicável (marcar manualmente) — mesmo box vazio de
+     sempre, só ganha affordance de clique. */
+  .send-status-badge.none { cursor: pointer; }
+  .send-status-badge-btn:hover .send-status-badge.none,
+  .send-status-badge-btn[aria-expanded="true"] .send-status-badge.none {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 25%, transparent);
+  }
+  /* "Enviado" manualmente (checkbox, não a automação) — mesmo verde, mas
+     borda tracejada + clicável pra desmarcar, decisão do usuário: sutil,
+     só importa quando for desmarcar. */
+  .send-status-badge.sent.manual { border-style: dashed; cursor: pointer; }
+  .send-status-badge-btn:hover .send-status-badge.sent.manual {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+  }
+
+  .send-status-card-toolbar { display: flex; justify-content: flex-start; margin-bottom: -6px; }
+  .send-status-card-toolbar button { display: inline-flex; align-items: center; gap: 6px; }
 
   /* tela de Diagnóstico — editar/apagar/cadastrar amostra de e-mail */
   .diagnostics-panel { display: flex; flex-direction: column; gap: 16px; }
@@ -1267,6 +1293,56 @@
   }
   .modal-close:hover { color: var(--text); border-color: var(--accent); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; flex: 0 0 auto; }
+
+  /* popup de "Fechados" (ClosedRegistryPopup) — variante do modal genérico
+     acima com z-index MENOR que .management-filters (30, sticky) — a barra
+     de filtros fica visível/clicável por cima do dimming sem precisar de
+     nenhum "buraco" no DOM, já que nem body nem os ancestrais criam
+     stacking context próprio. Seletor composto (não só .closed-registry-
+     backdrop) pra não depender de ordem no arquivo. */
+  .modal-backdrop.closed-registry-backdrop { z-index: 25; }
+  .closed-registry-card { max-width: 560px; }
+  .closed-registry-card .modal-head h2 { display: flex; align-items: center; gap: 8px; }
+  .closed-registry-search {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: inherit;
+  }
+  .closed-registry-search:focus { outline: none; border-color: var(--accent); }
+  .closed-registry-tree { display: flex; flex-direction: column; gap: 4px; }
+  .closed-registry-client-row,
+  .closed-registry-project-row { display: flex; flex-direction: column; }
+  .closed-registry-checkbox { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+  .closed-registry-checkbox label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; }
+  .closed-registry-checkbox input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .closed-registry-checkbox input[type="checkbox"]:disabled { accent-color: var(--text-muted); }
+  .closed-registry-expand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+  }
+  .closed-registry-expand:hover { color: var(--text); }
+  .closed-registry-projects { padding-left: 26px; display: flex; flex-direction: column; gap: 2px; }
+  .closed-registry-pacotes {
+    margin: 2px 0 6px 46px;
+    padding: 0;
+    list-style: none;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
 
   .send-report-sender { margin: -4px 0 0; }
   .send-report-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82rem; color: var(--text-muted); }
