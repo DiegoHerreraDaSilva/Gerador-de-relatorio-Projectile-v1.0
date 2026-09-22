@@ -133,7 +133,7 @@ export function GenerateFooter() {
             )}
           </div>
           <FormatCheckboxes value={formats} onChange={setFormats} />
-          <button className="primary" onClick={handleGenerate}>
+          <button className="primary" onClick={handleGenerate} disabled={status === "Gerando..."}>
             Gerar relatório final
           </button>
           <div className="filename-with-performance">
