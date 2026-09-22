@@ -1,6 +1,5 @@
 import asyncio
 import html
-import io
 import logging
 import math
 import os
@@ -332,27 +331,58 @@ async def logout_endpoint(request: Request, response: Response):
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
 _MAX_UNCOMPRESSED_XLSX_BYTES = 200 * 1024 * 1024  # 200 MB
+_UPLOAD_CHUNK_BYTES = 1024 * 1024  # 1 MB
 
 
-def _reject_if_oversized_xlsx(content: bytes) -> None:
-    """Duas camadas de defesa pro upload de /parse: (1) tamanho do próprio
-    upload e (2) tamanho DESCOMPRIMIDO do conteúdo do zip (.xlsx é um ZIP) —
-    um "zip bomb" pode pesar poucos KB no disco e ainda assim descomprimir pra
-    gigabytes, derrubando o servidor quando openpyxl carrega o workbook. Zip
-    inválido não é rejeitado aqui: deixa o erro de "arquivo inválido" existente
-    de parse_projectile_export tratar. Duplicado de propósito em
-    email_ingest.py pro anexo de e-mail (ponto de entrada diferente, bytes já
-    vêm decodificados de base64 lá) — ver CLAUDE.md."""
-    if len(content) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "Arquivo muito grande. O limite é 25 MB.")
-
+async def _stream_upload_to_tempfile(file: UploadFile, max_bytes: int) -> str:
+    """Grava o upload em disco em chunks de 1 MB, abortando assim que o
+    total ultrapassa `max_bytes` — nunca materializa o arquivo inteiro em
+    memória só pra descobrir depois que ele era grande demais (guia
+    GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 12). Quem chama é responsável
+    por apagar o arquivo temporário devolvido."""
+    suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
+    total = 0
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
-        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        while True:
+            chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(413, "Arquivo muito grande. O limite é 25 MB.")
+            tmp.write(chunk)
+    except Exception:
+        tmp.close()
+        os.remove(tmp.name)
+        raise
+    tmp.close()
+    return tmp.name
+
+
+def _is_oversized_uncompressed(total_uncompressed_bytes: int) -> bool:
+    """Função pura (testável sem precisar gerar 200 MB de zip de verdade) —
+    ver `_reject_if_oversized_uncompressed`."""
+    return total_uncompressed_bytes > _MAX_UNCOMPRESSED_XLSX_BYTES
+
+
+def _reject_if_oversized_uncompressed(tmp_path: str) -> None:
+    """Tamanho DESCOMPRIMIDO do conteúdo do zip (.xlsx é um ZIP) — um "zip
+    bomb" pode pesar poucos KB no disco e ainda assim descomprimir pra
+    gigabytes, derrubando o servidor quando openpyxl carrega o workbook. Lê
+    só o diretório central do ZIP (`infolist()`), nunca descompacta nada —
+    barato mesmo pra um arquivo grande. Zip inválido não é rejeitado aqui:
+    deixa o erro de "arquivo inválido" existente de parse_projectile_export
+    tratar. Duplicado de propósito em email_ingest.py pro anexo de e-mail
+    (ponto de entrada diferente, bytes já vêm decodificados de base64 lá,
+    sem como evitar materializar em memória) — ver CLAUDE.md."""
+    try:
+        with zipfile.ZipFile(tmp_path) as zf:
             total_uncompressed = sum(info.file_size for info in zf.infolist())
     except zipfile.BadZipFile:
         return
 
-    if total_uncompressed > _MAX_UNCOMPRESSED_XLSX_BYTES:
+    if _is_oversized_uncompressed(total_uncompressed):
         raise HTTPException(413, "Arquivo .xlsx com conteúdo descomprimido excessivo — recusado por segurança.")
 
 
@@ -362,14 +392,9 @@ async def parse_endpoint(
     mode: Literal["single", "multi"] = Form("single"),
     _user: dict = Depends(require_session),
 ):
-    content = await file.read()
-    _reject_if_oversized_xlsx(content)
-
-    suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
+    tmp_path = await _stream_upload_to_tempfile(file, _MAX_UPLOAD_BYTES)
     try:
+        _reject_if_oversized_uncompressed(tmp_path)
         packages, issues = parse_projectile_export(tmp_path, split_by_package=(mode == "multi"))
     except zipfile.BadZipFile:
         raise HTTPException(400, "O arquivo enviado não é um .xlsx válido.")
