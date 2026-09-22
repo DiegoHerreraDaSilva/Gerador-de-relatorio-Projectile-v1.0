@@ -1,8 +1,10 @@
 """Engine SQLAlchemy pro `reports_db` — banco novo, local/dockerizado
-(docker-compose.yml), sem o problema de latência de conexão que justifica o
-padrão de conexão única + lock global de `projectile_db.py` (aquele MySQL
-legado pode levar ~20s pra conectar sob carga; este é local e novo). Por
-isso aqui usamos um pool de verdade em vez de reimplementar aquele padrão.
+(docker-compose.yml), sem o problema de latência de conexão que limita o
+pool de `projectile_db.py` a poucas conexões (aquele MySQL legado pode levar
+~20s pra conectar sob carga e não tem staging pra medir `max_connections`
+real; este é local, novo e sob nosso controle). Por isso aqui o pool pode
+ser maior/mais generoso, via `create_engine(pool_size=...)` em vez do
+`DBUtils.PooledDB` usado lá.
 
 `get_engine()` é preguiçoso (só conecta no primeiro uso real) — se o
 container `reports-mysql` estiver fora do ar, isso NÃO afeta `/parse`,

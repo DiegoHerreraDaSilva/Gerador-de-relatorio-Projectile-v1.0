@@ -575,117 +575,122 @@ def compute_monthly_kpis(
     # os últimos N meses corridos a partir de hoje (padrão).
     range_start, range_end, month_keys = _resolve_period(months, year)
 
-    # uma única conexão pras 4 consultas pequenas + a busca cara (quando não
-    # está em cache) — a conexão em si é persistente/reaproveitada entre
-    # requisições (ver `projectile_db._get_connection`), então isso só deixa
-    # explícito que essas chamadas usam a mesma conexão do início ao fim
-    # deste request, sem reabrir uma pra cada lookup.
+    # uma única conexão emprestada do pool (ver `projectile_db.open_connection`)
+    # pras 4 consultas pequenas + a busca cara (quando não está em cache) —
+    # evita pedir uma conexão nova do pool pra cada lookup deste request.
+    # Precisa devolver ao pool no fim (`finally` abaixo), por isso o try.
     conn = open_connection()
+    try:
 
-    # Cliente e Projeto resolvem pro mesmo mecanismo de filtro
-    # (tj.pProject IN (...), ver fetch_engineering_hours) — com os dois
-    # ativos ao mesmo tempo, só entra quem atende AMBOS (interseção dos
-    # IDs de projeto).
-    client_project_ids = fetch_project_ids_for_clients(clients, conn=conn) if clients else None
-    project_name_ids = fetch_project_ids_for_names(projects, conn=conn) if projects else None
-    if client_project_ids is not None and project_name_ids is not None:
-        project_ids = sorted(set(client_project_ids) & set(project_name_ids))
-    else:
-        project_ids = client_project_ids if client_project_ids is not None else project_name_ids
-    allowed_project_ids = set(project_ids) if project_ids is not None else None
-    allowed_packages = set(packages) if packages else None
-    # Pessoa é um recorte de DIMENSÃO como Cliente/Projeto/Pacote, mas só
-    # existe no dado que vem do Projectile (worked_hours/nonbillable_hours) —
-    # billed_hours/perf_hours/elaboration_days não têm pessoa (ver
-    # _build_month_row) e saem None quando esse filtro está ativo.
-    allowed_persons = set(persons) if persons else None
-    cost_center_keywords = [cc.casefold() for cc in active_cost_centers]
-    # Competência (mês) — recorte de TEMPO, não de dimensão como
-    # Cliente/Projeto/Pacote: as opções de filtro (available_projects/
-    # available_clients/available_packages/project_codes) precisam refletir
-    # só o que teve apontamento no(s) mês(es) escolhido(s), senão o dropdown
-    # de Projeto mostra projeto sem hora nenhuma no período selecionado.
-    # `buckets`/`package_buckets`/`project_month_hours` continuam SEM esse
-    # filtro (o frontend já recorta os 12 meses carregados por Competência
-    # na tela, ver `ManagementPanel.tsx` `displayRows`).
-    allowed_months = set(selected_months) if selected_months else None
+        # Cliente e Projeto resolvem pro mesmo mecanismo de filtro
+        # (tj.pProject IN (...), ver fetch_engineering_hours) — com os dois
+        # ativos ao mesmo tempo, só entra quem atende AMBOS (interseção dos
+        # IDs de projeto).
+        client_project_ids = fetch_project_ids_for_clients(clients, conn=conn) if clients else None
+        project_name_ids = fetch_project_ids_for_names(projects, conn=conn) if projects else None
+        if client_project_ids is not None and project_name_ids is not None:
+            project_ids = sorted(set(client_project_ids) & set(project_name_ids))
+        else:
+            project_ids = client_project_ids if client_project_ids is not None else project_name_ids
+        allowed_project_ids = set(project_ids) if project_ids is not None else None
+        allowed_packages = set(packages) if packages else None
+        # Pessoa é um recorte de DIMENSÃO como Cliente/Projeto/Pacote, mas só
+        # existe no dado que vem do Projectile (worked_hours/nonbillable_hours) —
+        # billed_hours/perf_hours/elaboration_days não têm pessoa (ver
+        # _build_month_row) e saem None quando esse filtro está ativo.
+        allowed_persons = set(persons) if persons else None
+        cost_center_keywords = [cc.casefold() for cc in active_cost_centers]
+        # Competência (mês) — recorte de TEMPO, não de dimensão como
+        # Cliente/Projeto/Pacote: as opções de filtro (available_projects/
+        # available_clients/available_packages/project_codes) precisam refletir
+        # só o que teve apontamento no(s) mês(es) escolhido(s), senão o dropdown
+        # de Projeto mostra projeto sem hora nenhuma no período selecionado.
+        # `buckets`/`package_buckets`/`project_month_hours` continuam SEM esse
+        # filtro (o frontend já recorta os 12 meses carregados por Competência
+        # na tela, ver `ManagementPanel.tsx` `displayRows`).
+        allowed_months = set(selected_months) if selected_months else None
 
-    # a busca cara já vem com TODO o CAD+CAE do período, cacheada por
-    # intervalo de datas — Centro de Custo/Cliente/Projeto são recortes
-    # em Python sobre esse mesmo resultado, sem voltar no banco.
-    all_rows = _get_cached_rows(range_start.isoformat(), range_end.isoformat(), force_refresh, conn=conn)
+        # a busca cara já vem com TODO o CAD+CAE do período, cacheada por
+        # intervalo de datas — Centro de Custo/Cliente/Projeto são recortes
+        # em Python sobre esse mesmo resultado, sem voltar no banco.
+        all_rows = _get_cached_rows(range_start.isoformat(), range_end.isoformat(), force_refresh, conn=conn)
 
-    buckets: dict[str, dict] = {}
-    available_project_ids: set[str] = set()
-    # (mês, nome do pacote) -> horas não faturáveis — pra alimentar a seção de
-    # "Pacotes não faturáveis" abaixo dos gráficos, com o mesmo recorte de
-    # filtros (Centro de Custo/Cliente/Projeto) já aplicado aqui; Competência
-    # é filtrada depois, no frontend, junto com o resto da tela.
-    package_buckets: dict[tuple[str, str], float] = {}
-    # (mês, project_id) -> horas trabalhadas — pra alimentar a tabela
-    # "Relatórios enviados" (um projeto só aparece num mês se de fato teve
-    # apontamento nele, mesmo critério dos outros recortes desta função).
-    project_month_hours: dict[tuple[str, str], float] = {}
-    # (mês, project_id) -> pacotes de trabalho (texto bruto) com hora naquele
-    # mês — usado pra decidir "enviado"/"parcial"/"não enviado" por projeto
-    # (ver sent_scopes_by_project_month mais abaixo): um projeto só é
-    # "enviado" de verdade se TODOS os pacotes com hora foram cobertos por
-    # algum relatório mandado, não só qualquer um.
-    project_month_pacotes: dict[tuple[str, str], set[str]] = {}
-    # project_id -> "código do projeto" (prefixo do pacote de trabalho, ver
-    # `extract_project_code`) — só pra exibição (prefixo nos dropdowns de
-    # filtro do frontend), nunca usado como identificador de verdade.
-    project_codes_by_id: dict[str, str] = {}
-    # pacotes de trabalho disponíveis pro filtro — recorte de Centro de
-    # Custo/Cliente/Projeto já aplicado, mas ANTES do filtro de Pacote em si
-    # (senão escolher um pacote faria os outros sumirem do dropdown).
-    available_packages: set[str] = set()
-    # pessoas disponíveis pro filtro — mesmo recorte de Centro de Custo/
-    # Cliente/Projeto/Pacote já aplicado, mas ANTES do filtro de Pessoa em si
-    # (mesmo motivo de available_packages: senão escolher uma pessoa faria as
-    # outras sumirem do dropdown).
-    available_persons: set[str] = set()
-    for row in all_rows:
-        row_cost_center = (row.get("cost_center") or "").casefold()
-        if not any(kw in row_cost_center for kw in cost_center_keywords):
-            continue
-        project_id = row.get("project_id")
-        if allowed_project_ids is not None and project_id not in allowed_project_ids:
-            continue
-        row_package = html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
-        row_date = row.get("data")
-        month_key = row_date.strftime("%Y-%m") if hasattr(row_date, "strftime") else str(row_date)[:7]
-        in_selected_months = allowed_months is None or month_key in allowed_months
-        if in_selected_months:
-            available_packages.add(row_package)
-        if allowed_packages is not None and row_package not in allowed_packages:
-            continue
-        row_person = html.unescape(str(row.get("person") or "")).strip() or "Sem nome"
-        if in_selected_months:
-            available_persons.add(row_person)
-        if allowed_persons is not None and row_person not in allowed_persons:
-            continue
-        hours = round(float(row.get("horas") or 0), 3)
-        if project_id:
+        buckets: dict[str, dict] = {}
+        available_project_ids: set[str] = set()
+        # (mês, nome do pacote) -> horas não faturáveis — pra alimentar a seção de
+        # "Pacotes não faturáveis" abaixo dos gráficos, com o mesmo recorte de
+        # filtros (Centro de Custo/Cliente/Projeto) já aplicado aqui; Competência
+        # é filtrada depois, no frontend, junto com o resto da tela.
+        package_buckets: dict[tuple[str, str], float] = {}
+        # (mês, project_id) -> horas trabalhadas — pra alimentar a tabela
+        # "Relatórios enviados" (um projeto só aparece num mês se de fato teve
+        # apontamento nele, mesmo critério dos outros recortes desta função).
+        project_month_hours: dict[tuple[str, str], float] = {}
+        # (mês, project_id) -> pacotes de trabalho (texto bruto) com hora naquele
+        # mês — usado pra decidir "enviado"/"parcial"/"não enviado" por projeto
+        # (ver sent_scopes_by_project_month mais abaixo): um projeto só é
+        # "enviado" de verdade se TODOS os pacotes com hora foram cobertos por
+        # algum relatório mandado, não só qualquer um.
+        project_month_pacotes: dict[tuple[str, str], set[str]] = {}
+        # project_id -> "código do projeto" (prefixo do pacote de trabalho, ver
+        # `extract_project_code`) — só pra exibição (prefixo nos dropdowns de
+        # filtro do frontend), nunca usado como identificador de verdade.
+        project_codes_by_id: dict[str, str] = {}
+        # pacotes de trabalho disponíveis pro filtro — recorte de Centro de
+        # Custo/Cliente/Projeto já aplicado, mas ANTES do filtro de Pacote em si
+        # (senão escolher um pacote faria os outros sumirem do dropdown).
+        available_packages: set[str] = set()
+        # pessoas disponíveis pro filtro — mesmo recorte de Centro de Custo/
+        # Cliente/Projeto/Pacote já aplicado, mas ANTES do filtro de Pessoa em si
+        # (mesmo motivo de available_packages: senão escolher uma pessoa faria as
+        # outras sumirem do dropdown).
+        available_persons: set[str] = set()
+        for row in all_rows:
+            row_cost_center = (row.get("cost_center") or "").casefold()
+            if not any(kw in row_cost_center for kw in cost_center_keywords):
+                continue
+            project_id = row.get("project_id")
+            if allowed_project_ids is not None and project_id not in allowed_project_ids:
+                continue
+            row_package = html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
+            row_date = row.get("data")
+            month_key = row_date.strftime("%Y-%m") if hasattr(row_date, "strftime") else str(row_date)[:7]
+            in_selected_months = allowed_months is None or month_key in allowed_months
             if in_selected_months:
-                available_project_ids.add(project_id)
-                if project_id not in project_codes_by_id:
-                    code = extract_project_code(row.get("pacote"))
-                    if code:
-                        project_codes_by_id[project_id] = code
-            pm_key = (month_key, project_id)
-            project_month_hours[pm_key] = project_month_hours.get(pm_key, 0.0) + hours
-            project_month_pacotes.setdefault(pm_key, set()).add(row_package)
-        bucket = buckets.setdefault(month_key, {"worked_hours": 0.0, "nonbillable_hours": 0.0})
-        bucket["worked_hours"] += hours
-        if row.get("external") == "0":
-            bucket["nonbillable_hours"] += hours
-            package_key = (month_key, row_package)
-            package_buckets[package_key] = package_buckets.get(package_key, 0.0) + hours
+                available_packages.add(row_package)
+            if allowed_packages is not None and row_package not in allowed_packages:
+                continue
+            row_person = html.unescape(str(row.get("person") or "")).strip() or "Sem nome"
+            if in_selected_months:
+                available_persons.add(row_person)
+            if allowed_persons is not None and row_person not in allowed_persons:
+                continue
+            hours = round(float(row.get("horas") or 0), 3)
+            if project_id:
+                if in_selected_months:
+                    available_project_ids.add(project_id)
+                    if project_id not in project_codes_by_id:
+                        code = extract_project_code(row.get("pacote"))
+                        if code:
+                            project_codes_by_id[project_id] = code
+                pm_key = (month_key, project_id)
+                project_month_hours[pm_key] = project_month_hours.get(pm_key, 0.0) + hours
+                project_month_pacotes.setdefault(pm_key, set()).add(row_package)
+            bucket = buckets.setdefault(month_key, {"worked_hours": 0.0, "nonbillable_hours": 0.0})
+            bucket["worked_hours"] += hours
+            if row.get("external") == "0":
+                bucket["nonbillable_hours"] += hours
+                package_key = (month_key, row_package)
+                package_buckets[package_key] = package_buckets.get(package_key, 0.0) + hours
 
-    available_projects = fetch_project_names_for_ids(sorted(available_project_ids), conn=conn)
-    available_clients = fetch_clients_for_projects(sorted(available_project_ids), conn=conn)
-    project_details = fetch_project_details(sorted(available_project_ids), conn=conn)
+        available_projects = fetch_project_names_for_ids(sorted(available_project_ids), conn=conn)
+        available_clients = fetch_clients_for_projects(sorted(available_project_ids), conn=conn)
+        project_details = fetch_project_details(sorted(available_project_ids), conn=conn)
+    finally:
+        # `open_connection()` empresta do pool (Fase 6) — devolver aqui
+        # evita que cada chamada do painel de gerência prenda uma conexão
+        # do pool pra sempre.
+        conn.close()
     # nome -> código, pro frontend prefixar a opção no dropdown de Projeto
     # sem mudar o valor usado no filtro (que continua sendo o nome).
     project_codes = {

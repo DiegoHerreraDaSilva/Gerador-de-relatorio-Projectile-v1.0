@@ -16,9 +16,12 @@ import html
 import os
 import re
 import threading
+from contextlib import contextmanager
+from typing import Iterator
 
 import pymysql
 import pymysql.cursors
+from dbutils.pooled_db import PooledDB
 
 from .core.config import get_settings
 from .db_credentials import DbCredentialsError, get_projectile_db_password
@@ -43,7 +46,7 @@ class ProjectileDbError(RuntimeError):
 _SYS_CLIENT_ID = get_settings().projectile_sys_client_id
 
 
-def _open_new_connection() -> pymysql.connections.Connection:
+def _connection_kwargs() -> dict:
     host = os.environ.get("PROJECTILE_DB_HOST")
     user = os.environ.get("PROJECTILE_DB_USER")
     database = os.environ.get("PROJECTILE_DB_NAME", "projectile")
@@ -61,73 +64,105 @@ def _open_new_connection() -> pymysql.connections.Connection:
         # em main.py a captura, então virava um 500 sem a mensagem genérica de
         # infra (ver `_log_and_generic_error`), quebrando o contrato de erro do app.
         raise ProjectileDbError(str(e)) from e
+    return dict(
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        database=database,
+        cursorclass=pymysql.cursors.DictCursor,
+        connect_timeout=8,
+        # autocommit: esse módulo só faz SELECT, nunca escreve — mas cada
+        # conexão do pool é reaproveitada entre várias requisições, e o MySQL
+        # do Projectile usa REPEATABLE READ por padrão. Sem autocommit, a
+        # primeira query da conexão abriria uma transação implícita cujo
+        # "retrato" dos dados ficaria congelado até o próximo commit, e toda
+        # query seguinte na mesma conexão devolveria dado desatualizado
+        # silenciosamente. Com autocommit, cada SELECT enxerga o dado atual.
+        autocommit=True,
+    )
+
+
+# Pool de verdade (DBUtils.PooledDB) em vez de uma conexão única + RLock
+# global: cada chamada pega sua PRÓPRIA conexão emprestada, então duas
+# requisições concorrentes deixam de serializar em fila uma atrás da outra.
+# Isso também elimina a causa raiz de um bug real de produção
+# (`ValueError: read of closed file` com 2+ usuários simultâneos) — a causa
+# não era "falta de lock", era duas threads compartilhando a MESMA conexão
+# (o polling de e-mail em background, via `asyncio.to_thread`, roda numa
+# thread OS de verdade, concorrente com requisições HTTP normais). Com pool,
+# threads concorrentes nunca mais tocam a mesma conexão ao mesmo tempo.
+#
+# `maxconnections` deliberadamente pequeno (padrão 5, `projectile_db_pool_size`
+# em core/config.py): esse MySQL é legado, on-premise, sem staging pra medir
+# `max_connections` real do servidor — fica bem abaixo de qualquer default
+# razoável (tipicamente 151+) em vez de arriscar sobrecarregar produção.
+# `blocking=True`: sob pico, uma chamada extra ESPERA uma conexão liberar em
+# vez de levantar erro imediatamente — mesma experiência de "fila", só que
+# agora só quem está de fato esperando bloqueia, não todo mundo.
+# `ping=1`: verifica (e reconecta se preciso) a conexão emprestada do cache
+# a cada `.connection()` — substitui o `ping(reconnect=True)` manual de antes.
+_pool: PooledDB | None = None
+_pool_init_lock = threading.Lock()
+
+
+def _get_pool() -> PooledDB:
+    global _pool
+    if _pool is None:
+        with _pool_init_lock:
+            if _pool is None:
+                pool_size = get_settings().projectile_db_pool_size
+                try:
+                    _pool = PooledDB(
+                        creator=pymysql,
+                        mincached=1,
+                        maxcached=pool_size,
+                        maxconnections=pool_size,
+                        blocking=True,
+                        ping=1,
+                        **_connection_kwargs(),
+                    )
+                except pymysql.MySQLError as e:
+                    raise ProjectileDbError(f"Falha ao conectar no banco do Projectile: {e}") from e
+    return _pool
+
+
+def _get_connection() -> pymysql.connections.Connection:
+    """Empresta uma conexão do pool. Quem chama é dono dela e precisa
+    devolvê-la com `.close()` (que aqui devolve ao pool, não fecha de
+    verdade) — usar via `_borrowed_connection()` faz isso automaticamente."""
     try:
-        return pymysql.connect(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            database=database,
-            cursorclass=pymysql.cursors.DictCursor,
-            connect_timeout=8,
-            # autocommit: esse módulo só faz SELECT, nunca escreve — mas a conexão
-            # agora é persistente entre requisições (ver _get_connection), e o
-            # MySQL do Projectile usa REPEATABLE READ por padrão. Sem autocommit,
-            # a primeira query da conexão abriria uma transação implícita cujo
-            # "retrato" dos dados ficaria congelado pra sempre (nunca commitado),
-            # e toda query seguinte na mesma conexão devolveria dado desatualizado
-            # silenciosamente. Com autocommit, cada SELECT enxerga o dado atual.
-            autocommit=True,
-        )
+        return _get_pool().connection()
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao conectar no banco do Projectile: {e}") from e
 
 
-# Conexão única, persistente entre requisições, em vez de abrir uma nova a
-# cada chamada — abrir conexão é o custo real nesse MySQL legado (medido: até
-# ~20s quando o servidor está sob carga, contra 0.02-0.05s num dia normal).
-# Ninguém deve chamar `.close()` na conexão devolvida por `_get_connection()`:
-# ela é gerenciada por este módulo e reconectada sozinha
-# (`ping(reconnect=True)`) se a conexão cair (timeout do servidor, restart,
-# etc.).
-#
-# `_pool_lock` serializa toda query deste módulo (não só a decisão de
-# reconectar) — necessário porque nem toda chamada roda bloqueando o event
-# loop: o polling de e-mail em background e o botão "Verificar e-mails"
-# (`main.py`) rodam via `asyncio.to_thread`, numa thread OS de verdade,
-# concorrente com o resto. Sem essa exclusão mútua cobrindo o uso do cursor
-# (não só `_get_connection()`), duas threads podiam ler/reconectar a MESMA
-# conexão ao mesmo tempo — foi exatamente isso que causou
-# `ValueError: read of closed file` em produção com 2+ usuários simultâneos.
-# RLock (não Lock comum) porque cada `fetch_*` já entra no lock ao redor de
-# `conn := conn or _get_connection()`, e essa chamada tenta pegar o MESMO
-# lock de novo por dentro — com um Lock comum isso trava (deadlock na
-# própria thread); RLock permite a mesma thread reentrar.
-_pooled_conn: pymysql.connections.Connection | None = None
-_pool_lock = threading.RLock()
-
-
-def _get_connection() -> pymysql.connections.Connection:
-    global _pooled_conn
-    with _pool_lock:
-        if _pooled_conn is not None:
-            try:
-                _pooled_conn.ping(reconnect=True)
-                return _pooled_conn
-            except pymysql.MySQLError:
-                try:
-                    _pooled_conn.close()
-                except Exception:
-                    pass
-                _pooled_conn = None
-        _pooled_conn = _open_new_connection()
-        return _pooled_conn
+@contextmanager
+def _borrowed_connection(
+    conn: pymysql.connections.Connection | None = None,
+) -> Iterator[pymysql.connections.Connection]:
+    """Se `conn` já foi passada (chamador quer reaproveitar uma conexão em
+    várias queries do mesmo request, ex: `management.compute_monthly_kpis`),
+    só a repassa e NÃO devolve ao pool — quem abriu é dono e decide quando
+    devolver. Caso contrário, empresta uma conexão nova do pool e garante a
+    devolução ao final, sucesso ou erro."""
+    if conn is not None:
+        yield conn
+        return
+    borrowed = _get_connection()
+    try:
+        yield borrowed
+    finally:
+        borrowed.close()
 
 
 def open_connection() -> pymysql.connections.Connection:
-    """Nome mantido por compatibilidade com quem já importa (ex:
-    `management.py`) — devolve a mesma conexão persistente de
-    `_get_connection`. Não precisa (nem deve) ser fechada pelo chamador."""
+    """Empresta uma conexão do pool pra reaproveitar em várias queries de um
+    mesmo request (ex: `auth.verify_projectile_login`,
+    `management.compute_monthly_kpis`). Diferente das funções `fetch_*`
+    deste módulo, o chamador AQUI é responsável por devolvê-la ao pool com
+    `.close()` (nunca destrói a conexão de verdade, só a libera pro próximo
+    uso) — sempre dentro de um `try/finally`."""
     return _get_connection()
 
 
@@ -145,7 +180,7 @@ def fetch_employee_hours(
     if not employee_id and not employee_name:
         raise ValueError("informe employee_id ou employee_name")
     try:
-        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
             if employee_id:
                 match_clause, match_param = "tj.pEmployee = %s", employee_id
             else:
@@ -191,7 +226,7 @@ def fetch_my_hours(
     if not employee_id and not employee_name:
         raise ValueError("informe employee_id ou employee_name")
     try:
-        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
             if employee_id:
                 match_clause, match_param = "tj.pEmployee = %s", employee_id
             else:
@@ -238,7 +273,7 @@ def fetch_employee_contracts(employee_id: str) -> list[dict]:
     é resultado legítimo e comum (ex: estagiário sem contrato cadastrado) —
     quem chama precisa ter um fallback, nunca assumir 8h."""
     try:
-        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT pContractBegin, pContractEnd,
@@ -289,7 +324,7 @@ def fetch_daily_hours_totals(
     if not employee_id and not employee_name:
         raise ValueError("informe employee_id ou employee_name")
     try:
-        with _pool_lock, (conn := _get_connection()).cursor() as cur:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
             if employee_id:
                 match_clause, match_param = "tj.pEmployee = %s", employee_id
             else:
@@ -349,7 +384,7 @@ def fetch_engineering_hours(
     reutilização explícita, ex: `management.py:compute_monthly_kpis`).
     """
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
@@ -442,7 +477,7 @@ def fetch_project_hours(
     if not project_ids:
         return []
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"""
@@ -545,7 +580,7 @@ def fetch_clients_for_projects(
     if not project_ids:
         return []
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"SELECT DISTINCT capCustomer FROM tproject "
@@ -569,7 +604,7 @@ def fetch_project_ids_for_clients(
     if not clients:
         return []
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(clients))
             cur.execute(f"SELECT pProject FROM tproject WHERE capCustomer IN ({placeholders})", clients)
             return [row["pProject"] for row in cur.fetchall()]
@@ -590,7 +625,7 @@ def fetch_project_names_for_ids(
     if not project_ids:
         return []
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"SELECT DISTINCT pDescription FROM tproject "
@@ -616,7 +651,7 @@ def fetch_project_details(
     if not project_ids:
         return {}
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
             cur.execute(
                 f"SELECT pProject, pDescription, capCustomer FROM tproject "
@@ -643,7 +678,7 @@ def fetch_project_ids_for_names(
     if not names:
         return []
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(names))
             cur.execute(f"SELECT pProject FROM tproject WHERE pDescription IN ({placeholders})", names)
             return [row["pProject"] for row in cur.fetchall()]
@@ -660,7 +695,7 @@ def fetch_all_projects(conn: pymysql.connections.Connection | None = None) -> di
     tem o mesmo risco de scan lento de `fetch_engineering_hours`. Aceita
     `conn` já aberta, ver `fetch_engineering_hours`."""
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT pProject, pDescription FROM tproject "
                 "WHERE pDescription IS NOT NULL AND pDescription <> ''"
@@ -682,7 +717,7 @@ def fetch_all_projects_with_details(conn: pymysql.connections.Connection | None 
     Mesmo universo de `fetch_all_projects`, só que devolve cliente junto.
     Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
     try:
-        with _pool_lock, (conn := conn or _get_connection()).cursor() as cur:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT pProject, pDescription, capCustomer FROM tproject "
                 "WHERE pDescription IS NOT NULL AND pDescription <> '' "

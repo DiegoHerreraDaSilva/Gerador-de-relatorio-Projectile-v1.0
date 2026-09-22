@@ -187,7 +187,7 @@ React + Zustand
 Decisões importantes:
 
 - `generator.py` edita o XLSX por ZIP/XML para preservar desenhos, imagens, fórmulas e proteção do template.
-- `projectile_db.py` mantém uma conexão MySQL reutilizável com `ping(reconnect=True)` e `autocommit=True`.
+- `projectile_db.py` empresta conexões de um pool de verdade (`DBUtils.PooledDB`, tamanho configurável via `PROJECTILE_DB_POOL_SIZE`, padrão 5) com `ping=1` e `autocommit=True`.
 - As consultas filtram `sysClientId` para aproveitar os índices compostos do banco legado.
 - O painel gerencial usa cache em memória de 15 minutos por intervalo.
 - O frontend não usa React Router: `App.tsx` controla a view ativa e a sidebar.

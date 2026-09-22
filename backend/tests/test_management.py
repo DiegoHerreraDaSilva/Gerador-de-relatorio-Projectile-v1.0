@@ -63,11 +63,20 @@ def _row(project_id, pacote, hours, day=1, person=None):
     }
 
 
+class _FakeConn:
+    """Stub de conexão pro pool (Fase 6): `compute_monthly_kpis` chama
+    `.close()` num `finally` pra devolver a conexão emprestada — precisa de
+    algo com esse método, não `None`."""
+
+    def close(self) -> None:
+        pass
+
+
 def _patch_projectile(monkeypatch, rows):
     """`compute_monthly_kpis` só toca o banco de verdade através dessas
     funções (importadas em `management.py`) — substitui todas por dados
     fixos, sem precisar de uma conexão MySQL real pro teste."""
-    monkeypatch.setattr(management, "open_connection", lambda: None)
+    monkeypatch.setattr(management, "open_connection", lambda: _FakeConn())
     monkeypatch.setattr(management, "fetch_engineering_hours", lambda *a, **k: rows)
     monkeypatch.setattr(management, "fetch_clients_for_projects", lambda ids, conn=None: ["Cliente Teste"])
     monkeypatch.setattr(

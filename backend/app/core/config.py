@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # ver projectile_db.py). Default idêntico ao valor hardcoded anterior.
     projectile_sys_client_id: str = "0"
 
+    # Tamanho do pool de conexões pro MySQL do Projectile (ver
+    # projectile_db.py) — pequeno de propósito: esse MySQL é legado,
+    # on-premise, sem staging pra medir seu `max_connections` real, então o
+    # padrão fica bem abaixo de qualquer default razoável (tipicamente 151+).
+    projectile_db_pool_size: int = 5
+
     # reports_db — banco próprio de histórico de relatórios (container
     # Docker, ver docker-compose.yml). A senha NUNCA vem daqui — fica no
     # Windows Credential Manager via keyring (db_credentials.py), mesmo

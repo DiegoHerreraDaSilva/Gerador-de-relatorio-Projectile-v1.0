@@ -171,7 +171,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `main.py` | monta o `FastAPI`, middlewares, `include_router` de cada domínio e static mount — **não tem endpoint nenhum desde a Fase 5**, ver "API — routers" abaixo |
 | `auth.py` | login Projectile, rate limit e sessões em memória |
 | `db_credentials.py` | leitura da senha no Windows Credential Manager/keyring |
-| `projectile_db.py` | conexão/reconexão, queries e agrupamento |
+| `projectile_db.py` | pool de conexões (`DBUtils.PooledDB`), queries e agrupamento |
 | `parser.py` | parser do export XLSX e `RowIssue` |
 | `generator.py` | geração XLSX, feriados e dias úteis |
 | `pdf_generator.py` | PDF A4 e metadados |
@@ -181,7 +181,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `chatbot.py` | chamadas Anthropic |
 | `chat_ops.py` | schema/aplicação das operações do chat |
 | `translate_ops.py` | contrato de tradução |
-| `core/config.py` | `Settings` (pydantic-settings) — só `reports_db_*`/`projectile_sys_client_id` por ora, não todas as env vars |
+| `core/config.py` | `Settings` (pydantic-settings) — só `reports_db_*`/`projectile_sys_client_id`/`projectile_db_pool_size` por ora, não todas as env vars |
 | `db/reports_db.py` | engine SQLAlchemy do `reports_db` (pool de verdade, `connect_timeout` curto) |
 | `db/reports_schema.py` | `Table`/`MetaData` das 7 tabelas do histórico (SQLAlchemy Core, não ORM); alvo do `alembic revision --autogenerate` |
 | `services/snapshot.py` | funções puras: canonical JSON, hash de dado/identidade, parse de competência |
@@ -212,9 +212,11 @@ Compartilhado entre routers: `api/dependencies.py` (`require_session`/`require_m
 ### Banco do Projectile
 
 - Importe o backend como `backend.app.*`; use imports relativos dentro do pacote.
-- `projectile_db._get_connection()` reutiliza uma conexão com `ping(reconnect=True)` e `autocommit=True`.
+- `projectile_db._get_connection()` empresta uma conexão de um pool de verdade (`DBUtils.PooledDB`, `autocommit=True`, `ping=1` reconecta sozinho ao pegar do cache); tamanho fixo em `Settings.projectile_db_pool_size` (padrão 5 — pequeno de propósito, sem staging pra medir `max_connections` real do MySQL legado).
+- Toda função `fetch_*` usa `_borrowed_connection(conn)`: se `conn` foi passada pelo chamador (reaproveitar em várias queries do mesmo request), NÃO devolve ao pool — quem abriu é dono. Se `conn` é `None`, empresta e devolve sozinha ao final (`finally: borrowed.close()`).
+- `open_connection()` (usada por `auth.verify_projectile_login` e `management.compute_monthly_kpis` pra reaproveitar uma conexão em várias queries) empresta do pool sem devolver — o CHAMADOR é responsável por `conn.close()` num `try/finally` (devolve ao pool, não fecha de verdade).
 - Queries relevantes devem filtrar `sysClientId` para usar os índices compostos do banco legado.
-- Não mantenha transação de leitura aberta numa conexão reutilizada.
+- Não mantenha transação de leitura aberta numa conexão emprestada além do necessário — outra chamada pode estar esperando na fila (`blocking=True`) por uma conexão do pool.
 - Preserve decoding duplo de entidades HTML onde já aplicado; existem textos `&amp;#...` no banco.
 - Horas `<= 0` não entram nos agrupamentos.
 - Observação sem separador vai para o grupo geral no fluxo do banco e gera `RowIssue` quando há dado real incompleto.
@@ -274,7 +276,7 @@ Não altere nomes/casing sem migração coordenada.
 
 Fonte: `.env.example`.
 
-- Projectile: `PROJECTILE_DB_HOST`, `PROJECTILE_DB_PORT`, `PROJECTILE_DB_USER`, `PROJECTILE_DB_NAME`; senha no keyring `projectile_mysql`. `PROJECTILE_SYS_CLIENT_ID` (default `"0"`) vem de `core/config.Settings`.
+- Projectile: `PROJECTILE_DB_HOST`, `PROJECTILE_DB_PORT`, `PROJECTILE_DB_USER`, `PROJECTILE_DB_NAME`; senha no keyring `projectile_mysql`. `PROJECTILE_SYS_CLIENT_ID` (default `"0"`) e `PROJECTILE_DB_POOL_SIZE` (default `5`, tamanho do pool de conexões — ver `projectile_db.py`) vêm de `core/config.Settings`.
 - reports_db: `REPORTS_DB_HOST`, `REPORTS_DB_PORT`, `REPORTS_DB_USER`, `REPORTS_DB_NAME`; senha no keyring `reports_mysql`. `REPORTS_DB_ENABLED` (default `true`) desliga a persistência sem reverter código. `REPORTS_MYSQL_ROOT_PASSWORD`/`REPORTS_MYSQL_APP_PASSWORD` são só bootstrap do `docker-compose.yml` (primeira subida do container) — nunca lidos em runtime pela aplicação.
 - Permissões: `MANAGEMENT_PANEL_LOGINS`, `TRANSLATE_ALLOWED_LOGINS`.
 - Anthropic: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`.
