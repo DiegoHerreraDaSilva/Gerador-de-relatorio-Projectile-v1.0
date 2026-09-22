@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity,
+  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity, History,
   ChevronLeft, Menu, X, Plus,
 } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
@@ -32,6 +32,10 @@ function initialsFor(name: string): string {
 const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; managerOnly?: boolean }> = [
   { view: "report", label: "Gerar relatório", icon: FileText },
   { view: "dashboard", label: "Dashboard de horas", icon: Activity },
+  // sem managerOnly: quem não é gerente também vê, mas só os PRÓPRIOS
+  // relatórios — filtro é aplicado no backend (main._require_report_access),
+  // mesmo princípio de /parse-db e /my-hours.
+  { view: "history", label: "Histórico de relatórios", icon: History },
   { view: "management", label: "Painel de gerência", icon: LayoutDashboard, managerOnly: true },
   { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, managerOnly: true },
 ];

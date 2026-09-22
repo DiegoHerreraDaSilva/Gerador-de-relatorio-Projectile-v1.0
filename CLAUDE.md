@@ -109,10 +109,10 @@ ainda.
 
 ## Arquitetura do frontend
 
-`App.tsx` controla quatro views sem React Router:
+`App.tsx` controla cinco views sem React Router:
 
 ```ts
-type AppView = "report" | "dashboard" | "management" | "diagnostics";
+type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history";
 ```
 
 - `Sidebar.tsx`: logo, navegação, guias abertas, tema, usuário e logout. É recolhível no desktop e drawer no mobile.
@@ -124,6 +124,7 @@ type AppView = "report" | "dashboard" | "management" | "diagnostics";
 - `MyHoursDashboard.tsx`: dashboard pessoal.
 - `ManagementPanel.tsx`: KPIs e gráficos gerenciais.
 - `DiagnosticsPanel.tsx`: amostras, duplicidades e mensagens ignoradas.
+- `HistoryPanel.tsx`: histórico de relatórios (`reports_db`) — lista, versões, gerações, artifacts e auditoria. Visível pra todo mundo (não só gerente); backend filtra pra só os próprios relatórios de quem não é gerente.
 
 Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram substituídos pela sidebar e pelos blocos horizontais.
 
@@ -158,6 +159,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `useMyHoursStore.ts` | dashboard pessoal e filtros |
 | `useManagementStore.ts` | KPIs, filtros, fechados e status de envio |
 | `useDiagnosticsStore.ts` | amostras e projetos do diagnóstico |
+| `useHistoryStore.ts` | lista/paginação/filtros de `GET /reports`, detalhe do relatório selecionado (versões, gerações, artifacts, auditoria) e detalhe de uma versão |
 
 ## Backend
 
@@ -297,8 +299,8 @@ só com o container de pé (schema de teste separado, `reports_db_test`, ver
 
 Em 2026-09-22:
 
-- backend: 236 testes coletados (211 + 24 novos de `reports_db`/snapshot, 1 skip pré-existente);
-- frontend: 120 testes em 9 arquivos;
+- backend: 240 testes coletados (211 + 28 novos de `reports_db`/snapshot/histórico/auditoria, 1 skip pré-existente);
+- frontend: 134 testes em 10 arquivos;
 - build: `tsc -b && vite build`.
 
 Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vitest/Vite no sandbox Windows indica bloqueio ao subprocesso do esbuild; repita fora do sandbox antes de classificar como falha do código.
@@ -306,7 +308,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 ## Vite, static files e cache
 
 - `frontend/vite.config.ts` não define `root`; execute comandos a partir de `frontend/` ou use `npm --prefix frontend`.
-- Proxy atual: `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat` → `:8011`.
+- Proxy atual: `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts` → `:8011`.
 - `/management/*`, `/my-hours`, `/send-report` e `/translate-activities` não estão no proxy atual. Para testar tudo sem alterar config, use o build servido pelo FastAPI.
 - Logos e assets públicos devem ficar em `frontend/public/`.
 - `NoCacheStaticFiles`: `assets/*` recebe cache immutable de um ano; demais arquivos recebem `no-store`.
@@ -349,12 +351,13 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Proxy dev | `frontend/vite.config.ts` |
 | Documentação de uso | `README.md` |
 | Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `main.py` (`generate_endpoint`/`send_report_endpoint`) |
+| Tela de histórico | `frontend/src/components/HistoryPanel.tsx`, `useHistoryStore.ts`, `utils/historyFormat.ts` |
 | Schema do `reports_db` | `backend/app/db/reports_schema.py` + nova migration em `backend/alembic/versions/` |
 | Config central (`reports_db`/`sysClientId`) | `backend/app/core/config.py` |
 
 ## Checklist antes de concluir
 
-- O comportamento solicitado funciona nos quatro contextos de navegação?
+- O comportamento solicitado funciona nos cinco contextos de navegação?
 - Estado de uma guia não vazou para outra?
 - Tema claro e escuro continuam legíveis?
 - Sidebar expandida, recolhida e mobile continuam utilizáveis?

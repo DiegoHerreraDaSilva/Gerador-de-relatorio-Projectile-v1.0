@@ -3240,3 +3240,56 @@
     font-size: 0.85em;
     font-style: italic;
   }
+
+  /* ============================================================
+     Histórico de relatórios (HistoryPanel.tsx) — Fase 2+3 do
+     GUIA_EVOLUCAO_GERADOR_PROJECTILE.md. Reaproveita .card, .kpi-table,
+     os modais genéricos e .btn-secondary já existentes; só o necessário
+     pra essa tela é novo aqui.
+     ============================================================ */
+  .history-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+  .history-filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+  .history-filter-field label {
+    font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .history-filter-field input {
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text);
+  }
+  .history-filter-field input:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
+
+  .history-table-wrap .kpi-table { width: 100%; }
+  .history-table-wrap .kpi-table th,
+  .history-table-wrap .kpi-table td { text-align: left; }
+  .history-table-wrap .kpi-table tr.active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+  .history-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
+
+  .history-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .history-detail-head h3 { margin: 0; font-size: 1.05rem; }
+
+  .history-detail-section { margin-top: 20px; }
+  .history-detail-section:first-of-type { margin-top: 0; }
+  .history-detail-section h4 {
+    margin: 0 0 8px; font-size: 0.85rem; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .history-detail-section .kpi-table { width: 100%; }
+  .history-detail-section .kpi-table th,
+  .history-detail-section .kpi-table td { text-align: left; }
+
+  .history-status-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+  .history-status-success { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+  .history-status-failed { background: color-mix(in srgb, var(--bad) 20%, transparent); color: var(--bad); }
+  .history-status-started { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+
+  .history-download-link { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+
+  .history-audit-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .history-audit-list li { font-size: 0.85rem; }
+  .history-audit-action { font-weight: 600; }
+
+  .history-version-modal { max-width: 640px; }
+  .history-version-group { margin-top: 14px; }
+  .history-version-group h4 { margin: 0 0 6px; font-size: 0.9rem; }
+  .history-version-group ul { margin: 0; padding-left: 18px; }

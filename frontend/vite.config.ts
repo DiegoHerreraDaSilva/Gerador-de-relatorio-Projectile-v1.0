@@ -11,6 +11,8 @@ export default defineConfig({
       "/generate": "http://localhost:8011",
       "/chat": "http://localhost:8011",
       "/auth": "http://localhost:8011",
+      "/reports": "http://localhost:8011",
+      "/artifacts": "http://localhost:8011",
     },
   },
   build: {
