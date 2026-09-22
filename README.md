@@ -1,372 +1,475 @@
 # Automação de Relatório de Horas
 
-Aplicação web **interna** (Schwaben Engineering) que converte horas apontadas no **Projectile** — via export `.xlsx` ou direto do banco de dados — no relatório final formatado para **Mercedes-Benz**: mesma logo, mesmas caixas de assinatura, mesmas fórmulas e tabela auxiliar "Week/AK/Days/Hours" — sem montar manualmente todo mês.
+Aplicação web interna da Schwaben Engineering para transformar apontamentos do Projectile em relatórios de horas padronizados para a Mercedes-Benz. Os dados podem vir de um export `.xlsx` ou diretamente do MySQL do Projectile, ser revisados no navegador e gerar arquivos `.xlsx`, `.pdf` ou `.zip` sem reconstruir manualmente o relatório a cada mês.
 
-Fluxo: **Login com usuário do Projectile → Importar horas (planilha ou banco) → Revisar/editar na tela → Gerar `.xlsx` final (ou `.zip` com 1 por Pacote).**
+Além do gerador, a aplicação reúne:
 
-Quem tem acesso de gerência também tem um segundo fluxo: **Painel de Gerência**, um dashboard de KPIs de engenharia (horas trabalhadas/faturadas, performance, elaboração de relatórios, horas não faturáveis) alimentado direto do banco do Projectile.
+- dashboard pessoal de horas;
+- painel gerencial de KPIs;
+- diagnóstico e correção das amostras usadas nos KPIs;
+- automação de leitura e envio de relatórios por e-mail via Microsoft Graph;
+- edição assistida e tradução via Anthropic.
 
-> App sem banco/ORM próprio para o relatório em si — arquivos temporários em `tempfile.gettempdir()/relatorio_horas_output`. O template Excel oficial nunca é recriado, só injetado (ver [por que `generator.py` não usa `openpyxl.save()`](#por-que-generatorpy-não-usa-openpyxlsave)). Login e dados de horas vêm do **banco MySQL do Projectile** (leitura); os únicos dados que este app persiste sozinho são os KPIs manuais do Painel de Gerência, num JSON simples fora do git.
+> O MySQL do Projectile continua sendo a fonte operacional, só leitura. Desde a introdução do histórico de relatórios, a aplicação também mantém um segundo banco próprio, `reports_db` (MySQL em container Docker), que guarda snapshot/versão/artifact de cada geração — ver [Histórico de relatórios (reports_db)](#histórico-de-relatórios-reports_db). Os KPIs gerenciais continuam em `backend/data/management_kpi.json`, fora do Git; nenhum dos dois foi migrado pro banco novo ainda.
 
----
+## Fluxos disponíveis
 
-## Funcionalidades
+### Gerar relatório de horas
 
-- **Login com as credenciais do Projectile** (`backend/app/auth.py`):
-  - Autentica direto contra `auser` do MySQL do Projectile (mesmo hash `sha256(senha+salt)` que o Projectile usa) — sem duplicar usuário/senha neste app.
-  - Sessão em memória do processo (token opaco em cookie `httponly`, 8h), rate limit de tentativas por IP (5 tentativas → bloqueio de 15min), mensagem de erro genérica (não revela se o login existe).
-  - Todas as rotas sensíveis (`/parse`, `/parse-db`, `/generate`, `/chat`, `/management/*`) exigem sessão válida.
-- **Duas formas de importar horas**:
-  - **Planilha** — parse inteligente do export `.xlsx` do Projectile (`backend/app/parser.py:109`): agrupa por `Observação` (`Prefixo-Descrição` ou `Prefixo_Descrição`), soma horas case-insensitive, aceita `,`/`.` decimal, cabeçalho `Dados/Horário/Hs` em qualquer linha. Banner não-bloqueante de validação para linhas ignoradas.
-  - **Direto do banco** (`POST /parse-db`, botão "Buscar do Projectile") — busca as horas do **próprio usuário logado** num mês de referência, direto do MySQL do Projectile, sem precisar exportar/subir planilha. Mesma regra de agrupamento da planilha.
-- **Revisão rica na tela** (React + Zustand):
-  - Edição inline de horas/performance/nomes, preview espelho em tempo real (nunca perde foco).
-  - Drag-and-drop: atividades entre grupos, grupos inteiros entre relatórios (split view), abas de pacote para merge.
-  - Split view (2 relatórios lado a lado), undo global (50 níveis, por `id`), zoom 50–150%, fullscreen, tema claro/escuro.
-  - **Chat IA** (`backend/app/chatbot.py` + `POST /chat`) — "renomeie o grupo X", "performance 1.1 em todos" etc. O modelo devolve uma **lista de operações** (`backend/app/chat_ops.py`) em vez de reescrever o relatório inteiro, o que reduz bastante os tokens de saída (e portanto a latência).
-- **Geração fiel ao template** (`backend/app/generator.py:461`):
-  - Edição direta do XML `xl/worksheets/sheet1.xml` (preserva `xl/drawings`, `xl/media` — nunca `openpyxl.save()`).
-  - Cálculo automático de dias úteis por semana, descontando feriados nacionais fixos e móveis (Páscoa → Carnaval/Sexta/Corpus Christi, Consciência Negra ≥2024).
-  - **Relatório único** (1 `.xlsx`) ou **múltiplos** (1 `.xlsx` por Pacote de Trabalho, zipado com dedup `arcname (n)`).
-- **Painel de Gerência** (`backend/app/management.py`, acesso restrito — ver abaixo): dashboard de KPIs de engenharia direto do banco do Projectile, com filtros e edição de metas manuais. Detalhes na seção própria.
+O fluxo é organizado horizontalmente em etapas e oferece duas fontes:
 
----
+1. **Buscar no Projectile**
+   - **Meu usuário:** usa exclusivamente o `employee_id`/nome da sessão autenticada.
+   - **Buscar cliente** (somente gerente): lista clientes com horas no período, permite escolher um cliente e selecionar múltiplos projetos.
+   - Período de **mês único** ou **múltiplos meses**.
+   - A seleção de ano vai de 2008 até o ano corrente, em ordem decrescente.
+   - Organização consolidada ou separada:
+     - usuário: relatório consolidado ou um por pacote;
+     - cliente: um por projeto ou um por pacote.
+2. **Arquivo do computador**
+   - recebe o export `.xlsx` do Projectile;
+   - relatório consolidado ou um por pacote de trabalho.
 
-## Painel de Gerência
+Depois da importação, o usuário pode:
 
-Reconstrói dentro do app um relatório de KPIs de engenharia (times **CAD+CAE**) que antes só existia num Power BI separado. Acesso restrito a quem está em `MANAGEMENT_PANEL_LOGINS` (`backend/app/management.py:41` — hoje só `dherrera`; para liberar outro login, adicione à lista).
+- revisar e editar cabeçalho, grupos, atividades, horas e performance;
+- mover atividades e grupos por drag-and-drop;
+- trabalhar em duas folhas lado a lado;
+- desfazer alterações durante a sessão;
+- ativar gráficos de barras ou pizza;
+- ampliar o preview e usar tela cheia;
+- gerar XLSX, PDF ou ambos;
+- incluir bruto/performance no arquivo final;
+- enviar os relatórios por e-mail sem baixar os arquivos;
+- traduzir grupos, atividades e rótulos fixos para inglês ou alemão quando o login estiver autorizado;
+- usar o chat para editar o relatório por operações estruturadas.
 
-Três cartões, cada um com um *gauge* e uma tabela mês a mês (competência):
+O botão **Alterar dados** descarta o preview atual e devolve a guia ao fluxo de seleção zerado.
 
-| Cartão | Meta | Fórmula |
-|---|---|---|
-| **Performance em Horas** | mínimo 10% | `Trabalhadas` = soma de horas CAD+CAE no mês (banco); `Faturadas` = input manual do gerente; `Perf. H = Faturadas − Trabalhadas`; `KPI % = Perf. H / Trabalhadas` |
-| **Elaboração dos relatórios** | máximo 5 dias úteis | `KPI (Dias)` = 100% input manual, sem fórmula |
-| **Horas não faturáveis** | máximo 10% | `Horas NãoFat` = soma de horas cujo pacote de trabalho tem `tjob.pExternal = '0'` no Projectile; `KPI % = Horas NãoFat / Trabalhadas` |
+### Guias independentes
 
-Já existiu uma lista manual de nomes de pacote (ex: "Treinamento") pra decidir "não faturável" — trocada por `pExternal` depois de uma auditoria estatística mostrar que esse campo do Projectile já é consistente pro que realmente importa (pacotes ativos hoje e com apontamento nos últimos 12 meses batem 100% com a expectativa; a inconsistência real fica só no histórico antigo/fechado, fora de qualquer período que o painel consulta). Mais simples e sem lista pra manter.
+A seção **Relatórios abertos** da sidebar permite manter vários trabalhos independentes. Cada guia contém seu próprio relatório e é salva automaticamente no `localStorage` com debounce. A pilha de undo não é persistida em disco para evitar payloads excessivos.
 
-Filtros (`frontend/src/components/ManagementFilters.tsx`), todos client-side sobre o mesmo resultado cacheado, exceto quando mudam o recorte do banco:
+### Dashboard de horas
 
-- **Período**: últimos 12 meses corridos (padrão) ou um ano fechado específico (Jan–Dez), até o ano do primeiro lançamento no banco.
-- **Competência**: filtro de exibição, não refaz busca.
-- **Centro de Custo**: CAD/CAE (os dois por padrão).
-- **Cliente** / **Projeto**: só mostram quem teve horas no período em vista — `Projeto` usa `tproject` de verdade (não o pacote de trabalho, que é mais granular).
+O dashboard pessoal consulta apenas os dados do usuário autenticado e oferece os períodos:
 
-Persistência: os valores manuais (Faturadas, dias de elaboração) sobrevivem a reinícios do backend num JSON simples, `backend/data/management_kpi.json` (fora do git — ver [Variáveis](#variáveis-e-credenciais)).
+- mês atual;
+- últimos 3 meses;
+- últimos 6 meses;
+- últimos 12 meses.
 
----
+Ele apresenta totais, dias com apontamento, média diária, referência de jornada, calendário, lacunas, distribuição por projeto/pacote, série mensal e comparação histórica. A jornada usa contrato quando disponível; caso contrário, o backend informa a fonte estimada e evita apresentar percentual como se fosse uma meta contratual.
 
-## Formato esperado do export do Projectile (modo planilha)
+O calendário considera feriados nacionais, o feriado estadual de São Paulo, o municipal de Santo André quando aplicável e pontes de segunda/sexta para feriados em terça/quinta.
 
-Cabeçalho procurado: linha que começa com `Dados | Horário | Hs` (`backend/app/parser.py:101`).
+### Painel de Gerência
+
+Acesso controlado por `MANAGEMENT_PANEL_LOGINS`. O painel possui filtros de período, competência, centro de custo, cliente, pessoa, projeto e pacote de trabalho.
+
+Os três KPIs principais são:
+
+| Indicador | Meta | Cálculo |
+|---|---:|---|
+| Performance em horas | mínimo 10% | `(faturadas - trabalhadas) / trabalhadas` |
+| Elaboração dos relatórios | máximo 5 dias úteis | dias úteis registrados nas amostras |
+| Horas não faturáveis | máximo 10% | horas em pacotes com `tjob.pExternal = '0'` / trabalhadas |
+
+O painel também inclui:
+
+- evolução cronológica de trabalhado, faturado e delta;
+- pacotes não faturáveis;
+- situação de envio por projeto (`enviado`, `parcial`, `não enviado`, `fechado`);
+- marcação manual de envio;
+- registro permanente de clientes/projetos fechados;
+- leitura sob demanda dos e-mails de faturamento.
+
+Quando o filtro por pessoa está ativo, faturado e performance ficam indisponíveis porque as amostras de faturamento existem no nível do projeto, não da pessoa.
+
+### Diagnóstico de relatórios
+
+Também restrito a gerentes. Permite:
+
+- consultar amostras automáticas e manuais;
+- corrigir projeto, competência, horas faturadas e dias úteis;
+- definir se a amostra cobre o projeto inteiro ou pacotes específicos;
+- identificar duplicidades;
+- excluir amostras incorretas;
+- consultar mensagens ignoradas pela automação;
+- cadastrar manualmente uma amostra.
+
+## Histórico de relatórios (reports_db)
+
+A cada `POST /generate` ou `POST /send-report`, a aplicação grava um snapshot imutável do relatório gerado (cabeçalho, grupos e atividades exatamente como recebidos), cria uma nova versão numerada do relatório correspondente e registra o resultado da geração — num segundo banco MySQL próprio, `reports_db`, totalmente separado do Projectile (roda como container Docker, ver [Começando](#começando)).
+
+Pontos importantes:
+
+- **Nunca bloqueia a geração do arquivo.** Se `reports_db` estiver fora do ar, com `REPORTS_DB_ENABLED=false`, ou qualquer chamada de persistência falhar, o `.xlsx`/`.pdf` é gerado e entregue normalmente — só fica sem registro no histórico dessa vez. A funcionalidade central do app nunca depende dessa infraestrutura secundária.
+- O snapshot é **o payload exatamente como chegou em `/generate`** (já revisado/editado na tela, possivelmente via chat de IA) — não uma nova consulta ao Projectile.
+- Duas gerações consecutivas do mesmo relatório (mesmo `project_code` + escopo de pacote + competência) viram versões sucessivas do mesmo `report`, nunca registros duplicados — protegido contra corrida em geração concorrente.
+- O arquivo gerado é copiado pra `backend/data/report_artifacts/` (fora do Git), já que o caminho temporário original é apagado logo após o download.
+- A resposta de `/generate` inclui os headers `X-Report-Id`/`X-Report-Version-Id`/`X-Report-Version-Number` (ou `X-Report-Ids` no caso `.zip`) quando a persistência funcionou — são **aditivos**, nunca assuma que vão estar presentes.
+- Não existe ainda tela de histórico/versões no frontend, nem trilha de auditoria formal — ver [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) pro roadmap.
+
+## Autenticação e permissões
+
+- O login é validado diretamente na tabela `auser` do Projectile usando o mesmo hash `sha256(senha + salt)` do sistema legado.
+- A senha do usuário não é persistida pela aplicação.
+- A sessão usa token opaco em cookie `HttpOnly`, `SameSite=Lax`, com duração de 8 horas.
+- O rate limit permite 5 falhas por IP antes de bloquear novas tentativas por 15 minutos.
+- Todas as rotas de negócio exigem sessão.
+- Rotas `/management/*` e a busca por cliente exigem gerente.
+- `/translate-activities` exige login em `TRANSLATE_ALLOWED_LOGINS`.
+- Swagger, ReDoc e OpenAPI ficam desativados em todas as execuções.
+
+## Formato esperado do XLSX do Projectile
+
+O parser procura uma linha de cabeçalho iniciada por `Dados | Horário | Hs`.
 
 | Coluna | Uso |
 |---|---|
-| `Dados` | data do apontamento (diferencia linha real de subtotal) |
-| `Horário` | ignorada |
-| `Hs` | horas; aceita `2,5` ou `2.5` |
-| `Observação` | `Prefixo-Descrição` ou `Prefixo_Descrição` → `prefixo` vira **Grupo**, `descrição` vira **Atividade** (`re.search(r"[-_]")`) |
-| `Projeto` | nome do projeto (modo único) |
-| `Pacote de Trabalho` | `código - Pacote - Projeto - resto` → 2º segmento é o `key` do relatório (modo múltiplos). Separador exige espaço ao menos de um lado (`\s+-\s*|\s*-\s+`); hífen sem espaço (`Para-barro`) **não** é separador |
+| `Dados` | identifica uma linha real de apontamento |
+| `Horário` | reconhecida no cabeçalho, não usada no agrupamento |
+| `Hs` | horas, aceitando vírgula ou ponto decimal |
+| `Observação` | `Prefixo-Descrição` ou `Prefixo_Descrição`; prefixo vira grupo e descrição vira atividade |
+| `Projeto` | nome do projeto no modo consolidado |
+| `Pacote de Trabalho` | identifica o pacote no modo separado |
 
-> Linhas totalmente em branco ou rodapé de assinatura (`Supervisor` etc.) são ignoradas silenciosamente; só `Hs`/`Observação` parcialmente preenchidos com dado real viram aviso de validação (banner não-bloqueante).
+O separador de pacote exige espaço em pelo menos um lado do hífen. Um texto como `Para-barro` não é dividido. Linhas de subtotal, assinatura ou totalmente vazias são ignoradas; dados parcialmente preenchidos viram avisos não bloqueantes.
 
-O modo "Buscar do Projectile" (direto do banco) usa a mesma regra de agrupamento, mas os dados já vêm limpos (sem rodapé, sem `Hs` de texto livre) — ver `backend/app/projectile_db.py:group_hours`.
-
----
+Uploads são limitados a 25 MB e o conteúdo descomprimido do XLSX a 200 MB para reduzir o risco de zip bomb.
 
 ## Stack
 
-| Camada | Tecnologia | Onde |
-|---|---|---|
-| **Backend** | Python 3.11+, FastAPI 0.141.1, Uvicorn 0.49 | `backend/app/main.py` |
-| **Excel** | openpyxl 3.1.5 (leitura) + ZIP/XML manual (escrita) | `backend/app/parser.py`, `generator.py` |
-| **Banco do Projectile** | MySQL (legado, on-premise) via PyMySQL 1.2.0 | `backend/app/projectile_db.py`, `auth.py`, `management.py` |
-| **Credenciais do banco** | Windows Credential Manager via `keyring` 25.7.0 (senha nunca em texto puro) | `backend/app/db_credentials.py` |
-| **Frontend** | React 18, Vite 7.3.6, TypeScript 5.6, Zustand 4 + immer 10 | `frontend/src/`, `frontend/vite.config.ts` |
-| **IA (chat de edição)** | Anthropic SDK 0.125, modelo `claude-sonnet-5` (padrão), truststore 0.10.4 (proxy corporativo) | `backend/app/chatbot.py`, `chat_ops.py` |
-| **Build** | Vite (hash em `assets/`, `public/logo*.png` → `dist/`) | `frontend/dist/` servido pelo FastAPI |
-
-Sem ORM, sem ESLint/Prettier configurado, sem testes automatizados ainda.
-
----
+| Camada | Tecnologia |
+|---|---|
+| Backend | Python 3.11+, FastAPI 0.141.1, Uvicorn 0.49 |
+| XLSX | openpyxl 3.1.5 para leitura; ZIP/XML direto para geração |
+| PDF | ReportLab 5.0.1 e pypdf 6.16.2 |
+| Banco do Projectile | MySQL via PyMySQL 1.2.0 (só leitura) |
+| Banco de histórico | `reports_db`, MySQL em Docker; SQLAlchemy Core 2.0 + Alembic 1.14 |
+| Identificadores | ULID (`python-ulid`) pras tabelas do histórico |
+| Configuração | pydantic-settings 2.7 (`backend/app/core/config.py`) |
+| Credenciais de banco | Windows Credential Manager via keyring 25.7.0 (Projectile e `reports_db`) |
+| Frontend | React 18, TypeScript 5.6, Vite 7.3.6, Zustand 4, immer 10 |
+| IA | Anthropic SDK 0.125 e truststore 0.10.4 |
+| E-mail | Microsoft Graph e MSAL 1.31 |
+| Testes | pytest 8.3.4 e Vitest 4.1.11 |
 
 ## Arquitetura
 
+```text
+Projectile MySQL (leitura)          reports_db (Docker, leitura+escrita)
+   ├── autenticação e sessão              ├── snapshot do payload gerado
+   ├── horas do usuário / dashboard       ├── versões do relatório
+   ├── horas por cliente/projeto          ├── registro de geração
+   └── KPIs gerenciais                    └── artifact (.xlsx/.pdf copiado)
+            │                                      │
+            └──────────────┬───────────────────────┘
+                            ▼
+FastAPI (`backend/app/main.py`)
+   ├── parser XLSX
+   ├── agrupamento de horas
+   ├── geração XLSX/PDF
+   ├── persistência de histórico (fail-open)
+   ├── automação Microsoft Graph
+   └── chat/tradução Anthropic
+            │
+            ▼
+React + Zustand
+   ├── Sidebar e guias persistentes
+   ├── Gerador/preview
+   ├── Dashboard de horas
+   ├── Painel de Gerência
+   └── Diagnóstico
 ```
-                          ┌──────────────────────────────┐
-                          │        auser (Projectile)     │
-        login/senha ─────►│  verify_projectile_login       │──► sessão em memória (cookie)
-                          └──────────────────────────────┘
-                                          │
-                    ┌─────────────────────┼─────────────────────┐
-                    ▼                     ▼                     ▼
-     .xlsx --POST /parse-->      POST /parse-db -->      GET /management/kpis
-       [parser.py]              [projectile_db.py]         [management.py]
-                    │             fetch_employee_hours       fetch_engineering_hours
-                    └──────────┬──────────┘                        │
-                               ▼                                   ▼
-                    [Zustand: useReportStore]           [Zustand: useManagementStore]
-                               │                                   │
-                    React (App.tsx) — Header/Stepper/           ManagementPanel +
-                    FileUpload/PackageTabs/Preview/              ManagementFilters +
-                    Chat/GenerateFooter                          Gauge (3 cartões)
-                               │
-                               ▼ POST /generate
-                    [generator.py] --ZIP/XML--> .xlsx / .zip
+
+Decisões importantes:
+
+- `generator.py` edita o XLSX por ZIP/XML para preservar desenhos, imagens, fórmulas e proteção do template.
+- `projectile_db.py` mantém uma conexão MySQL reutilizável com `ping(reconnect=True)` e `autocommit=True`.
+- As consultas filtram `sysClientId` para aproveitar os índices compostos do banco legado.
+- O painel gerencial usa cache em memória de 15 minutos por intervalo.
+- O frontend não usa React Router: `App.tsx` controla a view ativa e a sidebar.
+- O preview do documento é deliberadamente branco nos dois temas; o restante da aplicação usa tokens dark/light.
+- O FastAPI serve `frontend/dist` quando existe; sem build, usa `frontend/` como fallback estático.
+- `reports_db` é banco separado do Projectile (nunca há JOIN entre os dois) e a persistência nele é sempre fail-open — ver [Histórico de relatórios (reports_db)](#histórico-de-relatórios-reports_db).
+
+## Estrutura do projeto
+
+```text
+backend/
+  alembic/                 # migrations do reports_db
+    versions/
+  app/
+    main.py               # FastAPI, modelos, autenticação de rotas e static mount
+    auth.py               # login Projectile, rate limit e sessões
+    db_credentials.py     # leitura da senha no Windows Credential Manager (Projectile e reports_db)
+    projectile_db.py      # consultas e agrupamento de dados do Projectile
+    parser.py             # parser do export XLSX
+    generator.py          # gerador XLSX por ZIP/XML e calendário de dias úteis
+    pdf_generator.py      # gerador PDF e metadados do relatório
+    hours_analytics.py    # métricas do dashboard pessoal
+    management.py         # KPIs, cache, amostras e persistência JSON
+    email_ingest.py       # Microsoft Graph, ingestão e envio de relatórios
+    chatbot.py            # chamadas Anthropic
+    chat_ops.py           # operações permitidas pelo chat
+    translate_ops.py      # contrato de tradução
+    core/
+      config.py            # Settings central (reports_db, sysClientId)
+    db/
+      reports_db.py        # engine SQLAlchemy do reports_db
+      reports_schema.py    # tabelas do histórico (SQLAlchemy Core)
+    services/
+      snapshot.py           # hash/identidade/canonical JSON
+      report_persistence.py # begin/finish_generation, fail-open
+  templates/
+    relatorio_final_template.xlsx
+  tests/                  # suíte pytest
+frontend/
+  public/                 # logos da aplicação/e-mail
+  src/
+    App.tsx               # shell e troca das quatro views
+    appView.ts            # nomes/tipo das views
+    components/
+      Sidebar.tsx
+      FileUpload.tsx
+      Preview/
+      MyHoursDashboard.tsx
+      ManagementPanel.tsx
+      DiagnosticsPanel.tsx
+      GenerateFooter.tsx
+      SendReportModal.tsx
+    store/
+      useReportStore.ts
+      useReportTabsStore.ts
+      useAuthStore.ts
+      useMyHoursStore.ts
+      useManagementStore.ts
+      useDiagnosticsStore.ts
+    styles/index.css
+    utils/
+  package.json
+  vite.config.ts
+scripts/
+  atualizar-servidor.bat
+.github/workflows/ci.yml
+docker-compose.yml         # container reports-mysql
+alembic.ini                # script_location = backend/alembic
+README.md
+CLAUDE.md
+GUIA_EVOLUCAO_GERADOR_PROJECTILE.md
 ```
-
-- **Acesso ao banco do Projectile**: uma única conexão MySQL persistente por processo (`backend/app/projectile_db.py:_get_connection`), reaproveitada entre requisições em vez de abrir/fechar uma a cada chamada — ver [Performance e acesso ao banco](#performance-e-acesso-ao-banco-do-projectile).
-- **API** em `backend/app/main.py` monta `NoCacheStaticFiles` por último (`html=True`). Em prod serve `frontend/dist` (hash `immutable` para `assets/*`, `no-store` para o resto); sem `dist`, cai para `frontend/`.
-- **Proxy dev**: `frontend/vite.config.ts` → `/parse`, `/parse-db`, `/generate`, `/chat`, `/auth/*`, `/management/*` → `http://localhost:8011`.
-
----
-
-## Performance e acesso ao banco do Projectile
-
-O MySQL do Projectile é uma instalação legada, on-premise, de **cliente único** — toda tabela relevante (`ttimebit`, `tjob`, `temployee`, `tproject`, `auser`) tem `sysClientId` como primeira coluna de todo índice composto. Nenhuma das queries originais filtrava por essa coluna, então o MySQL nunca conseguia usar os índices e caía sempre para *table scan* completo (medido: consultas de ~37s numa tabela de ~320 mil lançamentos). Filtrando por `sysClientId` (constante `_SYS_CLIENT_ID` em `projectile_db.py`, confirmado como valor único do banco), as mesmas consultas passam a usar os índices certos — a mesma query cai para **~0.4s**, mesmo resultado.
-
-Além disso:
-
-- **Conexão persistente e reaproveitada** (`projectile_db.py:_get_connection`) — como as rotas que tocam esse banco são síncronas, uma única conexão por processo (com `ping(reconnect=True)` para detectar e recuperar quedas) é suficiente; abrir uma conexão nova a cada chamada é o custo dominante quando o servidor do Projectile está sob carga (chegou a ser medido em ~20s só para conectar). A conexão usa `autocommit=True`: como este módulo só faz leitura, isso evita que o isolamento `REPEATABLE READ` do MySQL "congele" a foto dos dados na primeira consulta da conexão para sempre.
-- **Cache em memória** de 15 min por intervalo de datas (`management.py:_HOURS_CACHE`) para a busca de horas de engenharia, evitando repetir a mesma consulta a cada troca de filtro no Painel de Gerência.
-- **Login em uma única query** (`auth.py:verify_projectile_login`) — `auser` + `temployee` resolvidos com um `LEFT JOIN`, numa conexão só, em vez de duas consultas seriais.
-- **Busca de horas por ID, não por nome**: `POST /parse-db` usa o `employee_id` (FK real, resolvido no login) para filtrar `tjob.pEmployee = %s`, com fallback por nome parcial (`LIKE`) só quando não há `employee_id` disponível.
-
----
 
 ## Começando
 
 ### Pré-requisitos
 
-- Python 3.11+ e Node 18+ (testado Node 24, npm 12)
-- Windows (o cofre de credenciais do banco usa o Windows Credential Manager via `keyring`)
-- Acesso de rede ao MySQL do Projectile (obrigatório — login e busca de horas dependem dele)
-- Chave Anthropic se for usar o chat de edição
+- Python 3.11+
+- Node.js 20+
+- Docker (pro container `reports-mysql` do histórico de relatórios)
+- Windows para usar o Credential Manager no ambiente real
+- acesso de rede ao MySQL do Projectile
+- chave Anthropic somente para chat/tradução
+- credenciais Azure somente para leitura/envio de e-mail
 
-### 1. Clonar e configurar `.env`
+### 1. Configuração
 
-```bash
-git clone <repo> && cd automação-relatório-v1.0
-cp .env.example .env
+```powershell
+git clone <URL_DO_REPOSITORIO>
+cd automação-relatório-v1.0
+Copy-Item .env.example .env
 ```
 
-Edite `.env`:
-
-```bash
-ANTHROPIC_API_KEY=            # obrigatória só para o chat de edição
-ANTHROPIC_MODEL=claude-sonnet-5
-
-PROJECTILE_DB_HOST=           # obrigatório
-PROJECTILE_DB_PORT=3306
-PROJECTILE_DB_USER=           # obrigatório
-PROJECTILE_DB_NAME=projectile
-```
-
-A **senha** do banco do Projectile não vai no `.env` — fica no Windows Credential Manager:
+Preencha as variáveis necessárias e salve a senha do banco do Projectile no Credential Manager:
 
 ```bash
 python -c "import getpass, keyring; keyring.set_password('projectile_mysql', 'SEU_USUARIO_DB', getpass.getpass())"
 ```
 
-### 2. Backend
+### 2. Instalação
 
 ```bash
 pip install -r backend/requirements.txt
-python -m uvicorn backend.app.main:app --reload --port 8011
-# → http://localhost:8011  (serve frontend/dist se existir)
+npm --prefix frontend install
 ```
 
-`.claude/launch.json` já usa `backend.app.main:app --port 8011`.
-
-### 3. Frontend
+Para executar testes de backend, instale as dependências de desenvolvimento:
 
 ```bash
-npm --prefix frontend install
-npm --prefix frontend run dev    # http://localhost:5173  (HMR + proxy)
-npm --prefix frontend run build  # gera frontend/dist → servido pelo FastAPI em prod
-npm --prefix frontend run preview
+pip install -r backend/requirements-dev.txt
 ```
 
-**Prod sem Vite dev**: só `npm --prefix frontend run build` + `uvicorn backend.app.main:app --port 8011` e abra `http://localhost:8011`.
+### 3. Banco de histórico (reports_db)
 
-**Atualizar o servidor de produção**: sem deploy automático (ver seção de CI abaixo), a atualização é manual — depois de mergear um PR na `main`, rode `scripts\atualizar-servidor.bat` no servidor (duplo-clique, ou `.\scripts\atualizar-servidor.bat` num terminal). Ele faz `git pull` + reinstala dependências do backend + rebuilda o frontend + reinicia o serviço, na ordem certa. Ajuste a variável `SERVICE_NAME` no topo do arquivo se o backend rodar como Serviço do Windows (nssm); deixe em branco se você reinicia o `uvicorn` na mão.
+Só na primeira vez (ou depois de recriar o volume Docker):
 
-### Variáveis e credenciais
+```bash
+docker compose up -d reports-mysql
+alembic upgrade head
+python -c "import getpass, keyring; keyring.set_password('reports_mysql', 'reports_app', getpass.getpass())"
+```
 
-| Var / credencial | Onde | Default |
+A senha do keyring precisa ser a mesma de `REPORTS_MYSQL_APP_PASSWORD` no `.env` — a imagem oficial do MySQL cria o usuário `reports_app`/schema `reports_db` sozinha no primeiro start do container. Se `reports-mysql` estiver fora do ar depois disso, a aplicação continua funcionando normalmente (a persistência é *fail-open* — ver [Histórico de relatórios](#histórico-de-relatórios-reports_db)); só o histórico fica incompleto enquanto isso.
+
+### 4. Desenvolvimento
+
+Backend:
+
+```bash
+python -m uvicorn backend.app.main:app --reload --port 8011
+```
+
+Frontend:
+
+```bash
+npm --prefix frontend run dev
+```
+
+- FastAPI: `http://localhost:8011`
+- Vite: `http://localhost:5173`
+
+> O proxy atual do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate` e `/chat`. As telas que chamam `/management/*`, `/my-hours`, `/send-report` ou `/translate-activities` devem ser testadas pelo build servido pelo FastAPI ou após ampliar explicitamente o proxy em `frontend/vite.config.ts`.
+
+### 5. Produção local
+
+```bash
+npm --prefix frontend run build
+python -m uvicorn backend.app.main:app --port 8011
+```
+
+Acesse `http://localhost:8011`.
+
+## Variáveis e credenciais
+
+| Variável | Obrigatória para | Default/observação |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | `backend/app/chatbot.py` | — (obrigatória p/ chat) |
-| `ANTHROPIC_MODEL` | `backend/app/chatbot.py` | `claude-sonnet-5` |
-| `PROJECTILE_DB_HOST` / `_PORT` / `_USER` / `_NAME` | `backend/app/projectile_db.py` | porta `3306`, nome `projectile` |
-| senha do banco do Projectile | Windows Credential Manager, serviço `projectile_mysql` (via `keyring`) | — (obrigatória p/ login e busca de horas) |
-| `PORT` | `uvicorn --port` | `8011` (dev) / `5173` (Vite) |
-| `backend/data/management_kpi.json` | KPIs manuais + pacotes não faturáveis do Painel de Gerência | criado automaticamente, fora do git |
+| `PROJECTILE_DB_HOST` | login e dados | sem default |
+| `PROJECTILE_DB_PORT` | login e dados | `3306` |
+| `PROJECTILE_DB_USER` | login e dados | sem default |
+| `PROJECTILE_DB_NAME` | login e dados | `projectile` |
+| senha `projectile_mysql` no Credential Manager | login e dados | nunca vai no `.env` |
+| `PROJECTILE_SYS_CLIENT_ID` | performance das queries | `0`; sysClientId fixo desta instalação |
+| `REPORTS_DB_HOST` | histórico de relatórios | `127.0.0.1` |
+| `REPORTS_DB_PORT` | histórico de relatórios | `3307` |
+| `REPORTS_DB_USER` | histórico de relatórios | `reports_app` |
+| `REPORTS_DB_NAME` | histórico de relatórios | `reports_db` |
+| senha `reports_mysql` no Credential Manager | histórico de relatórios | nunca vai no `.env` |
+| `REPORTS_DB_ENABLED` | histórico de relatórios | `true`; desliga a persistência sem reverter código |
+| `REPORTS_MYSQL_ROOT_PASSWORD` / `REPORTS_MYSQL_APP_PASSWORD` | bootstrap do `docker-compose.yml` | só usadas na 1ª subida do container, nunca em runtime |
+| `MANAGEMENT_PANEL_LOGINS` | acesso gerencial | lista CSV; fallback `dherrera` |
+| `TRANSLATE_ALLOWED_LOGINS` | tradução | lista CSV; fallback `dherrera` |
+| `ANTHROPIC_API_KEY` | chat e tradução | sem default |
+| `ANTHROPIC_MODEL` | chat e tradução | `claude-sonnet-5` |
+| `AZURE_TENANT_ID` | automação de e-mail | sem default |
+| `AZURE_CLIENT_ID` | automação de e-mail | habilita o polling no startup |
+| `AZURE_CLIENT_SECRET` | automação de e-mail | sem default |
+| `GRAPH_MAILBOX` | automação de e-mail | caixa monitorada/cópia do envio |
+| `ALBERTO_EMAIL` | automação de e-mail | um ou mais remetentes separados por vírgula |
+| `EMAIL_POLL_INTERVAL_SECONDS` | automação de e-mail | `30` |
+| `REPORT_PROTECTION_PASSWORD` | proteção da planilha | vazia mantém a proteção sem senha |
 
----
+O app registration do Azure precisa de permissões de aplicação `Mail.Read` e `Mail.Send` com consentimento administrativo. Restrinja o escopo com Exchange Application Access Policy no ambiente real.
 
-## CI (GitHub Actions)
+## Comandos
 
-`.github/workflows/ci.yml` — 2 jobs, todo push e todo PR pra `main`:
-
-| Job | O que faz |
+| Comando | O que faz |
 |---|---|
-| `backend-tests` | `pip install -r backend/requirements-dev.txt` + `pytest backend/tests/` |
-| `frontend-build` | `npm ci` + `npm run test` (vitest) + `npm run build` (tsc -b && vite build) |
+| `python -m pytest backend/tests -v` | executa os testes do backend (testes de `reports_db` pulam sem Docker) |
+| `docker compose up -d reports-mysql` | sobe o container do histórico de relatórios |
+| `alembic upgrade head` | aplica as migrations pendentes do `reports_db` |
+| `alembic revision --autogenerate -m "..."` | gera uma nova migration a partir de `reports_schema.py` |
+| `npm --prefix frontend test` | executa os testes Vitest |
+| `npm --prefix frontend run lint` | checa tipos com `tsc --noEmit` |
+| `npm --prefix frontend run build` | checa tipos e gera `frontend/dist` |
+| `npm --prefix frontend run dev` | inicia Vite com HMR |
+| `npm --prefix frontend run preview` | serve o build do Vite em `:5173` |
 
-Sem deploy automático — a conexão SSH direto entre o servidor e o GitHub foi avaliada como um risco não aceitável pra esse projeto. Atualizar o servidor continua manual, seguindo os passos de **Build & Run** acima (`git pull`, reinstalar dependências, `npm run build`, reiniciar o processo/serviço).
-
----
-
-## Estrutura do projeto
-
-```
-backend/
-  app/
-    main.py           # FastAPI: /auth/*, /parse, /parse-db, /generate, /chat,
-                       # /management/*, NoCacheStaticFiles + mount
-    auth.py            # login via Projectile (auser+temployee), sessão em memória,
-                       # rate limit de tentativas
-    db_credentials.py  # senha do banco via Windows Credential Manager (keyring)
-    projectile_db.py   # conexão persistente com o MySQL do Projectile,
-                       # fetch_employee_hours/fetch_engineering_hours/group_hours
-    management.py      # KPIs do Painel de Gerência (fórmulas, cache, persistência)
-    parser.py          # parse_projectile_export() do .xlsx, RowIssue
-    generator.py        # generate_report() via ZIP/XML, feriados, dias úteis
-    chatbot.py          # call_chat() com tool_use forçado
-    chat_ops.py         # catálogo de operações que o chat pode aplicar
-    __init__.py
-  templates/
-    relatorio_final_template.xlsx  # 49KB, fonte da verdade (nunca recriar)
-  data/
-    management_kpi.json  # gerado em runtime, fora do git
-  requirements.txt
-frontend/
-  index.html
-  vite.config.ts     # proxy + build.outDir=dist
-  tsconfig.json / tsconfig.node.json
-  public/
-    logo.png / logo-light.png
-  src/
-    main.tsx
-    App.tsx            # roteamento entre "report" e "management" + composição geral
-    styles/index.css
-    api/types.ts        # WorkPackage, Group, Activity, RowIssue, ParseResponse, ChatState
-    utils/{fmt.ts, calc.ts, fileName.ts, theme.ts}
-    store/
-      useReportStore.ts      # Zustand+immer: packages por id, undo snapshot, split, drag
-      useAuthStore.ts         # sessão (login/logout/checkSession), isManager
-      useManagementStore.ts   # dados/filtros do Painel de Gerência, carregamento único
-    components/
-      LoginScreen.tsx, Header.tsx, Stepper.tsx, FileUpload.tsx, ValidationBanner.tsx
-      PackageTabs.tsx, PackageFileName.tsx
-      Preview/Preview.tsx, Preview/PreviewSheet.tsx
-      Chat.tsx, GenerateFooter.tsx, SummaryBar.tsx
-      ManagementPanel.tsx, ManagementFilters.tsx, Gauge.tsx, ExtraHoursInput.tsx
-
-templates/exemplo_projectile.xlsx  # ignorado (.gitignore) — dados reais, só local
-```
-
-Root: `README.md`, `CLAUDE.md`, `.gitignore`, `.env`, `.claude/launch.json`.
-
----
+Não há ESLint ou Prettier configurado; o script `lint` é uma checagem TypeScript.
 
 ## API
 
-Todas as rotas abaixo, exceto `/auth/login`, exigem sessão válida (cookie `session_token`); as de `/management/*` exigem também que o login esteja em `MANAGEMENT_PANEL_LOGINS`.
+Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login`.
 
-### `POST /auth/login`
+### Autenticação
 
-`{ login, password }` → `200 { name, login, email, is_manager }` + cookie de sessão (8h). `401` login/senha incorretos, `429` rate limit.
+| Método e rota | Função |
+|---|---|
+| `POST /auth/login` | autentica no Projectile e cria sessão |
+| `GET /auth/me` | recupera a sessão atual |
+| `POST /auth/logout` | encerra a sessão |
 
-### `GET /auth/me`
+### Relatórios e dashboard pessoal
 
-Sem corpo → `200` (mesmo formato do login) se a sessão for válida, `401` senão. Usado no boot do app pra manter a sessão entre recarregamentos.
+| Método e rota | Função |
+|---|---|
+| `POST /parse` | lê um XLSX (`file`, `mode=single|multi`) |
+| `POST /parse-db` | busca o usuário logado por mês/período |
+| `POST /parse-db-client` | busca projetos selecionados; requer gerente |
+| `GET /my-hours` | dashboard pessoal (`current_month`, `last_3`, `last_6`, `last_12`) |
+| `POST /generate` | gera XLSX/PDF direto ou ZIP; persiste histórico em `reports_db` (fail-open) |
+| `POST /send-report` | gera anexos e envia via Microsoft Graph; mesma persistência fail-open |
+| `POST /chat` | aplica operações de edição sugeridas pela IA |
+| `POST /translate-activities` | traduz para `en` ou `de`; requer allowlist |
 
-### `POST /auth/logout`
+### Gerência e diagnóstico
 
-Encerra a sessão atual.
+Todas exigem gerente.
 
-### `POST /parse`
+| Método e rota | Função |
+|---|---|
+| `GET /management/clients-with-hours` | clientes ativos no mês/período |
+| `GET /management/client-projects` | projetos ativos de um cliente |
+| `GET /management/kpis` | KPIs e filtros gerenciais |
+| `POST /management/kpis/check-emails` | executa a ingestão de e-mails sob demanda |
+| `PUT /management/kpis/{month}` | atualiza entrada manual mensal legada |
+| `GET /management/projects` | lista projetos para o diagnóstico |
+| `GET/POST /management/kpis/samples` | lista ou cria amostras |
+| `PATCH/DELETE /management/kpis/samples/{sample_id}` | corrige ou exclui amostra |
+| `GET /management/projects/{project_id}/packages` | pacotes do projeto em um mês |
+| `GET /management/projects/{project_id}/all-packages` | histórico completo de pacotes |
+| `GET /management/closed-registry` | lista clientes/projetos fechados |
+| `POST/DELETE /management/closed-registry/clients/{client}` | fecha/reabre cliente |
+| `POST/DELETE /management/closed-registry/projects/{project_id}` | fecha/reabre projeto |
 
-`multipart/form-data`: `file: .xlsx`, `mode: "single"|"multi"` (Form).
+## Geração de arquivos
 
-**200**
-```json
-{
-  "packages": [{ "key": "Sangam", "project_name": "1540 ...", "groups": [{ "name": "Bumper", "total_hours": 165, "activities": [{ "description": "Modelagem", "hours": 12.5 }] }] }],
-  "issues": [{ "row": 42, "reason": "sem_separador", "message": "Linha 42: Observação \"X\" sem \"-\" ou \"_\" ..." }]
-}
+- Um pacote + um formato: resposta com o arquivo direto.
+- Mais de um pacote ou formato: resposta `.zip` com um arquivo por `(pacote, formato)`.
+- Nomes duplicados recebem sufixo ` (n)`.
+- Valores `NaN`/`Infinity` são rejeitados.
+- XLSX e PDF carregam identidade, total e escopo de pacote usados pela automação de e-mail.
+- O XLSX oficial é copiado e alterado internamente; não substitua esse fluxo por `openpyxl.save()`.
+- Cada `(pacote, formato)` gerado também vira snapshot + versão + registro de geração em `reports_db` — ver [Histórico de relatórios](#histórico-de-relatórios-reports_db).
+
+## CI e atualização do servidor
+
+`.github/workflows/ci.yml` executa:
+
+- backend: sobe um serviço `mysql` (`reports_db_test`), aplica `alembic upgrade head` e roda pytest — em todo push e em PR para `main`;
+- Vitest, typecheck e build do frontend nas mesmas condições.
+
+Não há deploy automático. No servidor Windows, use:
+
+```powershell
+.\scripts\atualizar-servidor.bat
 ```
-Erros: `400` BadZipFile / ValueError / KeyError.
 
-### `POST /parse-db`
-
-`{ month_label: "Agosto/2026", mode: "single"|"multi" }` → busca as horas do **usuário logado** (nunca de um nome vindo do cliente) direto no Projectile e devolve o mesmo formato de `/parse`. `404` se não encontrar lançamento no mês, `502` se o banco falhar.
-
-### `POST /generate`
-
-`application/json`: `{ packages: [{ header: {project_code, project_name, location_date, month_label, signer1_name/company, signer2_name/company}, groups: [{name, performance, activities: [{description, hours}] }], file_name? }], formats?: ["xlsx"|"pdf"] }` (default `["xlsx"]`)
-
-- `.xlsx` via `generator.py` (ZIP/XML do template, nunca `openpyxl.save()`); `.pdf` via `pdf_generator.py` (`reportlab`, A4 retrato, mesmos dados/totais que o `.xlsx`)
-- `len(packages)==1` e `len(formats)==1` → `200`, arquivo direto (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` ou `application/pdf`)
-- qualquer outra combinação → `200 application/zip` (`Relatórios_Horas.zip`, um arquivo por `(pacote, formato)`, dedup `arcname (n)`)
-- `NonFiniteValueError → 400`, template corrompido `→ 500`
-
-Validação `allow_inf_nan=False` evita `NaN/Infinity` virar `500`.
-
-### `POST /chat`
-
-`{ message: string, state: ChatState }` → `{ reply: string, state: ChatState }`. `ChatState` usa **camelCase**, diferente de `/generate` (`snake_case`) — proposital. Valida `len(packages)` não mudou senão `502`. `ChatConfigError→500`, `ChatUpstreamError→502`.
-
-### `GET /management/kpis`
-
-Query params: `months` (default 12), `year` (opcional, ano fechado), `cost_centers`/`clients`/`projects` (listas repetíveis), `force_refresh` (bool, ignora o cache de 15min). Requer gerente. → `{ months: [...], cost_centers, available_projects, available_clients }`.
-
-### `PUT /management/kpis/{month}`
-
-`{ billed_hours, elaboration_days }` (mês `AAAA-MM`) — grava os valores manuais de um mês. Requer gerente.
-
----
-
-## Frontend — pontos-chave
-
-- **`useReportStore.ts`**: `packages: WorkPackage[]` por `id` (não índice), `activePackageId`, `header: ReportHeader` (global), `undoStack: string[]` (JSON com `Set` serializado como `{__set:[...]}`), `isSplit/paneBPackageId`, drag state. `enableMapSet()` obrigatório para `Set` no immer. `Activity.extra` marca atividades criadas manualmente (independente do valor de `hours`, pra não sumir o campo editável no meio da digitação).
-- **`useAuthStore.ts`**: `user` (com `isManager`), `login`/`logout`/`checkSession` — chamado uma vez no boot do `App.tsx`.
-- **`useManagementStore.ts`**: dados e filtros do Painel de Gerência; carrega uma única vez ao abrir o painel (não recarrega ao trocar de volta pra "Geração de Relatório" e voltar), com guarda contra requisições concorrentes sobrepostas.
-- **Preview**: `PreviewSheet.tsx` renderiza folha sempre branca `#fff`/`#1a1a1a` (não usa tokens dark/light), inputs `pv-input` transparentes, updates pontuais via `textContent` (nunca `innerHTML` com foco).
-- **Tema**: script inline no `<head>` evita FOUC; `Header.tsx` troca `document.documentElement.dataset.theme` + `localStorage` + logo por tema; CSS vars `:root` / `:root[data-theme="light"]`.
-- **Cache HTTP**: `NoCacheStaticFiles` → `assets/*: immutable 1y`, resto `no-store`.
-
----
-
-## Scripts
-
-| Comando | Onde | O que faz |
-|---|---|---|
-| `pip install -r backend/requirements.txt` | root | instala backend |
-| `python -m uvicorn backend.app.main:app --reload --port 8011` | root | dev backend |
-| `npm --prefix frontend install` | root | instala frontend |
-| `npm --prefix frontend run dev` | root | Vite dev `:5173` |
-| `npm --prefix frontend run build` | root | `tsc -b && vite build` → `frontend/dist` |
-| `npx --prefix frontend tsc --noEmit` | root | checa tipos |
-
----
+O script faz `git pull origin main`, instala dependências, sobe `reports-mysql` via Docker e aplica `alembic upgrade head` (nunca reinicia o backend se a migration falhar), recompila o frontend e reinicia via NSSM quando `SERVICE_NAME` estiver configurado.
 
 ## Troubleshooting
 
-- **Porta ocupada**: troque `--port 8012` nos dois lugares (uvicorn + `vite.config.ts` proxy).
-- **Login falha com "Erro ao conectar no banco do Projectile"**: confira `PROJECTILE_DB_HOST/USER/NAME` no `.env` e se a senha foi salva no Credential Manager (`db_credentials.py`).
-- **Login lento na primeira tentativa depois do backend subir**: normal — é o custo de abrir a primeira conexão MySQL do processo; as próximas ficam rápidas (conexão reaproveitada). Se continuar lento sempre, o servidor do Projectile pode estar sob carga (fora do controle deste app).
-- **`403` no Painel de Gerência**: seu login não está em `MANAGEMENT_PANEL_LOGINS` (`backend/app/management.py`).
-- **Chat 500**: `ANTHROPIC_API_KEY` não configurada.
-- **Chat 502**: rede/proxy corporativo — `truststore.inject_into_ssl()` já usa o armazém de certificados do Windows; tente `Invoke-WebRequest` para testar conectividade.
-- **Geração com `Infinity`**: horas muito grandes que somadas estouram `float` viram `NonFiniteValueError → 400` (corrija horas).
-- **Logo sumida em prod**: `frontend/public/logo*.png` deve existir antes do `build` (`publicDir` do Vite).
+- **Login ou dados não conectam:** confira variáveis `PROJECTILE_DB_*`, senha no Credential Manager e acesso à rede interna.
+- **403 em páginas gerenciais:** o login não está em `MANAGEMENT_PANEL_LOGINS`; reinicie o backend após alterar `.env`.
+- **403 na tradução:** o login não está em `TRANSLATE_ALLOWED_LOGINS`.
+- **Chat/tradução 500:** `ANTHROPIC_API_KEY` ausente ou modelo inválido.
+- **E-mail 400/502:** confira variáveis Azure/Graph, permissões e Application Access Policy.
+- **Vite retorna 404 em uma tela interna:** veja a limitação de proxy descrita na seção Desenvolvimento.
+- **Logo ausente no build:** confirme os arquivos em `frontend/public/` antes de compilar.
+- **Template perde logo/desenhos:** não use `openpyxl.save()` na geração.
+- **`/generate` funciona mas nunca aparece `X-Report-Id` na resposta:** `reports-mysql` está fora do ar, `REPORTS_DB_ENABLED=false`, ou falta senha no keyring `reports_mysql` — isso é esperado ser silencioso (fail-open), não um erro; confira os logs do backend pra ver a causa.
+- **`alembic upgrade head` falha com "tabela já existe":** o schema já tem tabelas de uma tentativa anterior sem `alembic_version` atualizada — confira `SELECT * FROM alembic_version` no `reports_db` antes de rodar de novo.
 
----
+## Documentação adicional
 
-## Por que `generator.py` não usa `openpyxl.save()`
-
-`openpyxl` descarta `xl/drawings` e `xl/media`. Para preservar 100% (logo, caixas, fórmulas), `backend/app/generator.py` copia o `.xlsx` byte-a-byte e substitui só `xl/worksheets/sheet1.xml`, `xl/drawings/drawing1.xml`, `xl/workbook.xml`, limpando `calcChain.xml`.
+O arquivo [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) contém o plano arquitetural de longo prazo — histórico, auditoria formal, refatoração do backend, analytics. A Fundação e o primeiro "vertical slice" (persistência em `reports_db`) já estão implementados; o restante das fases descritas lá ainda é evolução futura.
