@@ -178,4 +178,38 @@ describe("useReportTabsStore", () => {
     const { useReportTabsStore } = await import("../useReportTabsStore");
     expect(useReportTabsStore.getState().tabs).toHaveLength(1);
   });
+
+  describe("pendingSave (indicador de alterações não salvas)", () => {
+    it("começa false, vira true numa edição e volta a false quando o autosave dispara", async () => {
+      vi.useFakeTimers();
+      try {
+        const { useReportTabsStore } = await import("../useReportTabsStore");
+        const { useReportStore } = await import("../useReportStore");
+        expect(useReportTabsStore.getState().pendingSave).toBe(false);
+
+        useReportStore.setState((s) => {
+          s.packages = [fakePackage()];
+        });
+        expect(useReportTabsStore.getState().pendingSave).toBe(true);
+
+        vi.advanceTimersByTime(600);
+        expect(useReportTabsStore.getState().pendingSave).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("switchTab/addTab/renameTab/closeTab já chamam persist() direto — limpam pendingSave na hora", async () => {
+      const { useReportTabsStore } = await import("../useReportTabsStore");
+      const { useReportStore } = await import("../useReportStore");
+
+      useReportStore.setState((s) => {
+        s.packages = [fakePackage()];
+      });
+      expect(useReportTabsStore.getState().pendingSave).toBe(true);
+
+      useReportTabsStore.getState().addTab();
+      expect(useReportTabsStore.getState().pendingSave).toBe(false);
+    });
+  });
 });

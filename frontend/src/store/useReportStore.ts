@@ -219,8 +219,7 @@ export interface StoreState {
   // remonta essa árvore inteira; um estado de componente resetaria sozinho a
   // cada volta, mas a store persiste. `true` por padrão (nada carregado
   // ainda); `setPackages` desliga sozinho ao carregar um relatório com
-  // sucesso; "Trocar arquivo" liga de novo via `setShowImportCard(true)` sem
-  // descartar o relatório atual (o usuário pode desistir da troca).
+  // sucesso; "Alterar dados" reinicia a guia via `resetForNewImport()`.
   showImportCard: boolean;
   // seleção feita dentro do card acima ("Fonte dos dados", "Por cliente",
   // cliente/projetos escolhidos, "Por pacote"/"Por projeto") — mesmo motivo
@@ -290,6 +289,7 @@ export interface StoreState {
   pushUndo: () => void;
   undo: () => void;
   resetParsedState: () => void;
+  resetForNewImport: () => void;
   addGroup: (packageId?: string) => void;
   removeGroup: (groupId: string, packageId?: string) => void;
   addActivity: (groupId: string, packageId?: string) => void;
@@ -596,6 +596,36 @@ export const useReportStore = create<StoreState>()(
         s.fileName = "";
         s.fileNameEdited = false;
         s.hasGeneratedOnce = false;
+        s.selectedByPane = { "0": new Set(), "1": new Set() };
+      }),
+    resetForNewImport: () =>
+      set((s) => {
+        const initialHeader = createInitialHeader();
+        s.packages = [];
+        s.showImportCard = true;
+        s.importSource = "file";
+        s.importByClient = false;
+        s.importSelectedClient = "";
+        s.importSelectedProjectIds = new Set();
+        s.importClientReportMode = "pacote";
+        s.importPeriodMode = "single";
+        s.importEndMonthLabel = initialHeader.monthLabel;
+        s.includePerformanceInExport = false;
+        s.activePackageId = null;
+        s.reportMode = "single";
+        s.currentIssues = [];
+        s.validationCollapsed = false;
+        s.previewZoom = 100;
+        s.isSplit = false;
+        s.paneBPackageId = null;
+        s.draggedPackageId = null;
+        s.draggedActivities = null;
+        s.draggedGroup = null;
+        s.hasGeneratedOnce = false;
+        s.header = initialHeader;
+        s.fileName = "";
+        s.fileNameEdited = false;
+        s.undoStack = [];
         s.selectedByPane = { "0": new Set(), "1": new Set() };
       }),
     addGroup: (packageId) =>

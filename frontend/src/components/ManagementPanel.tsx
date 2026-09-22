@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useState } from "react";
-import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus, Lock } from "lucide-react";
+import { Clock, FileText, DollarSign, RefreshCw, MailSearch, Check, Minus, Lock, LayoutDashboard } from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
 import { ClosedRegistryPopup } from "./ClosedRegistryPopup";
 import { EvolutionChart } from "./EvolutionChart";
 import { SortableTh } from "./SortableTh";
+import { PageHeader } from "./PageHeader";
 import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
 import { useManagementStore, round2 } from "../store/useManagementStore";
@@ -223,30 +224,42 @@ export function ManagementPanel() {
   // cedo — ver o comentário grande acima de `displayRows`.
   if (!rows) {
     return (
-      <div className="card management-panel">
-        <h2>Painel de Gerência</h2>
-        <p className={error ? "error-text" : "muted"}>{error || "Carregando..."}</p>
+      <div className="management-layout page-container" aria-busy={!error}>
+        <PageHeader
+          title="Painel de Gerência"
+          description="Acompanhe horas, performance e situação dos relatórios em um único lugar."
+          icon={<LayoutDashboard size={20} strokeWidth={1.8} />}
+        />
+        <div className="card management-panel page-state-card">
+          <p className={error ? "error-text" : "muted"}>{error || "Carregando indicadores..."}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="management-layout">
+    <div className="management-layout page-container">
+      <PageHeader
+        title="Painel de Gerência"
+        description="Acompanhe horas, performance e situação dos relatórios em um único lugar."
+        icon={<LayoutDashboard size={20} strokeWidth={1.8} />}
+        actions={
+          <>
+            <button type="button" className="btn-secondary" onClick={() => load(true, true)} disabled={refreshing}>
+              <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
+              {refreshing ? "Atualizando..." : "Atualizar"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleCheckEmails} disabled={checkingEmails}>
+              <MailSearch size={14} strokeWidth={2} className={checkingEmails ? "spin" : ""} />
+              {checkingEmails ? "Verificando..." : "Verificar enviados"}
+            </button>
+          </>
+        }
+        status={checkEmailsMessage ? <span className="muted">{checkEmailsMessage}</span> : undefined}
+      />
       <ManagementFilters />
       <div className="management-panel">
       {error && <div className="card"><p className="error-text">{error}</p></div>}
-
-      <div className="management-toolbar">
-        <button type="button" className="btn-secondary" onClick={() => load(true, true)} disabled={refreshing}>
-          <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
-          {refreshing ? "Atualizando..." : "Atualizar"}
-        </button>
-        <button type="button" className="btn-secondary" onClick={handleCheckEmails} disabled={checkingEmails}>
-          <MailSearch size={14} strokeWidth={2} className={checkingEmails ? "spin" : ""} />
-          {checkingEmails ? "Verificando..." : "Verificar relatórios enviados"}
-        </button>
-        {checkEmailsMessage && <span className="muted management-toolbar-message">{checkEmailsMessage}</span>}
-      </div>
 
       <div className="kpi-grid">
         <KpiCard

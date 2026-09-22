@@ -307,3 +307,41 @@ describe("applyTabBundle", () => {
     expect(state.packages[0].language).toBe("pt");
   });
 });
+
+describe("resetForNewImport", () => {
+  it("descarta o preview e volta o fluxo de seleção ao estado inicial", () => {
+    useReportStore.setState({
+      packages: [pkg("p1", [group("g1", [activity()])])],
+      activePackageId: "p1",
+      showImportCard: false,
+      importSource: "db",
+      importByClient: true,
+      importSelectedClient: "Cliente Aurora",
+      importSelectedProjectIds: new Set(["projeto-1"]),
+      importClientReportMode: "projeto",
+      importPeriodMode: "range",
+      importEndMonthLabel: "Dezembro/2026",
+      reportMode: "multi",
+      includePerformanceInExport: true,
+      fileName: "relatorio-antigo.xlsx",
+      fileNameEdited: true,
+    });
+
+    useReportStore.getState().resetForNewImport();
+
+    const state = useReportStore.getState();
+    expect(state.packages).toEqual([]);
+    expect(state.activePackageId).toBeNull();
+    expect(state.showImportCard).toBe(true);
+    expect(state.importSource).toBe("file");
+    expect(state.importByClient).toBe(false);
+    expect(state.importSelectedClient).toBe("");
+    expect(state.importSelectedProjectIds).toEqual(new Set());
+    expect(state.importClientReportMode).toBe("pacote");
+    expect(state.importPeriodMode).toBe("single");
+    expect(state.reportMode).toBe("single");
+    expect(state.includePerformanceInExport).toBe(false);
+    expect(state.fileName).toBe("");
+    expect(state.fileNameEdited).toBe(false);
+  });
+});

@@ -19,6 +19,10 @@ const PAD_RIGHT = 16;
 const PAD_TOP = 16;
 const PAD_BOTTOM = 28;
 
+export function sortEvolutionRows(rows: MonthRow[]): MonthRow[] {
+  return [...rows].sort((a, b) => a.month.localeCompare(b.month));
+}
+
 /** Quebra uma série em segmentos de polyline contíguos — um mês sem dado
  * (`null`, ex: billed_hours antes do 1º e-mail chegar, ou toda a série
  * quando o filtro de Pessoa está ativo) corta a linha em vez de interpolar
@@ -49,10 +53,12 @@ export function EvolutionChart({ rows }: Props) {
     );
   }
 
+  const orderedRows = sortEvolutionRows(rows);
+
   const series: Series[] = [
-    { key: "worked", label: "Trabalhado", color: "var(--accent)", values: rows.map((r) => r.worked_hours) },
-    { key: "billed", label: "Faturado", color: "var(--ok)", values: rows.map((r) => r.billed_hours) },
-    { key: "delta", label: "Delta (Performance)", color: "var(--warn)", values: rows.map((r) => r.perf_hours) },
+    { key: "worked", label: "Trabalhado", color: "var(--accent)", values: orderedRows.map((r) => r.worked_hours) },
+    { key: "billed", label: "Faturado", color: "var(--ok)", values: orderedRows.map((r) => r.billed_hours) },
+    { key: "delta", label: "Delta (Performance)", color: "var(--warn)", values: orderedRows.map((r) => r.perf_hours) },
   ];
 
   const allValues = series.flatMap((s) => s.values).filter((v): v is number => v !== null);
@@ -69,7 +75,7 @@ export function EvolutionChart({ rows }: Props) {
 
   const plotWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
-  const xFor = (i: number) => (rows.length === 1 ? PAD_LEFT + plotWidth / 2 : PAD_LEFT + (i / (rows.length - 1)) * plotWidth);
+  const xFor = (i: number) => (orderedRows.length === 1 ? PAD_LEFT + plotWidth / 2 : PAD_LEFT + (i / (orderedRows.length - 1)) * plotWidth);
   const yFor = (v: number) => PAD_TOP + plotHeight - ((v - yMin) / (yMax - yMin)) * plotHeight;
   const zeroY = yFor(0);
 
@@ -79,7 +85,7 @@ export function EvolutionChart({ rows }: Props) {
         {/* linha de base em 0 — destacada porque o Delta pode ficar negativo */}
         <line x1={PAD_LEFT} y1={zeroY} x2={WIDTH - PAD_RIGHT} y2={zeroY} className="evolution-chart-zero-line" />
 
-        {rows.map((r, i) => (
+        {orderedRows.map((r, i) => (
           <text key={r.month} x={xFor(i)} y={HEIGHT - 8} textAnchor="middle" className="evolution-chart-axis-label">
             {r.month}
           </text>
@@ -105,7 +111,7 @@ export function EvolutionChart({ rows }: Props) {
               {points.map((p, i) =>
                 p === null ? null : (
                   <circle key={i} cx={p.x} cy={p.y} r={3.25} fill={s.color} className="evolution-chart-point">
-                    <title>{`${rows[i].month} — ${s.label}: ${fmtNum(s.values[i] as number)}h`}</title>
+                    <title>{`${orderedRows[i].month} — ${s.label}: ${fmtNum(s.values[i] as number)}h`}</title>
                   </circle>
                 )
               )}

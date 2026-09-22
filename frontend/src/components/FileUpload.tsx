@@ -1,10 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Database, FileSpreadsheet, Upload } from "lucide-react";
+import {
+  Archive,
+  Calendar,
+  CalendarRange,
+  ChevronDown,
+  Database,
+  FileSpreadsheet,
+  FileText,
+  GitBranch,
+  Plus,
+  Search,
+  ShieldCheck,
+  Upload,
+  User,
+} from "lucide-react";
 import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { buildPeriodLabel, lastClosedMonthsRange } from "../utils/period";
+import { buildPeriodLabel, getReportYearOptions, parsePeriodLabelForControls } from "../utils/period";
+import { getReportImportActionState } from "../utils/reportImport";
+import { StepCard } from "./StepCard";
+import { RadioCardGroup } from "./RadioCard";
 import type { ParseResponse } from "../api/types";
 
 function ClientDropdown({
@@ -45,7 +62,13 @@ function ClientDropdown({
 
   return (
     <div className="month-dropdown client-dropdown" ref={wrapRef}>
-      <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="month-dropdown-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
         <span className="client-dropdown-trigger-label" title={value}>{value || "Selecione um cliente"}</span>
         <ChevronDown size={16} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
@@ -70,6 +93,8 @@ function ClientDropdown({
               <li key={c}>
                 <button
                   type="button"
+                  role="option"
+                  aria-selected={c === value}
                   className={`month-dropdown-option ${c === value ? "active" : ""}`}
                   onClick={() => {
                     onChange(c);
@@ -112,14 +137,11 @@ function ProjectMultiSelect({
       setProjects([]);
       return;
     }
+    onChange(new Set());
     setLoading(true);
     fetch(`/management/client-projects?client=${encodeURIComponent(client)}&month_label=${encodeURIComponent(monthLabel)}`)
       .then((res) => (res.ok ? res.json() : { projects: [] }))
-      .then((data: { projects: ClientProject[] }) => {
-        const list = data.projects || [];
-        setProjects(list);
-        onChange(new Set(list.map((p) => p.id)));
-      })
+      .then((data: { projects: ClientProject[] }) => setProjects(data.projects || []))
       .catch(() => setProjects([]))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,20 +159,9 @@ function ProjectMultiSelect({
   if (projects.length === 0) return <p className="db-search-hint">Esse cliente não tem projetos com horas nesse mês.</p>;
 
   return (
-    <div className="client-projects-select">
-      <div className="client-projects-select-head">
-        <span className="mgmt-filter-label">Projetos ({selected.size}/{projects.length})</span>
-        <span className="client-projects-select-actions">
-          <button type="button" className="client-projects-select-all" onClick={() => onChange(new Set(projects.map((p) => p.id)))}>
-            Selecionar todos
-          </button>
-          <button type="button" className="client-projects-select-all" onClick={() => onChange(new Set())}>
-            Desmarcar todos
-          </button>
-        </span>
-      </div>
+    <div className="client-projects-select" role="group" aria-label="Projetos do cliente">
       {projects.map((p) => (
-        <label key={p.id} className="send-report-package-option">
+        <label key={p.id} className={`client-project-option ${selected.has(p.id) ? "active" : ""}`}>
           <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
           <span>{displayProjectName(p)}</span>
         </label>
@@ -159,68 +170,27 @@ function ProjectMultiSelect({
   );
 }
 
-function MonthDropdown({ value, onChange }: { value: string; onChange: (m: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useClickOutside(wrapRef, () => setOpen(false), open);
-
+function PeriodSelect({
+  value,
+  label,
+  options,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
   return (
-    <div className="month-dropdown" ref={wrapRef}>
-      <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
-        {value}
-        <ChevronDown size={16} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
-      </button>
-      {open && (
-        <ul className="month-dropdown-list" role="listbox">
-          {MESES_PT.map((m) => (
-            <li key={m}>
-              <button
-                type="button"
-                className={`month-dropdown-option ${m === value ? "active" : ""}`}
-                onClick={() => {
-                  onChange(m);
-                  setOpen(false);
-                }}
-              >
-                {m}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <select
+      className="period-select"
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((option) => <option key={option} value={option}>{option}</option>)}
+    </select>
   );
-}
-
-function YearStepper({ value, onChange }: { value: string; onChange: (y: string) => void }) {
-  const num = parseInt(value, 10) || new Date().getFullYear();
-  return (
-    <div className="year-stepper">
-      <input
-        type="text"
-        inputMode="numeric"
-        className="year-stepper-input"
-        value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
-      />
-      <div className="year-stepper-buttons">
-        <button type="button" aria-label="Ano seguinte" onClick={() => onChange(String(num + 1))}>
-          <ChevronUp size={12} strokeWidth={2.5} />
-        </button>
-        <button type="button" aria-label="Ano anterior" onClick={() => onChange(String(num - 1))}>
-          <ChevronDown size={12} strokeWidth={2.5} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function parseMonthLabel(label: string): { month: string; year: string } {
-  const match = /^([^/]+)\/(\d{4})$/.exec(label || "");
-  if (!match) return { month: MESES_PT[0], year: String(new Date().getFullYear()) };
-  const found = MESES_PT.find((m) => m.toLowerCase() === match[1].trim().toLowerCase());
-  return { month: found || MESES_PT[0], year: match[2] };
 }
 
 /** Seletor de "Mês único"/"Período" da busca "Buscar do Projectile" —
@@ -230,9 +200,8 @@ function parseMonthLabel(label: string): { month: string; year: string } {
  * desta feature); o mês final (só usado em modo "Período") é
  * `importEndMonthLabel`, novo campo por guia (mesmo motivo dos outros
  * campos de import já viverem na store, ver comentário acima deles).
- * Não renderiza o `.db-search-date-block` em volta — quem chama decide
- * (o modo "Por cliente" precisa do mesmo bloco envolvendo período+cliente
- * juntos; o modo "Meu usuário" usa um bloco só pra período). */
+ * Não renderiza nenhum wrapper em volta — quem chama decide o card/bloco
+ * que envolve (StepCard "Selecionar período" no fluxo de reforma da UI). */
 function PeriodPicker() {
   const monthLabel = useReportStore((s) => s.header.monthLabel);
   const setHeaderField = useReportStore((s) => s.setHeaderField);
@@ -241,56 +210,55 @@ function PeriodPicker() {
   const endMonthLabel = useReportStore((s) => s.importEndMonthLabel);
   const setEndMonthLabel = useReportStore((s) => s.setImportEndMonthLabel);
 
-  const { month: startMonth, year: startYear } = parseMonthLabel(monthLabel);
-  const { month: endMonth, year: endYear } = parseMonthLabel(endMonthLabel);
+  const { startMonth, startYear, endMonth } = parsePeriodLabelForControls(monthLabel, endMonthLabel);
+  const yearOptions = getReportYearOptions();
 
-  const applyRange = (sMonth: string, sYear: string, eMonth: string, eYear: string) => {
-    setHeaderField("monthLabel", buildPeriodLabel(sMonth, sYear, eMonth, eYear));
-    setEndMonthLabel(`${eMonth}/${eYear}`);
-  };
-
-  const applyLastClosedMonths = (n: number) => {
-    const r = lastClosedMonthsRange(n);
-    setPeriodMode("range");
-    applyRange(r.startMonth, r.startYear, r.endMonth, r.endYear);
+  const applyRange = (sMonth: string, year: string, eMonth: string) => {
+    setHeaderField("monthLabel", buildPeriodLabel(sMonth, year, eMonth, year));
+    setEndMonthLabel(`${eMonth}/${year}`);
   };
 
   return (
     <>
-      <div className="source-switch source-switch-small">
-        <div className={`source-switch-indicator ${periodMode === "range" ? "right" : ""}`} aria-hidden="true" />
-        <button type="button" className={`source-switch-option ${periodMode === "single" ? "active" : ""}`} onClick={() => setPeriodMode("single")}>
-          Mês único
-        </button>
-        <button type="button" className={`source-switch-option ${periodMode === "range" ? "active" : ""}`} onClick={() => setPeriodMode("range")}>
-          Período
-        </button>
-      </div>
+      <RadioCardGroup
+        name="import-period-mode"
+        ariaLabel="Quantidade de meses"
+        value={periodMode}
+        onChange={(value) => setPeriodMode(value as "single" | "range")}
+        layout="horizontal"
+        density="compact"
+        options={[
+          { value: "single", icon: <Calendar size={18} strokeWidth={1.8} />, title: "Mês único" },
+          { value: "range", icon: <CalendarRange size={18} strokeWidth={1.8} />, title: "Múltiplos meses" },
+        ]}
+      />
 
       {periodMode === "single" ? (
-        <>
-          <label className="db-search-label">Mês de referência</label>
-          <div className="db-search-month-row">
-            <MonthDropdown value={startMonth} onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)} />
-            <YearStepper value={startYear} onChange={(y) => setHeaderField("monthLabel", `${startMonth}/${y}`)} />
+        <div className="period-fields period-fields-single">
+          <div className="period-field">
+            <label className="db-search-label">Mês</label>
+            <PeriodSelect value={startMonth} label="Mês" options={MESES_PT} onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)} />
           </div>
-        </>
+          <div className="period-field">
+            <label className="db-search-label">Ano</label>
+            <PeriodSelect value={startYear} label="Ano" options={yearOptions} onChange={(y) => setHeaderField("monthLabel", `${startMonth}/${y}`)} />
+          </div>
+        </div>
       ) : (
-        <>
-          <label className="db-search-label">De</label>
-          <div className="db-search-month-row">
-            <MonthDropdown value={startMonth} onChange={(m) => applyRange(m, startYear, endMonth, endYear)} />
-            <YearStepper value={startYear} onChange={(y) => applyRange(startMonth, y, endMonth, endYear)} />
+        <div className="period-fields period-fields-range">
+          <div className="period-field">
+            <label className="db-search-label">Mês inicial</label>
+            <PeriodSelect value={startMonth} label="Mês inicial" options={MESES_PT} onChange={(m) => applyRange(m, startYear, endMonth)} />
           </div>
-          <label className="db-search-label" style={{ marginTop: 8 }}>Até</label>
-          <div className="db-search-month-row">
-            <MonthDropdown value={endMonth} onChange={(m) => applyRange(startMonth, startYear, m, endYear)} />
-            <YearStepper value={endYear} onChange={(y) => applyRange(startMonth, startYear, endMonth, y)} />
+          <div className="period-field">
+            <label className="db-search-label">Mês final</label>
+            <PeriodSelect value={endMonth} label="Mês final" options={MESES_PT} onChange={(m) => applyRange(startMonth, startYear, m)} />
           </div>
-          <button type="button" className="period-shortcut-btn" onClick={() => applyLastClosedMonths(3)}>
-            Últimos 3 meses
-          </button>
-        </>
+          <div className="period-field period-field-year">
+            <label className="db-search-label">Ano</label>
+            <PeriodSelect value={startYear} label="Ano" options={yearOptions} onChange={(y) => applyRange(startMonth, y, endMonth)} />
+          </div>
+        </div>
       )}
     </>
   );
@@ -318,6 +286,7 @@ export function FileUpload() {
   };
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [searching, setSearching] = useState(false);
   const isManager = useAuthStore((s) => s.user?.isManager);
   const reportMode = useReportStore((s) => s.reportMode);
@@ -354,12 +323,11 @@ export function FileUpload() {
   useEffect(() => {
     setSelectedFile(null);
     setDragging(false);
+    setParsing(false);
     setSearching(false);
     setStatus("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabId]);
-
-  const importPeriodMode = useReportStore((s) => s.importPeriodMode);
 
   const applyFile = (file: File | null) => {
     setSelectedFile(file);
@@ -445,6 +413,7 @@ export function FileUpload() {
       setStatus("Escolha um arquivo .xlsx primeiro.");
       return;
     }
+    setParsing(true);
     setStatus("Analisando...");
     const formData = new FormData();
     formData.append("file", selectedFile);
@@ -457,6 +426,8 @@ export function FileUpload() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus("Erro ao analisar: " + msg, true);
+    } finally {
+      setParsing(false);
     }
   };
 
@@ -518,114 +489,213 @@ export function FileUpload() {
     }
   };
 
+  // Etapa 03 ("Como organizar") sempre existe; Etapa 02 ("Quais dados
+  // deseja buscar") só existe no fluxo Projectile E pra quem é gerente —
+  // os números dos cards seguintes precisam se ajustar conforme ela existe
+  // ou não (3 cards no total pra quem não é gerente, mesmo em Projectile).
+  const showSourceStep2 = source === "db" && isManager;
+  const organizeStepNumber = showSourceStep2 ? 3 : 2;
+  const periodStepNumber = showSourceStep2 ? 4 : 3;
+  const flowDescription =
+    source === "file"
+      ? "Fluxo de arquivo local selecionado — 3 etapas."
+      : `Fluxo Buscar no Projectile selecionado — ${showSourceStep2 ? "4" : "3"} etapas.`;
+  const actionState = getReportImportActionState({
+    source,
+    hasFile: Boolean(selectedFile),
+    busy: source === "file" ? parsing : searching,
+    byClient,
+    hasClient: Boolean(selectedClient),
+    selectedProjectCount: selectedProjectIds.size,
+  });
+
   return (
     <>
-      <div className={`card upload-card ${showImportCard ? "visible" : ""}`} id="step1">
-        <div className="upload-header">
-          <span className="upload-doc-id">Projectile → Relatório</span>
-          <span className="upload-header-rule" aria-hidden="true" />
-        </div>
-        <h2 className="upload-title">Importe a planilha de horas</h2>
+      <div className={`steps-wrap ${showImportCard ? "visible" : ""}`} id="step1">
+        <p className="sr-only" aria-live="polite">{flowDescription}</p>
 
-        {!(source === "db" && byClient) && (
-          <div className="format-grid">
-            <button
-              type="button"
-              className={`format-card ${reportMode === "single" ? "active" : ""}`}
-              onClick={() => setMode("single")}
-            >
-              <span className="format-tag">1 DOC</span>
-              <span className="format-title">Relatório único</span>
-              <span className="format-desc">Todas as linhas viram um único relatório.</span>
-            </button>
-            <button
-              type="button"
-              className={`format-card ${reportMode === "multi" ? "active" : ""}`}
-              onClick={() => setMode("multi")}
-            >
-              <span className="format-tag">N DOCS</span>
-              <span className="format-title">Múltiplos relatórios</span>
-              <span className="format-desc">Um relatório por Pacote de Trabalho.</span>
-            </button>
-          </div>
-        )}
+        <div className="step-cards-row">
+          <StepCard
+            number={1}
+            title="De onde vêm os dados?"
+            description="Escolha um arquivo local ou conecte-se diretamente ao Projectile."
+          >
+            <RadioCardGroup
+              name="import-source"
+              ariaLabel="De onde vêm os dados?"
+              value={source}
+              onChange={(v) => setSource(v as "file" | "db")}
+              options={[
+                {
+                  value: "db",
+                  icon: <Database size={18} strokeWidth={1.8} />,
+                  title: "Buscar no Projectile",
+                  description: "Importe os dados diretamente do sistema.",
+                },
+                {
+                  value: "file",
+                  icon: <Upload size={18} strokeWidth={1.8} />,
+                  title: "Arquivo do computador",
+                  description: "Envie a planilha exportada em formato XLSX.",
+                },
+              ]}
+            />
+          </StepCard>
 
-        <p className="source-switch-eyebrow">Fonte dos dados</p>
-        <div className="source-switch">
-          <div className={`source-switch-indicator ${source === "db" ? "right" : ""}`} aria-hidden="true" />
-          <button type="button" className={`source-switch-option ${source === "file" ? "active" : ""}`} onClick={() => setSource("file")}>
-            <Upload size={17} strokeWidth={2} />
-            Enviar arquivo
-          </button>
-          <button type="button" className={`source-switch-option ${source === "db" ? "active" : ""}`} onClick={() => setSource("db")}>
-            <Database size={17} strokeWidth={2} />
-            Buscar do Projectile
-          </button>
-        </div>
+          {source === "file" ? (
+            <>
+              <StepCard
+                number={2}
+                title="Selecione a planilha"
+                description="Arraste o arquivo .xlsx aqui ou selecione no computador, até 25 MB."
+              >
+                <div
+                  className={`dropzone ${dragging ? "dragging" : ""} ${selectedFile ? "has-file" : ""}`.trim()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragging(true);
+                  }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={onDrop}
+                >
+                  {selectedFile ? (
+                    <>
+                      <div className="file-chip">
+                        <span className="file-chip-icon" aria-hidden="true">
+                          <FileSpreadsheet size={16} strokeWidth={1.8} />
+                        </span>
+                        <span className="file-chip-meta">
+                          <span className="file-chip-name" title={selectedFile.name}>{selectedFile.name}</span>
+                          <span className="file-chip-size">{formatFileSize(selectedFile.size)}</span>
+                        </span>
+                      </div>
+                      <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" onClick={clearFile}>
+                        <span>×</span> Remover
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="dropzone-hint">Arraste o arquivo para cá ou selecione no computador</span>
+                      <span className="dropzone-subhint">.xlsx exportado do Projectile, até 25 MB</span>
+                    </>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    title="Selecione o .xlsx exportado do Projectile para o mês/projeto."
+                    onChange={onFileInputChange}
+                    style={{ display: selectedFile ? "none" : "block" }}
+                  />
+                </div>
+              </StepCard>
 
-        {source === "file" ? (
-          <>
-            <div
-              className={`dropzone ${dragging ? "dragging" : ""} ${selectedFile ? "has-file" : ""}`.trim()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-            >
-              {selectedFile ? (
-                <>
-                  <div className="file-chip">
-                    <span className="file-chip-icon" aria-hidden="true">
-                      <FileSpreadsheet size={16} strokeWidth={1.8} />
-                    </span>
-                    <span className="file-chip-meta">
-                      <span className="file-chip-name" title={selectedFile.name}>{selectedFile.name}</span>
-                      <span className="file-chip-size">{formatFileSize(selectedFile.size)}</span>
-                    </span>
-                  </div>
-                  <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" onClick={clearFile}>
-                    <span>×</span> Remover
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="dropzone-hint">Solte o .xlsx aqui</span>
-                  <span className="dropzone-subhint">ou clique pra escolher o arquivo exportado do Projectile</span>
-                </>
+              <StepCard
+                number={3}
+                title="Como deseja organizar o relatório?"
+                description="Você poderá revisar o agrupamento antes de gerar o documento."
+              >
+                <RadioCardGroup
+                  name="file-report-organization"
+                  ariaLabel="Organização do relatório"
+                  value={reportMode}
+                  onChange={(value) => setMode(value as "single" | "multi")}
+                  options={[
+                    { value: "single", icon: <FileText size={18} strokeWidth={1.8} />, title: "Relatório consolidado", description: "Todas as linhas em um único documento." },
+                    { value: "multi", icon: <Archive size={18} strokeWidth={1.8} />, title: "Um relatório por pacote", description: "Cria um documento para cada pacote de trabalho." },
+                  ]}
+                />
+              </StepCard>
+            </>
+          ) : (
+            <>
+              {showSourceStep2 && (
+                <StepCard
+                  number={2}
+                  title="Quais dados deseja buscar?"
+                  description="Use seus próprios registros ou localize um cliente."
+                >
+                  <RadioCardGroup
+                    name="import-by-client"
+                    ariaLabel="Quais dados deseja buscar?"
+                    value={byClient ? "client" : "self"}
+                    onChange={(v) => setByClient(v === "client")}
+                    options={[
+                      {
+                        value: "self",
+                        icon: <User size={18} strokeWidth={1.8} />,
+                        title: "Meu usuário",
+                        description: "Usar os registros vinculados ao seu perfil.",
+                      },
+                      {
+                        value: "client",
+                        icon: (
+                          <span className="search-plus-icon">
+                            <Search size={18} strokeWidth={1.8} />
+                            <Plus className="search-plus-icon-mark" size={9} strokeWidth={2.4} />
+                          </span>
+                        ),
+                        title: "Buscar cliente",
+                        description: "Localizar um cliente ou projeto no Projectile.",
+                      },
+                    ]}
+                  />
+                </StepCard>
               )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx"
-                title="Selecione o .xlsx exportado do Projectile para o mês/projeto."
-                onChange={onFileInputChange}
-                style={{ display: selectedFile ? "none" : "block" }}
-              />
-            </div>
 
-            <button className="primary" onClick={handleParse}>Analisar planilha</button>
-          </>
-        ) : (
-          <>
-            {isManager && (
-              <div className="source-switch source-switch-small">
-                <div className={`source-switch-indicator ${byClient ? "right" : ""}`} aria-hidden="true" />
-                <button type="button" className={`source-switch-option ${!byClient ? "active" : ""}`} onClick={() => setByClient(false)}>
-                  Meu usuário
-                </button>
-                <button type="button" className={`source-switch-option ${byClient ? "active" : ""}`} onClick={() => setByClient(true)}>
-                  Por cliente
-                </button>
-              </div>
-            )}
+              <StepCard
+                number={organizeStepNumber}
+                title="Como deseja organizar o relatório?"
+                description="Você poderá revisar o agrupamento antes de gerar o documento."
+              >
+                {byClient ? (
+                  <RadioCardGroup
+                    name="client-report-organization"
+                    ariaLabel="Organização do relatório"
+                    value={clientReportMode}
+                    onChange={(value) => setClientReportMode(value as "pacote" | "projeto")}
+                    options={[
+                      { value: "pacote", icon: <Archive size={18} strokeWidth={1.8} />, title: "Um relatório por pacote", description: "Cria um documento para cada pacote de trabalho." },
+                      { value: "projeto", icon: <FileText size={18} strokeWidth={1.8} />, title: "Um relatório por projeto", description: "Agrupa os pacotes de trabalho em um documento por projeto." },
+                    ]}
+                  />
+                ) : (
+                  <RadioCardGroup
+                    name="projectile-report-organization"
+                    ariaLabel="Organização do relatório"
+                    value={reportMode}
+                    onChange={(value) => setMode(value as "single" | "multi")}
+                    options={[
+                      { value: "single", icon: <FileText size={18} strokeWidth={1.8} />, title: "Relatório consolidado", description: "Todas as linhas em um único documento." },
+                      { value: "multi", icon: <Archive size={18} strokeWidth={1.8} />, title: "Um relatório por pacote", description: "Cria um documento para cada pacote de trabalho." },
+                    ]}
+                  />
+                )}
+              </StepCard>
 
-            {byClient ? (
-              <div className="db-search-date-block">
+              <StepCard
+                number={periodStepNumber}
+                title="Selecionar período"
+                description="Defina o mês e o ano dos dados do Projectile."
+              >
                 <PeriodPicker />
+              </StepCard>
+            </>
+          )}
+        </div>
 
-                <label className="db-search-label" style={{ marginTop: 10 }}>Cliente</label>
+        {source === "db" && byClient && (
+          <div className="step-card client-projects-panel">
+            <div className="step-card-head-plain client-projects-panel-head">
+              <span className="step-card-badge" aria-hidden="true"><GitBranch size={15} strokeWidth={2} /></span>
+              <div>
+                <h2>Selecionar cliente e projetos</h2>
+                <p>Escolha um cliente e marque um ou mais projetos associados.</p>
+              </div>
+            </div>
+            <div className="client-projects-columns">
+              <div className="client-projects-col">
+                <label className="db-search-label">Selecionar cliente</label>
                 <ClientDropdown
                   value={selectedClient}
                   monthLabel={monthLabel}
@@ -634,58 +704,46 @@ export function FileUpload() {
                     setSelectedProjectIds(new Set());
                   }}
                 />
-
-                <ProjectMultiSelect
-                  client={selectedClient}
-                  monthLabel={monthLabel}
-                  selected={selectedProjectIds}
-                  onChange={setSelectedProjectIds}
-                />
-
-                {selectedClient && (
-                  <div className="format-grid client-report-mode-grid">
-                    <button
-                      type="button"
-                      className={`format-card ${clientReportMode === "pacote" ? "active" : ""}`}
-                      onClick={() => setClientReportMode("pacote")}
-                    >
-                      <span className="format-tag">N DOCS</span>
-                      <span className="format-title">Por pacote de trabalho</span>
-                      <span className="format-desc">Um relatório por Pacote de Trabalho.</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-card ${clientReportMode === "projeto" ? "active" : ""}`}
-                      onClick={() => setClientReportMode("projeto")}
-                    >
-                      <span className="format-tag">N DOCS</span>
-                      <span className="format-title">Por projeto</span>
-                      <span className="format-desc">Um relatório por projeto, com os grupos divididos por Pacote de Trabalho.</span>
-                    </button>
-                  </div>
+              </div>
+              <div className="client-projects-col">
+                <label className="db-search-label">Selecionar projeto</label>
+                {selectedClient ? (
+                  <ProjectMultiSelect
+                    client={selectedClient}
+                    monthLabel={monthLabel}
+                    selected={selectedProjectIds}
+                    onChange={setSelectedProjectIds}
+                  />
+                ) : (
+                  <p className="db-search-hint">Escolha um cliente pra ver os projetos disponíveis.</p>
                 )}
-
-                <p className="db-search-hint">
-                  Busca as horas dos projetos escolhidos {importPeriodMode === "range" ? "no período selecionado" : "nesse mês"}, zipando um relatório por{" "}
-                  {clientReportMode === "pacote" ? "pacote de trabalho" : "projeto"}.
-                </p>
               </div>
-            ) : (
-              <div className="db-search-date-block">
-                <PeriodPicker />
-                <p className="db-search-hint">
-                  Busca as horas apontadas pelo seu usuário do Projectile {importPeriodMode === "range" ? "no período selecionado" : "nesse mês"}.
-                </p>
-              </div>
-            )}
-
-            <button className="primary" onClick={byClient ? handleSearchByClient : handleSearchDb} disabled={searching}>
-              {searching ? "Buscando..." : "Buscar horas"}
-            </button>
-          </>
+            </div>
+          </div>
         )}
 
-        <p className={statusIsError ? "error-text" : "muted"}>{status}</p>
+        <div className="action-bar">
+          <span className="action-bar-info">
+            <ShieldCheck size={16} strokeWidth={1.8} aria-hidden="true" />
+            Seus dados são processados com segurança.
+          </span>
+          <button
+            type="button"
+            className="primary"
+            onClick={source === "file" ? handleParse : (byClient ? handleSearchByClient : handleSearchDb)}
+            disabled={actionState.disabled}
+          >
+            {actionState.label}
+          </button>
+        </div>
+
+        <p
+          className={`import-status ${statusIsError ? "error-text" : "muted"}`}
+          role={statusIsError ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {status}
+        </p>
       </div>
     </>
   );

@@ -21,6 +21,12 @@ interface ReportTabsState {
   tabs: ReportTabMeta[];
   activeTabId: string;
   bundles: Record<string, string>;
+  // true entre uma edição e o próximo flush pro localStorage (janela do
+  // debounce de `scheduleAutosave`) — alimenta o indicador "●" de
+  // alterações não salvas na sidebar. Só existe pra UI: a guia ativa é a
+  // única que pode estar "suja" (trocar de guia já força um `persist()`
+  // síncrono antes de carregar a outra, ver `switchTab`).
+  pendingSave: boolean;
 
   addTab: () => void;
   closeTab: (id: string) => void;
@@ -33,6 +39,7 @@ let suppressAutosave = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleAutosave() {
+  useReportTabsStore.setState({ pendingSave: true });
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => useReportTabsStore.getState().persist(), AUTOSAVE_DEBOUNCE_MS);
 }
@@ -96,6 +103,7 @@ export const useReportTabsStore = create<ReportTabsState>()(
     tabs: [{ id: DEFAULT_TAB_ID, label: "Guia 1", labelEdited: false }],
     activeTabId: DEFAULT_TAB_ID,
     bundles: { [DEFAULT_TAB_ID]: blankTabBundle() },
+    pendingSave: false,
 
     addTab: () => {
       const currentBundle = serializeTabBundle(useReportStore.getState());
@@ -172,11 +180,12 @@ export const useReportTabsStore = create<ReportTabsState>()(
           STORAGE_KEY,
           JSON.stringify({ version: 1, activeTabId: s.activeTabId, tabs: s.tabs, bundles: bundlesForDisk })
         );
-        set({ bundles });
+        set({ bundles, pendingSave: false });
       } catch {
         // localStorage indisponível (modo privado) ou cheio (cota
         // estourada) — não pode derrubar o que o usuário está digitando;
         // só esse ciclo de autosave falha, o próximo debounce tenta de novo.
+        set({ pendingSave: false });
       }
     },
   }))

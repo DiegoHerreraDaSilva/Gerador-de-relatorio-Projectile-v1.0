@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Trash2, Pencil, Check, X, ChevronDown, RefreshCw } from "lucide-react";
+import { Trash2, Pencil, Check, X, ChevronDown, RefreshCw, Stethoscope } from "lucide-react";
 import { ExtraHoursInput } from "./ExtraHoursInput";
 import { ManagementFilters } from "./ManagementFilters";
 import { SortableTh } from "./SortableTh";
+import { PageHeader } from "./PageHeader";
 import { useManagementStore } from "../store/useManagementStore";
 import { useDiagnosticsStore, type Sample, type Project, type SkippedMessage } from "../store/useDiagnosticsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
@@ -436,7 +437,12 @@ export function DiagnosticsPanel() {
   };
 
   return (
-    <div className="diagnostics-panel">
+    <div className="diagnostics-panel page-container">
+      <PageHeader
+        title="Diagnóstico de relatórios"
+        description="Revise amostras de faturamento e identifique mensagens que precisam de atenção."
+        icon={<Stethoscope size={20} strokeWidth={1.8} />}
+      />
       <ManagementFilters showCostCenter={false} showPackage={false} />
 
       {error && <div className="card"><p className="error-text">{error}</p></div>}
@@ -449,14 +455,20 @@ export function DiagnosticsPanel() {
               <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
               {refreshing ? "Atualizando..." : "Atualizar"}
             </button>
-            <button type="button" className="primary" onClick={() => setShowCreate((v) => !v)}>
+            <button
+              type="button"
+              className="primary"
+              aria-expanded={showCreate}
+              aria-controls="diagnostics-create-form"
+              onClick={() => setShowCreate((v) => !v)}
+            >
               Adicionar manualmente
             </button>
           </div>
         </div>
 
         {showCreate && (
-          <div className="diagnostics-create-fields">
+          <div className="diagnostics-create-fields" id="diagnostics-create-form">
             <ProjectSelect projects={filteredProjects} value={createProjectId} onChange={setCreateProjectId} />
             <MonthSelect value={createMonth} onChange={setCreateMonth} />
             <ExtraHoursInput className="kpi-input" placeholder="Horas" value={createBilled} onCommit={setCreateBilled} />
@@ -470,6 +482,7 @@ export function DiagnosticsPanel() {
         {!refreshing && (
           <div className="kpi-table-wrap diagnostics-table-wrap">
             <table className="kpi-table">
+              <caption className="sr-only">Amostras de faturamento por cliente, projeto e competência</caption>
               <thead>
                 <tr>
                   <SortableTh sortKey="client" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Cliente</SortableTh>
@@ -567,6 +580,7 @@ export function DiagnosticsPanel() {
         <h3>E-mails não processados</h3>
         <div className="kpi-table-wrap diagnostics-table-wrap">
           <table className="kpi-table">
+            <caption className="sr-only">E-mails que não puderam ser processados</caption>
             <thead>
               <tr>
                 <SortableTh sortKey="date" activeKey={skippedSort.sortKey} direction={skippedSort.direction} onSort={skippedSort.toggleSort}>Data</SortableTh>

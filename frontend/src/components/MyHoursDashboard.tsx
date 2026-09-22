@@ -107,7 +107,7 @@ export function MyHoursDashboard() {
   // ---- estados de página ----
   if (!s.loaded && s.error) {
     return (
-      <div className="myh-page">
+      <div className="myh-page page-container">
         <MyHoursHeader s={s} />
         <div className="myh-card myh-card--error" role="alert">
           <p className="error-text">
@@ -123,7 +123,7 @@ export function MyHoursDashboard() {
 
   if (!s.loaded) {
     return (
-      <div className="myh-page" aria-busy="true">
+      <div className="myh-page page-container" aria-busy="true">
         <MyHoursHeader s={s} />
         <p className="sr-only" aria-live="polite">Carregando suas horas</p>
         <MyHoursSkeleton />
@@ -135,7 +135,7 @@ export function MyHoursDashboard() {
   const emptyFiltered = !empty && filteredEntries.length === 0;
 
   return (
-    <div className="myh-page">
+    <div className="myh-page page-container">
       <MyHoursHeader s={s} />
 
       {s.error && (
