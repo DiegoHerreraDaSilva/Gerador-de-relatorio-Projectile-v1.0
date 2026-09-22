@@ -53,7 +53,7 @@ def reports_db_engine(monkeypatch):
 
     from backend.app.core.config import get_settings
     from backend.app.db.reports_schema import metadata
-    from backend.app.services import report_persistence
+    from backend.app.services import audit, report_persistence, report_queries
 
     settings = get_settings()
     host, port, user = settings.reports_db_host, settings.reports_db_port, settings.reports_db_user
@@ -89,7 +89,14 @@ def reports_db_engine(monkeypatch):
             conn.execute(text(f"TRUNCATE TABLE `{table.name}`"))
         conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
+    # report_persistence/report_queries/audit cada um faz `from ..db.reports_db
+    # import get_engine` — três bindings independentes da mesma função no
+    # namespace de cada módulo. Precisa trocar os três, senão escritas e
+    # leituras acabam batendo em bancos diferentes (bug real, encontrado ao
+    # rodar os testes de histórico pela primeira vez).
     monkeypatch.setattr(report_persistence, "get_engine", lambda: engine)
+    monkeypatch.setattr(report_queries, "get_engine", lambda: engine)
+    monkeypatch.setattr(audit, "get_engine", lambda: engine)
 
     yield engine
     engine.dispose()

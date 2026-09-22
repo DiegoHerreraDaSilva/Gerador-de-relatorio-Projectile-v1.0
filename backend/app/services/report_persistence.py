@@ -35,6 +35,7 @@ from ..db.reports_schema import (
     report_versions,
     reports,
 )
+from . import audit
 from .snapshot import build_snapshot_data, compute_data_hash, compute_identity_hash, parse_competence_range, snapshot_schema_version
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,8 @@ class GenerationHandle:
     version_number: int
     generation_id: str
     _started_monotonic: float
+    _requested_by: str = ""
+    _requested_by_name: str = ""
 
 
 class GenerationGuard:
@@ -122,11 +125,18 @@ def _begin_generation_unsafe(
 
     engine = get_engine()
     with engine.begin() as conn:
-        report_id = _find_or_create_report(
+        report_id, report_was_created = _find_or_create_report(
             conn, identity_hash, report_number, scope, competence_label,
             competence_start, competence_end, header.get("project_name") or "",
             requested_by, requested_by_name, now,
         )
+        if report_was_created:
+            audit.record_event(
+                actor_id=requested_by, actor_name=requested_by_name, action="report_created",
+                entity_type="report", entity_id=report_id, source=created_from,
+                after={"report_number": report_number, "scope": scope, "competence_label": competence_label},
+                conn=conn,
+            )
         version_number = _next_version_number(conn, report_id)
         snapshot_id = str(ULID())
         conn.execute(
@@ -159,6 +169,12 @@ def _begin_generation_unsafe(
                 status="started",
             )
         )
+        audit.record_event(
+            actor_id=requested_by, actor_name=requested_by_name, action="report_version_created",
+            entity_type="report_version", entity_id=version_id, source=created_from,
+            after={"report_id": report_id, "version_number": version_number, "format": fmt},
+            conn=conn,
+        )
 
     return GenerationHandle(
         report_id=report_id,
@@ -166,18 +182,20 @@ def _begin_generation_unsafe(
         version_number=version_number,
         generation_id=generation_id,
         _started_monotonic=started_monotonic,
+        _requested_by=requested_by,
+        _requested_by_name=requested_by_name,
     )
 
 
 def _find_or_create_report(
     conn, identity_hash, report_number, scope, competence_label, competence_start, competence_end,
     project_name, requested_by, requested_by_name, now,
-) -> str:
+) -> tuple[str, bool]:
     row = conn.execute(
         select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()
     ).first()
     if row:
-        return row.id
+        return row.id, False
 
     new_id = str(ULID())
     try:
@@ -199,7 +217,7 @@ def _find_or_create_report(
                 updated_at=now,
             )
         )
-        return new_id
+        return new_id, True
     except IntegrityError:
         # outra transação venceu a corrida entre nosso SELECT e nosso INSERT
         # (mesmo identity_hash) — pega o id dela em vez de falhar.
@@ -207,7 +225,7 @@ def _find_or_create_report(
             select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()
         ).first()
         if row:
-            return row.id
+            return row.id, False
         raise
 
 
@@ -320,6 +338,12 @@ def _finish_generation_success_unsafe(handle: GenerationHandle, output_path, dow
             .where(reports.c.id == handle.report_id)
             .values(current_version_id=handle.version_id, updated_at=now)
         )
+        audit.record_event(
+            actor_id=handle._requested_by, actor_name=handle._requested_by_name, action="report_generated",
+            entity_type="report_generation", entity_id=handle.generation_id, source="report_persistence",
+            after={"format": fmt, "file_name": download_name, "sha256": sha256, "duration_ms": duration_ms},
+            conn=conn,
+        )
 
 
 def finish_generation_failure(handle: GenerationHandle | None, error: Exception) -> None:
@@ -349,6 +373,13 @@ def _finish_generation_failure_unsafe(handle: GenerationHandle, error: Exception
                 error_code=type(error).__name__,
                 error_message=str(error)[:2000],
             )
+        )
+        audit.record_event(
+            actor_id=handle._requested_by, actor_name=handle._requested_by_name,
+            action="report_generation_failed", entity_type="report_generation", entity_id=handle.generation_id,
+            source="report_persistence",
+            after={"error_code": type(error).__name__, "error_message": str(error)[:2000]},
+            conn=conn,
         )
 
 

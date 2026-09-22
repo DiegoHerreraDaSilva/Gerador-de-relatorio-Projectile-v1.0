@@ -172,3 +172,28 @@ report_artifacts = Table(
     mysql_charset="utf8mb4",
     mysql_collate="utf8mb4_unicode_ci",
 )
+
+# Fase 5 do roadmap (auditoria) — trilha de "quem fez o quê, quando, em qual
+# entidade". Escrita sempre fail-open (mesmo padrão de report_persistence),
+# nunca pode derrubar a operação de negócio que está sendo auditada.
+audit_log = Table(
+    "audit_log",
+    metadata,
+    Column("id", CHAR(26), primary_key=True),
+    Column("actor_id", String(100), nullable=False),
+    Column("actor_name_snapshot", String(255), nullable=False),
+    Column("action", String(50), nullable=False),
+    Column("entity_type", String(30), nullable=False),
+    Column("entity_id", CHAR(26), nullable=False),
+    Column("source", String(30), nullable=False),
+    Column("before_json", JSON, nullable=True),
+    Column("after_json", JSON, nullable=True),
+    Column("metadata_json", JSON, nullable=True),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+    Index("idx_audit_entity", "entity_type", "entity_id"),
+    Index("idx_audit_actor", "actor_id"),
+    Index("idx_audit_created_at", "created_at"),
+    mysql_engine="InnoDB",
+    mysql_charset="utf8mb4",
+    mysql_collate="utf8mb4_unicode_ci",
+)

@@ -183,6 +183,8 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `db/reports_schema.py` | `Table`/`MetaData` das 7 tabelas do histórico (SQLAlchemy Core, não ORM); alvo do `alembic revision --autogenerate` |
 | `services/snapshot.py` | funções puras: canonical JSON, hash de dado/identidade, parse de competência |
 | `services/report_persistence.py` | `begin_generation`/`finish_generation_success`/`finish_generation_failure`/`reconcile_orphaned_generations`, `GenerationGuard` — sempre fail-open |
+| `services/audit.py` | `record_event()` — trilha de auditoria em `audit_log`, sempre fail-open |
+| `services/report_queries.py` | leituras pro histórico (`GET /reports/*`) — **não** é fail-open: falha vira 502 (a única função do endpoint é ler) |
 
 ### Banco do Projectile
 
@@ -241,6 +243,7 @@ Não altere nomes/casing sem migração coordenada.
 - `/translate-activities`: `{items:[{id,text}], target_language: en|de}`.
 - `/management/kpis`: filtros repetíveis `cost_centers`, `clients`, `projects`, `packages`, `selected_months`, `persons`.
 - `/management/kpis/samples`: CRUD de amostras; PATCH usa `exclude_unset` para distinguir `pacote_scope` ausente de `None`.
+- `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db` (Fase 2+4). Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. Download registra `artifact_downloaded` em `audit_log`.
 
 `Field(..., allow_inf_nan=False)` e `_sanitize_nonfinite` evitam `NaN`/`Infinity`. Preserve esse comportamento em novos campos numéricos.
 
