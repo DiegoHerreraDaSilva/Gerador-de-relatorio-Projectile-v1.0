@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from backend.app import main as main_module
+from backend.app.api.routers import chat as chat_module
 from backend.app.main import app, require_session
 
 
@@ -48,7 +48,7 @@ def _chat_state_payload() -> dict:
 
 def test_chat_endpoint_aplica_operacao_por_id_e_preserva_id(monkeypatch):
     monkeypatch.setattr(
-        main_module, "call_chat",
+        chat_module, "call_chat",
         lambda message, state, history: ("Grupo renomeado.", [
             {"op": "rename_group", "packageKey": "pkg-1", "groupId": "g1", "newName": "Novo Nome"}
         ]),
@@ -69,7 +69,7 @@ def test_chat_endpoint_aplica_operacao_por_id_e_preserva_id(monkeypatch):
 
 def test_chat_endpoint_add_group_devolve_id_novo_gerado_pelo_backend(monkeypatch):
     monkeypatch.setattr(
-        main_module, "call_chat",
+        chat_module, "call_chat",
         lambda message, state, history: ("Grupo criado.", [
             {"op": "add_group", "packageKey": "pkg-1", "name": "Grupo Novo", "performance": 90.0}
         ]),
@@ -88,7 +88,7 @@ def test_chat_endpoint_add_group_devolve_id_novo_gerado_pelo_backend(monkeypatch
 
 def test_chat_endpoint_operacao_invalida_vira_502(monkeypatch):
     monkeypatch.setattr(
-        main_module, "call_chat",
+        chat_module, "call_chat",
         lambda message, state, history: ("...", [
             {"op": "rename_group", "packageKey": "pkg-1", "groupId": "id-que-nao-existe", "newName": "X"}
         ]),

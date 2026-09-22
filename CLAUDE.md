@@ -59,7 +59,7 @@ ainda.
 
 - `useReportStore.ts` é a fonte de verdade da guia ativa.
 - Pacotes, grupos e atividades são identificados por `id`, nunca por índice persistente.
-- **Chat de IA usa `id` estável de grupo/atividade** (Fase 8) — `ChatGroup`/`ChatActivity` (`main.py`) exigem `id`; `chat_ops.py` localiza o alvo das operações por `groupId`/`activityId`, nunca por nome/descrição. `add_group`/`add_activity` geram `id` novo no backend (`uuid4()`), que o frontend só precisa aceitar (`applyChatState` casa por `id`, não mais por nome+índice).
+- **Chat de IA usa `id` estável de grupo/atividade** (Fase 8) — `ChatGroup`/`ChatActivity` (`api/routers/chat.py`) exigem `id`; `chat_ops.py` localiza o alvo das operações por `groupId`/`activityId`, nunca por nome/descrição. `add_group`/`add_activity` geram `id` novo no backend (`uuid4()`), que o frontend só precisa aceitar (`applyChatState` casa por `id`, não mais por nome+índice).
 - `enableMapSet()` é obrigatório porque o estado contém `Set`.
 - A pilha de undo é global à guia durante a sessão, mas não vai para o `localStorage`.
 - `useReportTabsStore.ts` serializa cada guia, faz autosave com debounce e restaura no boot.
@@ -168,7 +168,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `main.py` | app FastAPI, modelos, dependências, endpoints e static mount |
+| `main.py` | monta o `FastAPI`, middlewares, `include_router` de cada domínio e static mount — **não tem endpoint nenhum desde a Fase 5**, ver "API — routers" abaixo |
 | `auth.py` | login Projectile, rate limit e sessões em memória |
 | `db_credentials.py` | leitura da senha no Windows Credential Manager/keyring |
 | `projectile_db.py` | conexão/reconexão, queries e agrupamento |
@@ -188,6 +188,26 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `services/report_persistence.py` | `begin_generation`/`finish_generation_success`/`finish_generation_failure`/`reconcile_orphaned_generations`, `GenerationGuard` — sempre fail-open |
 | `services/audit.py` | `record_event()` — trilha de auditoria em `audit_log`, sempre fail-open |
 | `services/report_queries.py` | leituras pro histórico (`GET /reports/*`) — **não** é fail-open: falha vira 502 (a única função do endpoint é ler) |
+
+### API — routers (Fase 5)
+
+`main.py` só monta o app; toda rota vive em `api/routers/*.py`, uma por domínio:
+
+| Router | Rotas | Modelos Pydantic |
+|---|---|---|
+| `api/routers/auth.py` | `/auth/login`, `/auth/me`, `/auth/logout` | `LoginRequest` |
+| `api/routers/parsing.py` | `/parse`, `/parse-db`, `/parse-db-client` | `ParseDbRequest`, `ParseDbClientRequest`; hardening de upload (`_stream_upload_to_tempfile`, `_reject_if_oversized_uncompressed`) |
+| `api/routers/my_hours.py` | `/my-hours` | — |
+| `api/routers/management.py` | `/management/*` (15 rotas) | `ManualSampleCreatePayload`, `SampleUpdatePayload`, `ManualEntryPayload`. **Nome igual ao módulo `backend/app/management.py`** (regra de negócio) de propósito — são caminhos de import diferentes (`api.routers.management` vs `management`), sempre importe com alias quando os dois aparecem juntos (`main.py` faz `from .api.routers import management as management_router`) |
+| `api/routers/generation.py` | `/generate`, `/send-report` | `HeaderPayload`, `GroupPayload`, `ActivityPayload`, `ReportPackagePayload`, `GeneratePayload`, `SendReportPayload` — `OUTPUT_DIR` também vive aqui |
+| `api/routers/history.py` | `/reports/*`, `/artifacts/{id}/download` | — |
+| `api/routers/chat.py` | `/chat`, `/translate-activities` | `ChatState`, `ChatGroup`, `ChatActivity`, `ChatPackage`, `ChatRequest`, `ChatResponse`, `TranslatePayload` |
+
+Compartilhado entre routers: `api/dependencies.py` (`require_session`/`require_manager`/`require_translate_access`/`SESSION_COOKIE`), `api/errors.py` (`log_and_generic_error`/`GENERIC_*_ERROR`), `api/shared.py` (`resolve_month_range`, `build_parse_response`).
+
+**Gotcha de teste**: `require_manager`/`require_translate_access` (em `api/dependencies.py`) e `_require_report_access` (em `api/routers/history.py`) leem `management.MANAGEMENT_PANEL_LOGINS`/`management.TRANSLATE_ALLOWED_LOGINS` como **atributo do módulo** (`from .. import management` + `management.MANAGEMENT_PANEL_LOGINS`), nunca `from ..management import MANAGEMENT_PANEL_LOGINS` — um `from import` copiaria o `set` pro namespace local NA HORA DO IMPORT, e `monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", ...)` (o padrão usado nos testes) não afetaria essa cópia. Mesma categoria de bug já encontrada uma vez com `get_engine` em `report_persistence.py`/`report_queries.py`/`audit.py` (três bindings independentes da mesma função) — ao adicionar um novo consumidor de estado "testável por monkeypatch", sempre referencie via atributo do módulo definidor, nunca via `from import`.
+
+**Adicionar uma rota nova**: crie/edite o router do domínio certo em `api/routers/`, nunca em `main.py` diretamente. Se o domínio for novo, crie o arquivo, defina `router = APIRouter()`, e adicione `app.include_router(seu_router.router)` em `main.py`.
 
 ### Banco do Projectile
 
@@ -341,20 +361,22 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Guias abertas | `frontend/src/store/useReportTabsStore.ts` |
 | Sidebar/tema/navegação | `frontend/src/components/Sidebar.tsx`, `styles/index.css` |
 | Preview | `frontend/src/components/Preview/` |
-| Geração/download | `GenerateFooter.tsx`, `backend/app/main.py`, geradores |
+| Geração/download | `GenerateFooter.tsx`, `backend/app/api/routers/generation.py`, geradores |
 | Dashboard pessoal | `MyHoursDashboard.tsx`, `useMyHoursStore.ts`, `hours_analytics.py` |
-| KPIs gerenciais | `ManagementPanel.tsx`, `useManagementStore.ts`, `management.py` |
+| KPIs gerenciais | `ManagementPanel.tsx`, `useManagementStore.ts`, `management.py` (regra), `api/routers/management.py` (rota) |
 | Diagnóstico | `DiagnosticsPanel.tsx`, `useDiagnosticsStore.ts` |
 | Parser XLSX | `backend/app/parser.py` |
 | Queries Projectile | `backend/app/projectile_db.py` |
-| E-mail | `backend/app/email_ingest.py`, `SendReportModal.tsx` |
-| Chat/tradução (IDs estáveis desde a Fase 8) | `chatbot.py`, `chat_ops.py`, `translate_ops.py`, `Chat.tsx`, `useReportStore.applyChatState` |
+| E-mail | `backend/app/email_ingest.py`, `SendReportModal.tsx`, `api/routers/management.py` (`/management/kpis/check-emails`) |
+| Chat/tradução (IDs estáveis desde a Fase 8) | `api/routers/chat.py`, `chatbot.py`, `chat_ops.py`, `translate_ops.py`, `Chat.tsx`, `useReportStore.applyChatState` |
 | Proxy dev | `frontend/vite.config.ts` |
 | Documentação de uso | `README.md` |
-| Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `main.py` (`generate_endpoint`/`send_report_endpoint`) |
+| Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `api/routers/generation.py` (`generate_endpoint`/`send_report_endpoint`) |
 | Tela de histórico | `frontend/src/components/HistoryPanel.tsx`, `useHistoryStore.ts`, `utils/historyFormat.ts` |
 | Schema do `reports_db` | `backend/app/db/reports_schema.py` + nova migration em `backend/alembic/versions/` |
 | Config central (`reports_db`/`sysClientId`) | `backend/app/core/config.py` |
+| Adicionar rota API nova | `backend/app/api/routers/<domínio>.py` (nunca `main.py` diretamente) — ver "API — routers" |
+| Autenticação/sessão | `backend/app/auth.py` (regra), `api/routers/auth.py` (rota), `api/dependencies.py` (`require_session`/`require_manager`) |
 
 ## Checklist antes de concluir
 

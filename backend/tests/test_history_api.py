@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import main as main_module
+from backend.app import management
 from backend.app.main import app, require_session
 
 pytestmark = pytest.mark.reports_db
@@ -24,7 +24,7 @@ _OTHER_NON_MANAGER = {
 def _client_for(user: dict, monkeypatch) -> TestClient:
     # allowlist fixa e determinística pro teste — não depende do
     # MANAGEMENT_PANEL_LOGINS real do .env.
-    monkeypatch.setattr(main_module, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
+    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
     app.dependency_overrides[require_session] = lambda: user
     return TestClient(app)
 

@@ -202,7 +202,19 @@ backend/
   alembic/                 # migrations do reports_db
     versions/
   app/
-    main.py               # FastAPI, modelos, autenticação de rotas e static mount
+    main.py               # monta o FastAPI + middlewares + include_router; sem endpoint nenhum
+    api/
+      dependencies.py      # require_session/require_manager/require_translate_access
+      errors.py             # log_and_generic_error, mensagens genéricas
+      shared.py             # resolve_month_range, build_parse_response
+      routers/
+        auth.py              # /auth/*
+        parsing.py           # /parse, /parse-db, /parse-db-client (+ hardening de upload)
+        my_hours.py          # /my-hours
+        management.py        # /management/* (rota — não confundir com ../management.py, regra)
+        generation.py        # /generate, /send-report
+        history.py           # /reports/*, /artifacts/*/download
+        chat.py               # /chat, /translate-activities
     auth.py               # login Projectile, rate limit e sessões
     db_credentials.py     # leitura da senha no Windows Credential Manager (Projectile e reports_db)
     projectile_db.py      # consultas e agrupamento de dados do Projectile
@@ -210,10 +222,10 @@ backend/
     generator.py          # gerador XLSX por ZIP/XML e calendário de dias úteis
     pdf_generator.py      # gerador PDF e metadados do relatório
     hours_analytics.py    # métricas do dashboard pessoal
-    management.py         # KPIs, cache, amostras e persistência JSON
+    management.py         # KPIs, cache, amostras e persistência JSON (regra de negócio)
     email_ingest.py       # Microsoft Graph, ingestão e envio de relatórios
     chatbot.py            # chamadas Anthropic
-    chat_ops.py           # operações permitidas pelo chat
+    chat_ops.py           # operações permitidas pelo chat (id estável)
     translate_ops.py      # contrato de tradução
     core/
       config.py            # Settings central (reports_db, sysClientId)
@@ -223,6 +235,8 @@ backend/
     services/
       snapshot.py           # hash/identidade/canonical JSON
       report_persistence.py # begin/finish_generation, fail-open
+      report_queries.py     # leituras do histórico (não fail-open)
+      audit.py               # trilha de auditoria, fail-open
   templates/
     relatorio_final_template.xlsx
   tests/                  # suíte pytest

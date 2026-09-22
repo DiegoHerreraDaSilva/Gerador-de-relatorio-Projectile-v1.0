@@ -9,7 +9,8 @@ import zipfile
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
-from backend.app import main as main_module
+from backend.app import management
+from backend.app.api.routers import parsing as parsing_module
 from backend.app.main import app, require_session
 
 
@@ -18,7 +19,7 @@ def _fake_user() -> dict:
 
 
 def _client(monkeypatch) -> TestClient:
-    monkeypatch.setattr(main_module, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
+    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
     app.dependency_overrides[require_session] = _fake_user
     return TestClient(app)
 
@@ -46,7 +47,7 @@ def test_parse_endpoint_aceita_upload_dentro_do_limite(monkeypatch):
 
 def test_parse_endpoint_rejeita_upload_maior_que_limite(monkeypatch):
     # baixa o limite pra não precisar gerar 25 MB de verdade no teste
-    monkeypatch.setattr(main_module, "_MAX_UPLOAD_BYTES", 1024)
+    monkeypatch.setattr(parsing_module, "_MAX_UPLOAD_BYTES", 1024)
     client = _client(monkeypatch)
     big_content = b"x" * 2048
     with client:
@@ -62,8 +63,8 @@ def test_stream_upload_to_tempfile_nao_deixa_arquivo_temporario_orfao(monkeypatc
     não é só rejeitar a requisição, é não vazar disco a cada tentativa."""
     import os
 
-    monkeypatch.setattr(main_module.tempfile, "gettempdir", lambda: str(tmp_path))
-    monkeypatch.setattr(main_module, "_MAX_UPLOAD_BYTES", 1024)
+    monkeypatch.setattr(parsing_module.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(parsing_module, "_MAX_UPLOAD_BYTES", 1024)
     client = _client(monkeypatch)
     with client:
         response = client.post(
@@ -78,7 +79,7 @@ def test_reject_if_oversized_uncompressed_aceita_zip_pequeno(tmp_path):
     path = tmp_path / "pequeno.xlsx"
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("a.txt", "conteudo pequeno de verdade")
-    main_module._reject_if_oversized_uncompressed(str(path))  # não levanta
+    parsing_module._reject_if_oversized_uncompressed(str(path))  # não levanta
 
 
 def test_reject_if_oversized_uncompressed_ignora_arquivo_invalido(tmp_path):
@@ -86,10 +87,10 @@ def test_reject_if_oversized_uncompressed_ignora_arquivo_invalido(tmp_path):
     erro de "arquivo inválido" (mesmo contrato de antes da mudança)."""
     path = tmp_path / "invalido.xlsx"
     path.write_bytes(b"isso definitivamente nao e um arquivo zip valido")
-    main_module._reject_if_oversized_uncompressed(str(path))  # não levanta
+    parsing_module._reject_if_oversized_uncompressed(str(path))  # não levanta
 
 
 def test_is_oversized_uncompressed_respeita_o_limite_exato():
-    limit = main_module._MAX_UNCOMPRESSED_XLSX_BYTES
-    assert main_module._is_oversized_uncompressed(limit) is False
-    assert main_module._is_oversized_uncompressed(limit + 1) is True
+    limit = parsing_module._MAX_UNCOMPRESSED_XLSX_BYTES
+    assert parsing_module._is_oversized_uncompressed(limit) is False
+    assert parsing_module._is_oversized_uncompressed(limit + 1) is True
