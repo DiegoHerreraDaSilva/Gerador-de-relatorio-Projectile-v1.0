@@ -6,6 +6,7 @@ import { ManagementPanel } from "./components/ManagementPanel";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { MyHoursDashboard } from "./components/MyHoursDashboard";
 import { HistoryPanel } from "./components/HistoryPanel";
+import { AnalyticsPanel } from "./components/AnalyticsPanel";
 import { useAuthStore } from "./store/useAuthStore";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
@@ -56,6 +57,7 @@ export default function App() {
         {view === "diagnostics" && <DiagnosticsPanel />}
         {view === "dashboard" && <MyHoursDashboard />}
         {view === "history" && <HistoryPanel />}
+        {view === "analytics" && <AnalyticsPanel />}
         {view === "report" && <ReportView />}
       </main>
     </div>

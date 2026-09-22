@@ -13,8 +13,10 @@ from sqlalchemy import and_, desc, func, select
 from ..db.reports_db import get_engine
 from ..db.reports_schema import (
     audit_log,
+    report_activities,
     report_artifacts,
     report_generation,
+    report_groups,
     report_versions,
     reports,
 )
@@ -169,6 +171,118 @@ def get_artifact(artifact_id: str) -> dict | None:
             .where(report_artifacts.c.id == artifact_id)
         ).mappings().first()
     return dict(row) if row else None
+
+
+def _current_version_activities_join():
+    """Base de junção reports→versão ATUAL→grupos→atividades — usada por
+    toda agregação de horas do Analytics. Filtra pela versão CORRENTE de
+    cada relatório (`reports.current_version_id`), não por todas as
+    versões: sem isso, editar/reenviar um relatório duplicaria as horas da
+    versão antiga junto com a nova."""
+    return (
+        reports
+        .join(
+            report_versions,
+            and_(report_versions.c.report_id == reports.c.id, report_versions.c.id == reports.c.current_version_id),
+        )
+        .join(report_groups, report_groups.c.report_version_id == report_versions.c.id)
+        .join(report_activities, report_activities.c.report_group_id == report_groups.c.id)
+    )
+
+
+def _hours_breakdown(conn, group_col, label_key: str, *, limit: int | None = None, order_by=None) -> list[dict]:
+    hours_sum = func.sum(report_activities.c.hours)
+    query = (
+        select(group_col.label(label_key), hours_sum.label("hours"))
+        .select_from(_current_version_activities_join())
+        .group_by(group_col)
+        .order_by(order_by if order_by is not None else desc(hours_sum))
+    )
+    if limit:
+        query = query.limit(limit)
+    rows = conn.execute(query).mappings().all()
+    return [{label_key: r[label_key], "hours": float(r["hours"] or 0)} for r in rows]
+
+
+def _generation_stats(conn) -> dict:
+    total = conn.execute(select(func.count()).select_from(report_generation)).scalar_one()
+    failed = conn.execute(
+        select(func.count()).select_from(report_generation).where(report_generation.c.status == "failed")
+    ).scalar_one()
+    overall_avg = conn.execute(
+        select(func.avg(report_generation.c.duration_ms)).where(report_generation.c.status == "success")
+    ).scalar_one()
+    by_format_rows = conn.execute(
+        select(
+            report_generation.c.format,
+            func.avg(report_generation.c.duration_ms).label("avg_ms"),
+            func.count().label("count"),
+        )
+        .where(report_generation.c.status == "success")
+        .group_by(report_generation.c.format)
+    ).mappings().all()
+    return {
+        "total": total,
+        "failed": failed,
+        "failure_rate": (failed / total) if total else None,
+        "avg_duration_ms": float(overall_avg) if overall_avg is not None else None,
+        "by_format": [
+            {
+                "format": r["format"],
+                "avg_duration_ms": float(r["avg_ms"]) if r["avg_ms"] is not None else None,
+                "count": r["count"],
+            }
+            for r in by_format_rows
+        ],
+    }
+
+
+def _reports_created_per_month(conn) -> list[dict]:
+    # date_format é específico de MySQL — aceitável aqui: reports_db nunca
+    # roda em outro dialeto (ver docstring de reports_schema.py).
+    period = func.date_format(reports.c.created_at, "%Y-%m").label("period")
+    rows = conn.execute(
+        select(period, func.count().label("count")).group_by(period).order_by(period)
+    ).mappings().all()
+    return [{"period": r["period"], "count": r["count"]} for r in rows]
+
+
+def _top_creators(conn, limit: int = 10) -> list[dict]:
+    rows = conn.execute(
+        select(
+            reports.c.created_by, reports.c.created_by_name_snapshot, func.count().label("count"),
+        )
+        .group_by(reports.c.created_by, reports.c.created_by_name_snapshot)
+        .order_by(desc(func.count()))
+        .limit(limit)
+    ).mappings().all()
+    return [{"login": r["created_by"], "name": r["created_by_name_snapshot"], "reports": r["count"]} for r in rows]
+
+
+def get_analytics_summary() -> dict:
+    """Resumo agregado pro painel de Analytics (Fase 9 do roadmap) — só
+    gerente (ver `require_manager` em `api/routers/analytics.py`). Fica
+    esparso/vazio até acumular meses de uso real; cada seção devolve lista
+    vazia (não erro) quando não há dado, e o frontend trata isso como
+    estado vazio explícito."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        return {
+            "totals": {
+                "reports": conn.execute(select(func.count()).select_from(reports)).scalar_one(),
+                "versions": conn.execute(select(func.count()).select_from(report_versions)).scalar_one(),
+                "artifacts": conn.execute(select(func.count()).select_from(report_artifacts)).scalar_one(),
+            },
+            "hours_by_competence": _hours_breakdown(
+                conn, reports.c.competence_label, "competence_label",
+                order_by=func.min(reports.c.competence_start),
+            ),
+            "hours_by_group": _hours_breakdown(conn, report_groups.c.name, "group_name", limit=15),
+            "hours_by_project": _hours_breakdown(conn, reports.c.project_name_snapshot, "project_name", limit=15),
+            "generation": _generation_stats(conn),
+            "reports_over_time": _reports_created_per_month(conn),
+            "top_creators": _top_creators(conn),
+        }
 
 
 def list_audit_events_for_report(report_id: str, *, page: int, page_size: int) -> dict:

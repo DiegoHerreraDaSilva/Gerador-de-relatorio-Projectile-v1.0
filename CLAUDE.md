@@ -107,13 +107,20 @@ ainda.
 - Artifacts ficam em `backend/data/report_artifacts/<report_id>/<generation_id>.<fmt>`
   (cópia própria, fora de `tempfile.gettempdir()` — o caminho original é
   apagado segundos após o download).
+- **Analytics** (`GET /analytics/summary`, Fase 9) agrega horas/tempo de
+  geração/taxa de falha só sobre a VERSÃO ATUAL de cada relatório
+  (`report_versions.id = reports.current_version_id`) — nunca soma
+  versões substituídas junto com a vigente. Sem fail-open (mesmo
+  princípio de `report_queries.py`: função só de leitura, falha vira 502).
+  Fica esparso/vazio até acumular meses de uso real — isso é esperado,
+  não um bug.
 
 ## Arquitetura do frontend
 
-`App.tsx` controla cinco views sem React Router:
+`App.tsx` controla seis views sem React Router:
 
 ```ts
-type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history";
+type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history" | "analytics";
 ```
 
 - `Sidebar.tsx`: logo, navegação, guias abertas, tema, usuário e logout. É recolhível no desktop e drawer no mobile.
@@ -126,6 +133,7 @@ type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history"
 - `ManagementPanel.tsx`: KPIs e gráficos gerenciais.
 - `DiagnosticsPanel.tsx`: amostras, duplicidades e mensagens ignoradas.
 - `HistoryPanel.tsx`: histórico de relatórios (`reports_db`) — lista, versões, gerações, artifacts e auditoria. Visível pra todo mundo (não só gerente); backend filtra pra só os próprios relatórios de quem não é gerente.
+- `AnalyticsPanel.tsx`: métricas agregadas sobre `reports_db` (horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis) — só gerente (`managerOnly` em `Sidebar.tsx` + `require_manager` no backend).
 
 Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram substituídos pela sidebar e pelos blocos horizontais.
 
@@ -161,6 +169,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `useManagementStore.ts` | KPIs, filtros, fechados e status de envio |
 | `useDiagnosticsStore.ts` | amostras e projetos do diagnóstico |
 | `useHistoryStore.ts` | lista/paginação/filtros de `GET /reports`, detalhe do relatório selecionado (versões, gerações, artifacts, auditoria) e detalhe de uma versão |
+| `useAnalyticsStore.ts` | `GET /analytics/summary` — resumo único (sem paginação/filtro), `loading`/`error` |
 
 ## Backend
 
@@ -187,7 +196,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `services/snapshot.py` | funções puras: canonical JSON, hash de dado/identidade, parse de competência |
 | `services/report_persistence.py` | `begin_generation`/`finish_generation_success`/`finish_generation_failure`/`reconcile_orphaned_generations`, `GenerationGuard` — sempre fail-open |
 | `services/audit.py` | `record_event()` — trilha de auditoria em `audit_log`, sempre fail-open |
-| `services/report_queries.py` | leituras pro histórico (`GET /reports/*`) — **não** é fail-open: falha vira 502 (a única função do endpoint é ler) |
+| `services/report_queries.py` | leituras pro histórico (`GET /reports/*`) e agregações do Analytics (`get_analytics_summary`, `GET /analytics/summary`) — **não** é fail-open: falha vira 502 (a única função do endpoint é ler) |
 
 ### API — routers (Fase 5)
 
@@ -202,6 +211,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `api/routers/generation.py` | `/generate`, `/send-report` | `HeaderPayload`, `GroupPayload`, `ActivityPayload`, `ReportPackagePayload`, `GeneratePayload`, `SendReportPayload` — `OUTPUT_DIR` também vive aqui |
 | `api/routers/history.py` | `/reports/*`, `/artifacts/{id}/download` | — |
 | `api/routers/chat.py` | `/chat`, `/translate-activities` | `ChatState`, `ChatGroup`, `ChatActivity`, `ChatPackage`, `ChatRequest`, `ChatResponse`, `TranslatePayload` |
+| `api/routers/analytics.py` | `/analytics/summary` (só gerente, `require_manager`) | — |
 
 Compartilhado entre routers: `api/dependencies.py` (`require_session`/`require_manager`/`require_translate_access`/`SESSION_COOKIE`), `api/errors.py` (`log_and_generic_error`/`GENERIC_*_ERROR`), `api/shared.py` (`resolve_month_range`, `build_parse_response`).
 
@@ -269,6 +279,7 @@ Não altere nomes/casing sem migração coordenada.
 - `/management/kpis`: filtros repetíveis `cost_centers`, `clients`, `projects`, `packages`, `selected_months`, `persons`.
 - `/management/kpis/samples`: CRUD de amostras; PATCH usa `exclude_unset` para distinguir `pacote_scope` ausente de `None`.
 - `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db` (Fase 2+4). Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. Download registra `artifact_downloaded` em `audit_log`.
+- `GET /analytics/summary` (Fase 9, só gerente): `{totals: {reports, versions, artifacts}, hours_by_competence, hours_by_group, hours_by_project, generation: {total, failed, failure_rate, avg_duration_ms, by_format}, reports_over_time, top_creators}` — sem paginação, resumo único; horas contam só a versão atual de cada relatório.
 
 `Field(..., allow_inf_nan=False)` e `_sanitize_nonfinite` evitam `NaN`/`Infinity`. Preserve esse comportamento em novos campos numéricos.
 
@@ -322,7 +333,7 @@ só com o container de pé (schema de teste separado, `reports_db_test`, ver
 
 Em 2026-09-22:
 
-- backend: 274 testes coletados (211 + 62 novos de `reports_db`/snapshot/histórico/auditoria/upload/chat, 1 skip pré-existente);
+- backend: 283 testes coletados (211 + 62 de `reports_db`/snapshot/histórico/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics, 1 skip pré-existente);
 - frontend: 134 testes em 10 arquivos;
 - build: `tsc -b && vite build`.
 
@@ -331,7 +342,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 ## Vite, static files e cache
 
 - `frontend/vite.config.ts` não define `root`; execute comandos a partir de `frontend/` ou use `npm --prefix frontend`.
-- Proxy atual: `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts` → `:8011`.
+- Proxy atual: `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts`, `/analytics` → `:8011`.
 - `/management/*`, `/my-hours`, `/send-report` e `/translate-activities` não estão no proxy atual. Para testar tudo sem alterar config, use o build servido pelo FastAPI.
 - Logos e assets públicos devem ficar em `frontend/public/`.
 - `NoCacheStaticFiles`: `assets/*` recebe cache immutable de um ano; demais arquivos recebem `no-store`.
@@ -375,6 +386,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Documentação de uso | `README.md` |
 | Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `api/routers/generation.py` (`generate_endpoint`/`send_report_endpoint`) |
 | Tela de histórico | `frontend/src/components/HistoryPanel.tsx`, `useHistoryStore.ts`, `utils/historyFormat.ts` |
+| Métricas agregadas (Analytics) | `backend/app/services/report_queries.py` (`get_analytics_summary`), `api/routers/analytics.py`; `frontend/src/components/AnalyticsPanel.tsx`, `useAnalyticsStore.ts` |
 | Schema do `reports_db` | `backend/app/db/reports_schema.py` + nova migration em `backend/alembic/versions/` |
 | Config central (`reports_db`/`sysClientId`) | `backend/app/core/config.py` |
 | Adicionar rota API nova | `backend/app/api/routers/<domínio>.py` (nunca `main.py` diretamente) — ver "API — routers" |

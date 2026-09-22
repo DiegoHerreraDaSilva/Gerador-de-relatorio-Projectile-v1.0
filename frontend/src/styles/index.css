@@ -3293,3 +3293,36 @@
   .history-version-group { margin-top: 14px; }
   .history-version-group h4 { margin: 0 0 6px; font-size: 0.9rem; }
   .history-version-group ul { margin: 0; padding-left: 18px; }
+
+  /* ============================================================
+     Analytics (AnalyticsPanel.tsx) — Fase 9 do
+     GUIA_EVOLUCAO_GERADOR_PROJECTILE.md. Reaproveita .card e .kpi-table;
+     só o grid de totais e o grid de seções são novos aqui.
+     ============================================================ */
+  .analytics-totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .analytics-total-card {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; padding: 16px 12px; text-align: center;
+  }
+  .analytics-total-value { font-size: 1.7rem; font-weight: 700; color: var(--text); line-height: 1.1; }
+  .analytics-total-label { font-size: 0.75rem; color: var(--text-muted); }
+
+  .analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .analytics-grid { grid-template-columns: 1fr; }
+  }
+  .analytics-section h3 { margin: 0 0 10px; font-size: 0.95rem; }
+  .analytics-section .kpi-table { width: 100%; }
+  .analytics-section .kpi-table th,
+  .analytics-section .kpi-table td { text-align: left; }
+  .analytics-section .kpi-table td:last-child,
+  .analytics-section .kpi-table th:last-child { text-align: right; }

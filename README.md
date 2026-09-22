@@ -109,7 +109,8 @@ Pontos importantes:
 - Duas gerações consecutivas do mesmo relatório (mesmo `project_code` + escopo de pacote + competência) viram versões sucessivas do mesmo `report`, nunca registros duplicados — protegido contra corrida em geração concorrente.
 - O arquivo gerado é copiado pra `backend/data/report_artifacts/` (fora do Git), já que o caminho temporário original é apagado logo após o download.
 - A resposta de `/generate` inclui os headers `X-Report-Id`/`X-Report-Version-Id`/`X-Report-Version-Number` (ou `X-Report-Ids` no caso `.zip`) quando a persistência funcionou — são **aditivos**, nunca assuma que vão estar presentes.
-- Não existe ainda tela de histórico/versões no frontend, nem trilha de auditoria formal — ver [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) pro roadmap.
+- Tela de histórico/versões (`HistoryPanel.tsx`, `GET /reports/*`) e trilha de auditoria formal (`audit_log`) já existem — visíveis a todo mundo, cada um só vendo os próprios relatórios (gerente vê todos).
+- `GET /analytics/summary` (só gerente) agrega horas por competência/grupo/projeto, tempo médio de geração e taxa de falha sobre os mesmos dados — tela `AnalyticsPanel.tsx`. Fica esparso até acumular meses de uso real.
 
 ## Autenticação e permissões
 
@@ -215,6 +216,7 @@ backend/
         generation.py        # /generate, /send-report
         history.py           # /reports/*, /artifacts/*/download
         chat.py               # /chat, /translate-activities
+        analytics.py          # /analytics/summary (só gerente)
     auth.py               # login Projectile, rate limit e sessões
     db_credentials.py     # leitura da senha no Windows Credential Manager (Projectile e reports_db)
     projectile_db.py      # consultas e agrupamento de dados do Projectile
@@ -235,7 +237,7 @@ backend/
     services/
       snapshot.py           # hash/identidade/canonical JSON
       report_persistence.py # begin/finish_generation, fail-open
-      report_queries.py     # leituras do histórico (não fail-open)
+      report_queries.py     # leituras do histórico + agregações de analytics (não fail-open)
       audit.py               # trilha de auditoria, fail-open
   templates/
     relatorio_final_template.xlsx
@@ -243,7 +245,7 @@ backend/
 frontend/
   public/                 # logos da aplicação/e-mail
   src/
-    App.tsx               # shell e troca das quatro views
+    App.tsx               # shell e troca das seis views
     appView.ts            # nomes/tipo das views
     components/
       Sidebar.tsx
@@ -252,6 +254,8 @@ frontend/
       MyHoursDashboard.tsx
       ManagementPanel.tsx
       DiagnosticsPanel.tsx
+      HistoryPanel.tsx
+      AnalyticsPanel.tsx
       GenerateFooter.tsx
       SendReportModal.tsx
     store/
@@ -261,6 +265,8 @@ frontend/
       useMyHoursStore.ts
       useManagementStore.ts
       useDiagnosticsStore.ts
+      useHistoryStore.ts
+      useAnalyticsStore.ts
     styles/index.css
     utils/
   package.json
@@ -426,12 +432,27 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login`.
 | `POST /chat` | aplica operações de edição sugeridas pela IA |
 | `POST /translate-activities` | traduz para `en` ou `de`; requer allowlist |
 
+### Histórico de relatórios
+
+Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios (filtro aplicado no backend).
+
+| Método e rota | Função |
+|---|---|
+| `GET /reports` | lista relatórios (paginado, filtros `report_number`/`competence`/`status`/`created_by`) |
+| `GET /reports/{id}` | detalhe do relatório + número da versão atual |
+| `GET /reports/{id}/versions[/{version_id}]` | versões do relatório, ou o snapshot completo de uma versão |
+| `GET /reports/{id}/generations` | tentativas de geração de arquivo (sucesso/falha, duração) |
+| `GET /reports/{id}/artifacts` | arquivos gerados |
+| `GET /reports/{id}/audit` | trilha de auditoria do relatório |
+| `GET /artifacts/{id}/download` | baixa um artifact; registra `artifact_downloaded` na auditoria |
+
 ### Gerência e diagnóstico
 
 Todas exigem gerente.
 
 | Método e rota | Função |
 |---|---|
+| `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
 | `GET /management/clients-with-hours` | clientes ativos no mês/período |
 | `GET /management/client-projects` | projetos ativos de um cliente |
 | `GET /management/kpis` | KPIs e filtros gerenciais |
@@ -486,4 +507,4 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 
 ## Documentação adicional
 
-O arquivo [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) contém o plano arquitetural de longo prazo — histórico, auditoria formal, refatoração do backend, analytics. A Fundação e o primeiro "vertical slice" (persistência em `reports_db`) já estão implementados; o restante das fases descritas lá ainda é evolução futura.
+O arquivo [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) contém o plano arquitetural original de longo prazo — histórico, auditoria formal, refatoração do backend, pool de conexões do Projectile, hardening de upload, IDs estáveis no chat e analytics. Todas as fases descritas lá já foram implementadas (ver `CLAUDE.md` pro estado atual de cada módulo); o guia permanece como registro histórico das decisões tomadas, não como roadmap pendente.

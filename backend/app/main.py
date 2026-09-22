@@ -47,7 +47,7 @@ from .api.dependencies import (  # noqa: F401 — re-exportado: testes fazem `fr
     require_session,
     require_translate_access,
 )
-from .api.routers import auth, chat, generation, history, my_hours, parsing
+from .api.routers import analytics, auth, chat, generation, history, my_hours, parsing
 from .api.routers import management as management_router
 from .services.report_persistence import reconcile_orphaned_generations
 
@@ -80,6 +80,7 @@ app.include_router(management_router.router)
 app.include_router(generation.router)
 app.include_router(history.router)
 app.include_router(chat.router)
+app.include_router(analytics.router)
 
 
 @app.middleware("http")

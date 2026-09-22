@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity, History,
+  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity, History, BarChart3,
   ChevronLeft, Menu, X, Plus,
 } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
@@ -38,6 +38,7 @@ const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; ma
   { view: "history", label: "Histórico de relatórios", icon: History },
   { view: "management", label: "Painel de gerência", icon: LayoutDashboard, managerOnly: true },
   { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, managerOnly: true },
+  { view: "analytics", label: "Analytics", icon: BarChart3, managerOnly: true },
 ];
 
 export function Sidebar({

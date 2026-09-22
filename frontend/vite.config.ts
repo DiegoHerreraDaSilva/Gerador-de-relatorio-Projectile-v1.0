@@ -13,6 +13,7 @@ export default defineConfig({
       "/auth": "http://localhost:8011",
       "/reports": "http://localhost:8011",
       "/artifacts": "http://localhost:8011",
+      "/analytics": "http://localhost:8011",
     },
   },
   build: {
