@@ -102,6 +102,12 @@ from .management import (
     update_project_kpi_sample,
 )
 from .parser import parse_projectile_export
+from .services.report_persistence import (
+    GenerationGuard,
+    finish_generation_failure,
+    finish_generation_success,
+    reconcile_orphaned_generations,
+)
 from .projectile_db import (
     ProjectileDbError,
     fetch_all_projects_with_details,
@@ -178,6 +184,15 @@ async def _poll_emails_loop() -> None:
 @app.on_event("startup")
 async def _start_email_polling() -> None:
     asyncio.create_task(_poll_emails_loop())
+
+
+@app.on_event("startup")
+async def _reconcile_reports_db_on_boot() -> None:
+    """Qualquer `report_generation` deixada em 'started' é órfã de um
+    processo anterior que morreu no meio (crash, kill, queda de energia) —
+    ver `services/report_persistence.reconcile_orphaned_generations`.
+    Fail-open: se o reports_db estiver fora do ar, só loga e o boot segue."""
+    await asyncio.to_thread(reconcile_orphaned_generations)
 
 
 def _sanitize_nonfinite(obj):
@@ -966,6 +981,33 @@ class GeneratePayload(BaseModel):
     include_performance: bool = False
 
 
+def _persistence_pkg_data(pkg_payload: ReportPackagePayload) -> dict:
+    """Converte o payload Pydantic pro dict plano que
+    `services/report_persistence.begin_generation` espera — mantém aquele
+    módulo desacoplado dos modelos definidos aqui (evita import circular)."""
+    return {
+        "header": pkg_payload.header.model_dump(),
+        "groups": [g.model_dump() for g in pkg_payload.groups],
+        "pacote_scope": pkg_payload.pacote_scope,
+        "language": pkg_payload.language,
+        "has_chart_bar": bool(pkg_payload.chart_image_bar),
+        "has_chart_pie": bool(pkg_payload.chart_image_pie),
+    }
+
+
+def _persistence_headers(handle) -> dict[str, str]:
+    """`handle` é `None` quando a persistência estava desligada
+    (`REPORTS_DB_ENABLED=false`) ou falhou (fail-open) — nesse caso não há
+    nada aditivo pra incluir, e a resposta continua idêntica à de hoje."""
+    if handle is None:
+        return {}
+    return {
+        "X-Report-Id": handle.report_id,
+        "X-Report-Version-Id": handle.version_id,
+        "X-Report-Version-Number": str(handle.version_number),
+    }
+
+
 def _report_groups(pkg_payload: ReportPackagePayload) -> tuple[ReportHeader, list[GroupInput]]:
     header = ReportHeader(**pkg_payload.header.model_dump())
     groups = [
@@ -1056,6 +1098,13 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
     if len(payload.packages) == 1 and len(formats) == 1:
         fmt = formats[0]
         output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
+        # Persistência em reports_db é fail-open: `handle` vem `None` se a
+        # persistência estiver desligada ou falhar (ver GenerationGuard/
+        # begin_generation) — a geração do arquivo nunca fica bloqueada por
+        # causa disso.
+        handle = GenerationGuard().begin(
+            _persistence_pkg_data(payload.packages[0]), fmt, _user["login"], _user["name"]
+        )
         try:
             header = _build_report(payload.packages[0], output_path, fmt, payload.include_performance)
         except NonFiniteValueError as e:
@@ -1065,35 +1114,49 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
             # (Outras ValueError de generate_report indicam o TEMPLATE corrompido/
             # incompatível — um bug do servidor, não do usuário — e devem cair no
             # except Exception abaixo para virar 500 de verdade.)
+            finish_generation_failure(handle, e)
             if os.path.exists(output_path):
                 os.remove(output_path)
             raise HTTPException(400, str(e))
-        except Exception:
+        except Exception as e:
+            finish_generation_failure(handle, e)
             if os.path.exists(output_path):
                 os.remove(output_path)
             raise
         download_name = _sanitized_file_name(payload.packages[0].file_name, header, fmt)
+        finish_generation_success(handle, output_path, download_name, fmt, _FORMAT_MEDIA_TYPES[fmt])
         return FileResponse(
             output_path,
             filename=download_name,
             media_type=_FORMAT_MEDIA_TYPES[fmt],
             background=BackgroundTask(os.remove, output_path),
+            headers=_persistence_headers(handle),
         )
 
     # Um arquivo por (pacote, formato) escolhido, zipados juntos.
     zip_path = os.path.join(OUTPUT_DIR, f"relatorios_{uuid.uuid4().hex}.zip")
     used_arcnames: set[str] = set()
+    guard = GenerationGuard()
+    persisted_ids: list[str] = []
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for pkg_payload in payload.packages:
                 for fmt in formats:
                     tmp_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
+                    handle = guard.begin(_persistence_pkg_data(pkg_payload), fmt, _user["login"], _user["name"])
                     try:
                         header = _build_report(pkg_payload, tmp_path, fmt, payload.include_performance)
                         download_name = _sanitized_file_name(pkg_payload.file_name, header, fmt)
                         final_name = _dedupe_name(download_name, used_arcnames)
                         used_arcnames.add(final_name)
                         zf.write(tmp_path, arcname=final_name)
+                    except Exception as e:
+                        finish_generation_failure(handle, e)
+                        raise
+                    else:
+                        finish_generation_success(handle, tmp_path, final_name, fmt, _FORMAT_MEDIA_TYPES[fmt])
+                        if handle is not None:
+                            persisted_ids.append(f"{handle.report_id}:{handle.version_id}")
                     finally:
                         if os.path.exists(tmp_path):
                             os.remove(tmp_path)
@@ -1106,11 +1169,13 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
             os.remove(zip_path)
         raise
 
+    headers = {"X-Report-Ids": ",".join(persisted_ids)} if persisted_ids else {}
     return FileResponse(
         zip_path,
         filename="Relatórios_Horas.zip",
         media_type="application/zip",
         background=BackgroundTask(os.remove, zip_path),
+        headers=headers,
     )
 
 
@@ -1147,6 +1212,7 @@ async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends
         raise HTTPException(400, "E-mail do destinatário inválido.")
 
     output_paths: list[str] = []
+    guard = GenerationGuard()
     try:
         attachments: list[tuple[str, bytes]] = []
         used_names: set[str] = set()
@@ -1154,12 +1220,24 @@ async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends
             for fmt in payload.formats:
                 output_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
                 output_paths.append(output_path)
-                header = _build_report(pkg_payload, output_path, fmt)
+                # Mesma persistência fail-open de /generate — um relatório
+                # mandado por e-mail é tão real quanto um baixado, então
+                # entra no mesmo histórico (ver plano de implementação).
+                handle = guard.begin(
+                    _persistence_pkg_data(pkg_payload), fmt, _user["login"], _user["name"],
+                    created_from="send_report_endpoint",
+                )
+                try:
+                    header = _build_report(pkg_payload, output_path, fmt)
+                except Exception as e:
+                    finish_generation_failure(handle, e)
+                    raise
                 download_name = _sanitized_file_name(pkg_payload.file_name, header, fmt)
                 # mesma dedupe de nome que /generate usa no modo zip — dois
                 # anexos não podem ter o mesmo nome final no mesmo e-mail.
                 final_name = _dedupe_name(download_name, used_names)
                 used_names.add(final_name)
+                finish_generation_success(handle, output_path, final_name, fmt, _FORMAT_MEDIA_TYPES[fmt])
                 with open(output_path, "rb") as f:
                     attachments.append((final_name, f.read()))
 
