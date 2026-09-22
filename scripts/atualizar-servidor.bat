@@ -20,7 +20,7 @@ set SERVICE_NAME=
 cd /d "%~dp0.."
 
 echo.
-echo [1/4] Baixando codigo mais recente (git pull)...
+echo [1/5] Baixando codigo mais recente (git pull)...
 git pull origin main
 if errorlevel 1 (
     echo.
@@ -30,7 +30,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/4] Instalando dependencias do backend...
+echo [2/5] Instalando dependencias do backend...
 pip install -r backend\requirements.txt
 if errorlevel 1 (
     echo.
@@ -39,7 +39,25 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] Buildando o frontend...
+echo [3/5] Subindo reports-mysql e aplicando migrations...
+REM Regra de ouro: NUNCA reiniciar o uvicorn com codigo novo se a migration
+REM nao confirmou sucesso -- se algo falhar aqui, o processo antigo (codigo +
+REM schema compativeis entre si) continua servindo normalmente.
+docker compose up -d reports-mysql
+if errorlevel 1 (
+    echo.
+    echo ERRO ao subir o container reports-mysql via Docker.
+    goto :fim_com_erro
+)
+alembic upgrade head
+if errorlevel 1 (
+    echo.
+    echo ERRO ao aplicar migrations do reports_db.
+    goto :fim_com_erro
+)
+
+echo.
+echo [4/5] Buildando o frontend...
 call npm --prefix frontend install
 if errorlevel 1 (
     echo.
@@ -54,7 +72,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [4/4] Reiniciando o backend...
+echo [5/5] Reiniciando o backend...
 if "%SERVICE_NAME%"=="" (
     echo.
     echo Nenhum SERVICE_NAME configurado neste script.
