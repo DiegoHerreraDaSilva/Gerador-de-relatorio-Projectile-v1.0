@@ -1,0 +1,33 @@
+# Banco MySQL PRÓPRIO de histórico de relatórios (reports_db) — separado do
+# MySQL do Projectile, que continua 100% externo e nunca é dockerizado (ver
+# GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 3.1: nunca misturar os dois
+# bancos). Porta 3307 no host pra não colidir com um MySQL local em 3306.
+#
+# Primeiro uso:
+#   docker compose up -d reports-mysql
+#   alembic upgrade head
+#   python -c "import getpass, keyring; keyring.set_password('reports_mysql', 'reports_app', getpass.getpass())"
+# (a senha do keyring precisa ser a MESMA de REPORTS_MYSQL_APP_PASSWORD no
+# .env — usada só nessa primeira subida, pra criar o usuário/schema; depois
+# disso a aplicação nunca mais lê essa variável, só o keyring.)
+services:
+  reports-mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${REPORTS_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: reports_db
+      MYSQL_USER: reports_app
+      MYSQL_PASSWORD: ${REPORTS_MYSQL_APP_PASSWORD}
+    volumes:
+      - reports_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  reports_mysql_data:

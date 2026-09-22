@@ -20,6 +20,7 @@ import threading
 import pymysql
 import pymysql.cursors
 
+from .core.config import get_settings
 from .db_credentials import DbCredentialsError, get_projectile_db_password
 from .parser import SINGLE_PACKAGE_KEY, RowIssue, WorkPackage, _PackageAccumulator
 
@@ -37,7 +38,9 @@ class ProjectileDbError(RuntimeError):
 # Confirmado via `SELECT DISTINCT sysClientId FROM ttimebit/tjob` (só '0') e
 # medido: adicionar esse filtro fez a query de fetch_engineering_hours cair
 # de 37.31s pra 0.45s pro mesmo resultado (vira ref/eq_ref em vez de ALL).
-_SYS_CLIENT_ID = "0"
+# Vem de core.config.Settings (default idêntico ao valor fixo anterior) —
+# nunca muda na prática, só existe como variável pra não ficar hardcoded.
+_SYS_CLIENT_ID = get_settings().projectile_sys_client_id
 
 
 def _open_new_connection() -> pymysql.connections.Connection:
