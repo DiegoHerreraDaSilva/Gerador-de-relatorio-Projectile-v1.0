@@ -369,7 +369,10 @@ export interface StoreState {
     language: WorkPackage["language"]
   ) => void;
   applyChatState: (newState: {
-    packages: Array<{ key: string; projectCode: string; projectName: string; groups: Array<{ name: string; performance: number; activities: Array<{ description: string; hours: number | null }> }> }>;
+    packages: Array<{
+      key: string; projectCode: string; projectName: string;
+      groups: Array<{ id: string; name: string; performance: number; activities: Array<{ id: string; description: string; hours: number | null }> }>;
+    }>;
     locationDate: string;
     monthLabel: string;
     signer1Name: string;
@@ -891,39 +894,33 @@ export const useReportStore = create<StoreState>()(
           const pkg = s.packages[i];
           pkg.projectCode = pkgState.projectCode || "";
           pkg.projectName = pkgState.projectName || "";
-          const oldGroups = pkg.groups;
-          const claimedGroupIds = new Set<string>();
-          pkg.groups = pkgState.groups.map((g) => {
-            const oldGroup = oldGroups.find((og) => !claimedGroupIds.has(og.id) && og.name === g.name);
-            if (oldGroup) claimedGroupIds.add(oldGroup.id);
-            // casa por descrição pra preservar o id de atividades que não mudaram
-            // (mesmo padrão de mergeActivityIntoGroup) — sem isso, TODA atividade
-            // ganhava um id novo a cada resposta do chat, mesmo as intocadas, o
-            // que forçava o React a remontar a lista inteira (perde foco) e
-            // deixava entradas órfãs em selectedByPane apontando pro id antigo.
-            const claimedActivityIds = new Set<string>();
-            return {
-              id: oldGroup?.id ?? genId(),
-              name: g.name,
-              performance: g.performance,
-              activities: g.activities.map((a) => {
-                const oldActivity = oldGroup?.activities.find(
-                  (oa) => !claimedActivityIds.has(oa.id) && oa.description === a.description
-                );
-                if (oldActivity) claimedActivityIds.add(oldActivity.id);
-                return {
-                  id: oldActivity?.id ?? genId(),
-                  description: a.description,
-                  hours: a.hours,
-                  // preserva a marcação de quem já existia; pra atividade nova
-                  // que o chat criou, trata como "extra" se veio sem horas
-                  extra: oldActivity?.extra ?? a.hours === null,
-                };
-              }),
-            };
-          });
-          // limpa collapsedGroupIds de grupos que não existem mais (removidos ou
-          // renomeados sem correspondência) — senão a entrada fica órfã pra sempre
+          // Casa por `id` (estável, atribuído pelo backend — ver chat_ops.py) em
+          // vez de por nome/descrição: grupo/atividade que o chat não tocou
+          // mantém exatamente o mesmo id; grupo/atividade novo (add_group/
+          // add_activity) já chega com um id novo do backend, nunca colide com
+          // um existente. Sem isso, TODA atividade ganhava um id novo a cada
+          // resposta do chat, mesmo as intocadas — forçava o React a remontar a
+          // lista inteira (perde foco) e deixava entradas órfãs em
+          // selectedByPane apontando pro id antigo.
+          const oldActivitiesById = new Map(pkg.groups.flatMap((g) => g.activities.map((a) => [a.id, a] as const)));
+          pkg.groups = pkgState.groups.map((g) => ({
+            id: g.id,
+            name: g.name,
+            performance: g.performance,
+            activities: g.activities.map((a) => {
+              const oldActivity = oldActivitiesById.get(a.id);
+              return {
+                id: a.id,
+                description: a.description,
+                hours: a.hours,
+                // preserva a marcação de quem já existia; pra atividade nova
+                // que o chat criou, trata como "extra" se veio sem horas
+                extra: oldActivity?.extra ?? a.hours === null,
+              };
+            }),
+          }));
+          // limpa collapsedGroupIds de grupos que não existem mais (removidos) —
+          // senão a entrada fica órfã pra sempre
           const newGroupIds = new Set(pkg.groups.map((g) => g.id));
           pkg.collapsedGroupIds = new Set([...pkg.collapsedGroupIds].filter((id) => newGroupIds.has(id)));
         });

@@ -7,10 +7,18 @@ reescrever cada grupo/atividade do zero, mesmo os que não mudaram — e é a
 geração de tokens de saída que domina o tempo de resposta. O trade-off é que a
 aplicação da mudança fica mais complexa: em vez de "substitui tudo", precisa
 localizar cada alvo (pacote/grupo/atividade) e validar que ele existe.
-"""
+
+Grupos e atividades são localizados por `id` estável (não por nome/descrição
+— guia GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 25). Antes desta mudança, a
+IA precisava reproduzir nome/descrição CARACTERE POR CARACTERE pra localizar
+o alvo, e nomes duplicados eram um erro explícito porque não dava pra saber
+qual dos dois grupos era o pretendido — um `id` opaco elimina as duas
+fragilidades: é um token curto fácil de copiar de volta sem erro, e nunca é
+ambíguo mesmo com nomes repetidos."""
 from __future__ import annotations
 
 import copy
+import uuid
 
 TOOL_NAME = "apply_report_operations"
 
@@ -21,24 +29,28 @@ Estrutura do estado atual que você recebe (só leitura — é o ANTES, você n�
 esse JSON diretamente):
 - `packages`: lista de relatórios/projetos abertos. Cada um tem `key` (identificador
   único do pacote — use em `packageKey`), `projectCode`, `projectName`, `groups`.
-- Cada grupo tem `name`, `performance` (multiplicador numérico) e `activities`.
-- Cada atividade tem `description` e `hours` (número, ou `null` = atividade extra
-  ainda sem apontamento real).
+- Cada grupo tem `id` (identificador estável — use em `groupId`), `name`,
+  `performance` (multiplicador numérico) e `activities`.
+- Cada atividade tem `id` (identificador estável — use em `activityId`),
+  `description` e `hours` (número, ou `null` = atividade extra ainda sem
+  apontamento real).
 - `activePackageIndex`: índice do pacote que o usuário está vendo — se o pedido
   não especificar "todos os relatórios/pacotes", aplique só nesse pacote (use
   `packages[activePackageIndex].key` como `packageKey`).
 
 Catálogo de operações (campo `op`):
-- `rename_group` {packageKey, group, newName} — renomeia um grupo existente.
-- `set_group_performance` {packageKey, group, performance} — muda a performance de um grupo.
-- `add_group` {packageKey, name, performance} — cria um grupo novo (vazio).
-- `remove_group` {packageKey, group} — remove um grupo inteiro (e todas as atividades dele).
-- `set_activity_hours` {packageKey, group, activity, hours} — muda as horas de uma
+- `rename_group` {packageKey, groupId, newName} — renomeia um grupo existente.
+- `set_group_performance` {packageKey, groupId, performance} — muda a performance de um grupo.
+- `add_group` {packageKey, name, performance, activities?} — cria um grupo novo.
+  `activities` é opcional: lista de `{description, hours}` pra já criar o grupo
+  com atividades (prefira isso a criar vazio e adicionar depois, veja regra 1).
+- `remove_group` {packageKey, groupId} — remove um grupo inteiro (e todas as atividades dele).
+- `set_activity_hours` {packageKey, groupId, activityId, hours} — muda as horas de uma
   atividade (`hours` pode ser `null` pra virar atividade extra sem apontamento).
-- `set_activity_description` {packageKey, group, activity, newDescription} — renomeia a descrição de uma atividade.
-- `add_activity` {packageKey, group, description, hours} — adiciona uma atividade nova a um grupo.
-- `remove_activity` {packageKey, group, activity} — remove uma atividade.
-- `sort_activities_alphabetically` {packageKey, group} — reordena as atividades
+- `set_activity_description` {packageKey, groupId, activityId, newDescription} — renomeia a descrição de uma atividade.
+- `add_activity` {packageKey, groupId, description, hours} — adiciona uma atividade nova a um grupo já existente.
+- `remove_activity` {packageKey, groupId, activityId} — remove uma atividade.
+- `sort_activities_alphabetically` {packageKey, groupId} — reordena as atividades
   desse grupo em ordem alfabética pela descrição (A-Z, sem diferenciar
   maiúscula/minúscula). Use pra qualquer pedido de "ordenar"/"organizar" as
   atividades de um grupo — não tente simular a ordenação reescrevendo cada
@@ -48,11 +60,14 @@ Catálogo de operações (campo `op`):
   `locationDate`, `monthLabel`, `signer1Name`, `signer1Company`, `signer2Name`, `signer2Company`.
 
 Regras:
-1. `group` e `activity` identificam o alvo pelo nome/descrição ATUAL dele NO MOMENTO
-   em que cada operação é aplicada — as operações são executadas em ORDEM, uma de
-   cada vez, cada uma vendo o resultado das anteriores. Se você renomear um grupo
-   e depois quiser mudar a performance DESSE MESMO grupo na mesma resposta, use o
-   NOME NOVO na operação seguinte (a renomeação já aconteceu quando ela rodar).
+1. `groupId`/`activityId` identificam o alvo pelo ID ESTÁVEL do "Estado atual" —
+   copie o valor EXATAMENTE (é um token opaco: nunca invente, abrevie ou
+   reconstrua um). Um grupo/atividade criado por `add_group`/`add_activity` só
+   ganha id DEPOIS de aplicado — você não sabe esse id de antemão. Por isso: se
+   o pedido pede pra criar algo e IMEDIATAMENTE editar esse mesmo algo (ex:
+   "cria um grupo X com uma atividade Y de 5h"), já crie com os valores finais
+   corretos numa única operação (`add_group` aceita `activities` inicial) em
+   vez de criar e depois tentar referenciar o que acabou de criar.
 2. Gere o MENOR número de operações que resolve o pedido — não descreva mudanças
    que não foram pedidas, e nunca emita uma operação pra algo que já está do jeito
    pedido.
@@ -60,22 +75,21 @@ Regras:
    NÃO invente a operação — devolva `operations: []` e explique o motivo no `summary`.
 4. `summary`: resumo curto (1-2 frases, português, tom direto) do que foi feito —
    ou do motivo de nada ter sido feito, se for o caso.
-5. Nomes de grupo são ÚNICOS dentro de um pacote — nunca use `rename_group` ou
-   `add_group` com um nome que já existe em outro grupo do mesmo pacote (a
-   operação falha e nada é aplicado). `group`/`activity` identificam o alvo
-   pelo nome/descrição, então nomes duplicados tornam impossível referenciar
-   os grupos corretamente depois.
-6. Em pedidos que afetam "todos/todas" (ex: "todos os grupos", "todas as
+5. Em pedidos que afetam "todos/todas" (ex: "todos os grupos", "todas as
    atividades"), CONTE quantos itens existem no estado atual e gere UMA
    operação pra CADA UM deles — nunca pare antes do fim da lista. Antes de
    devolver a resposta, revise se o número de operações bate com o número de
    alvos existentes.
-7. Copie `group` e `activity` EXATAMENTE como aparecem no `Estado atual` —
-   caractere por caractere, incluindo pontuação e maiúsculas/minúsculas.
-   Descrições de atividade podem ser frases longas: nunca resuma, corrija ou
-   reformule o texto ao referenciá-las, mesmo que pareçam ter erro de digitação
-   no original — um texto levemente diferente do original faz a operação falhar.
 """
+
+_ACTIVITY_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "description": {"type": "string"},
+        "hours": {"type": ["number", "null"]},
+    },
+    "required": ["description"],
+}
 
 _OPERATION_SCHEMA = {
     "type": "object",
@@ -90,14 +104,18 @@ _OPERATION_SCHEMA = {
             ],
         },
         "packageKey": {"type": "string", "description": "Chave do pacote alvo (não usado em set_shared_field)."},
-        "group": {"type": "string", "description": "Nome ATUAL do grupo alvo."},
-        "activity": {"type": "string", "description": "Descrição ATUAL da atividade alvo."},
+        "groupId": {"type": "string", "description": "ID estável do grupo alvo (do Estado atual)."},
+        "activityId": {"type": "string", "description": "ID estável da atividade alvo (do Estado atual)."},
         "newName": {"type": "string", "description": "Usado em rename_group."},
         "newDescription": {"type": "string", "description": "Usado em set_activity_description."},
         "performance": {"type": "number", "description": "Usado em set_group_performance e add_group."},
         "hours": {"type": ["number", "null"], "description": "Usado em set_activity_hours e add_activity."},
         "description": {"type": "string", "description": "Usado em add_activity (descrição da atividade nova)."},
         "name": {"type": "string", "description": "Usado em add_group (nome do grupo novo)."},
+        "activities": {
+            "type": "array", "items": _ACTIVITY_INPUT_SCHEMA,
+            "description": "Usado em add_group (atividades iniciais do grupo novo, opcional).",
+        },
         "field": {"type": "string", "description": "Usado em set_package_field/set_shared_field."},
         "value": {"type": "string", "description": "Usado em set_package_field/set_shared_field."},
     },
@@ -125,6 +143,10 @@ class OperationError(ValueError):
     nunca aplica parte das operações."""
 
 
+def _new_id() -> str:
+    return str(uuid.uuid4())
+
+
 def _find_package(state: dict, key: str) -> dict:
     for pkg in state["packages"]:
         if pkg["key"] == key:
@@ -132,40 +154,18 @@ def _find_package(state: dict, key: str) -> dict:
     raise OperationError(f'Pacote "{key}" não encontrado.')
 
 
-def _find_group(pkg: dict, name: str) -> dict:
-    matches = [g for g in pkg["groups"] if g["name"] == name]
-    if not matches:
-        raise OperationError(f'Grupo "{name}" não encontrado no pacote "{pkg["key"]}".')
-    if len(matches) > 1:
-        # dois grupos com o mesmo nome no relatório importado (não criado via
-        # chat, já que rename_group/add_group bloqueiam duplicata) — não dá
-        # pra saber qual dos dois a IA quis dizer, então falha explícito em
-        # vez de silenciosamente pegar o primeiro e confundir o usuário.
-        raise OperationError(
-            f'Existe mais de um grupo chamado "{name}" no pacote "{pkg["key"]}" — '
-            "renomeie um deles manualmente pra deixar os nomes únicos antes de pedir essa edição."
-        )
-    return matches[0]
+def _find_group(pkg: dict, group_id: str) -> dict:
+    for g in pkg["groups"]:
+        if g["id"] == group_id:
+            return g
+    raise OperationError(f'Grupo com id "{group_id}" não encontrado no pacote "{pkg["key"]}".')
 
 
-def _normalize_text(text: str) -> str:
-    # colapsa espaços múltiplos/quebras de linha em um só e tira as pontas —
-    # descrições de atividade do Projectile costumam ser frases longas, e a IA
-    # às vezes reproduz um espaço a mais/a menos ao copiar de volta no `activity`
-    return " ".join(text.split())
-
-
-def _find_activity(group: dict, description: str) -> dict:
+def _find_activity(group: dict, activity_id: str) -> dict:
     for a in group["activities"]:
-        if a["description"] == description:
+        if a["id"] == activity_id:
             return a
-    # fallback tolerante a diferença de espaçamento (não de conteúdo) — só usa
-    # se resolver pra exatamente uma atividade, senão cai no erro normal
-    normalized = _normalize_text(description)
-    fuzzy_matches = [a for a in group["activities"] if _normalize_text(a["description"]) == normalized]
-    if len(fuzzy_matches) == 1:
-        return fuzzy_matches[0]
-    raise OperationError(f'Atividade "{description}" não encontrada no grupo "{group["name"]}".')
+    raise OperationError(f'Atividade com id "{activity_id}" não encontrada no grupo "{group["name"]}".')
 
 
 _PACKAGE_FIELDS = {"projectCode", "projectName"}
@@ -178,14 +178,14 @@ _SHARED_FIELDS = {
 def _find_target_group(state: dict, op: dict) -> dict:
     """Atalho para o par pacote+grupo usado por toda operação que só precisa do
     grupo (não do pacote em si) — repetido em várias operações abaixo."""
-    return _find_group(_find_package(state, op["packageKey"]), op["group"])
+    return _find_group(_find_package(state, op["packageKey"]), op["groupId"])
 
 
 def _apply_one(state: dict, op: dict) -> None:
     kind = op.get("op")
     if kind == "rename_group":
+        group = _find_target_group(state, op)
         pkg = _find_package(state, op["packageKey"])
-        group = _find_group(pkg, op["group"])
         new_name = op["newName"]
         if new_name != group["name"] and any(g["name"] == new_name for g in pkg["groups"]):
             raise OperationError(f'Já existe um grupo "{new_name}" no pacote "{pkg["key"]}".')
@@ -197,25 +197,34 @@ def _apply_one(state: dict, op: dict) -> None:
         pkg = _find_package(state, op["packageKey"])
         if any(g["name"] == op["name"] for g in pkg["groups"]):
             raise OperationError(f'Já existe um grupo "{op["name"]}" no pacote "{pkg["key"]}".')
-        pkg["groups"].append({"name": op["name"], "performance": float(op.get("performance", 1)), "activities": []})
+        initial_activities = [
+            {"id": _new_id(), "description": a["description"], "hours": a.get("hours")}
+            for a in op.get("activities") or []
+        ]
+        pkg["groups"].append({
+            "id": _new_id(),
+            "name": op["name"],
+            "performance": float(op.get("performance", 1)),
+            "activities": initial_activities,
+        })
     elif kind == "remove_group":
         pkg = _find_package(state, op["packageKey"])
-        target = _find_group(pkg, op["group"])
+        target = _find_group(pkg, op["groupId"])
         pkg["groups"] = [g for g in pkg["groups"] if g is not target]
     elif kind == "set_activity_hours":
         group = _find_target_group(state, op)
-        activity = _find_activity(group, op["activity"])
+        activity = _find_activity(group, op["activityId"])
         activity["hours"] = op["hours"]
     elif kind == "set_activity_description":
         group = _find_target_group(state, op)
-        activity = _find_activity(group, op["activity"])
+        activity = _find_activity(group, op["activityId"])
         activity["description"] = op["newDescription"]
     elif kind == "add_activity":
         group = _find_target_group(state, op)
-        group["activities"].append({"description": op["description"], "hours": op.get("hours")})
+        group["activities"].append({"id": _new_id(), "description": op["description"], "hours": op.get("hours")})
     elif kind == "remove_activity":
         group = _find_target_group(state, op)
-        target = _find_activity(group, op["activity"])
+        target = _find_activity(group, op["activityId"])
         group["activities"] = [a for a in group["activities"] if a is not target]
     elif kind == "sort_activities_alphabetically":
         group = _find_target_group(state, op)

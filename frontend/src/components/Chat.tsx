@@ -65,9 +65,11 @@ export function Chat() {
         projectCode: pkg.projectCode || "",
         projectName: pkg.projectName || "",
         groups: pkg.groups.map((g) => ({
+          id: g.id,
           name: g.name,
           performance: parseFloat(String(g.performance)) || 0,
           activities: g.activities.map((a) => ({
+            id: a.id,
             description: a.description,
             hours: a.hours === null || a.hours === undefined ? null : parseFloat(String(a.hours)),
           })),

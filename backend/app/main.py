@@ -1434,11 +1434,16 @@ async def download_artifact_endpoint(artifact_id: str, _user: dict = Depends(req
 
 
 class ChatActivity(BaseModel):
+    # id estável (do frontend, `Activity.id`) — chat_ops.py localiza o alvo
+    # das operações por id, nunca por descrição (ver chat_ops.py, Fase 8 do
+    # GUIA_EVOLUCAO_GERADOR_PROJECTILE.md).
+    id: str
     description: str
     hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class ChatGroup(BaseModel):
+    id: str
     name: str
     performance: float = Field(ge=0, allow_inf_nan=False)
     activities: list[ChatActivity]

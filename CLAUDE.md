@@ -59,6 +59,7 @@ ainda.
 
 - `useReportStore.ts` é a fonte de verdade da guia ativa.
 - Pacotes, grupos e atividades são identificados por `id`, nunca por índice persistente.
+- **Chat de IA usa `id` estável de grupo/atividade** (Fase 8) — `ChatGroup`/`ChatActivity` (`main.py`) exigem `id`; `chat_ops.py` localiza o alvo das operações por `groupId`/`activityId`, nunca por nome/descrição. `add_group`/`add_activity` geram `id` novo no backend (`uuid4()`), que o frontend só precisa aceitar (`applyChatState` casa por `id`, não mais por nome+índice).
 - `enableMapSet()` é obrigatório porque o estado contém `Set`.
 - A pilha de undo é global à guia durante a sessão, mas não vai para o `localStorage`.
 - `useReportTabsStore.ts` serializa cada guia, faz autosave com debounce e restaura no boot.
@@ -299,7 +300,7 @@ só com o container de pé (schema de teste separado, `reports_db_test`, ver
 
 Em 2026-09-22:
 
-- backend: 240 testes coletados (211 + 28 novos de `reports_db`/snapshot/histórico/auditoria, 1 skip pré-existente);
+- backend: 274 testes coletados (211 + 62 novos de `reports_db`/snapshot/histórico/auditoria/upload/chat, 1 skip pré-existente);
 - frontend: 134 testes em 10 arquivos;
 - build: `tsc -b && vite build`.
 
@@ -347,7 +348,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Parser XLSX | `backend/app/parser.py` |
 | Queries Projectile | `backend/app/projectile_db.py` |
 | E-mail | `backend/app/email_ingest.py`, `SendReportModal.tsx` |
-| Chat/tradução | `chatbot.py`, `chat_ops.py`, `translate_ops.py`, `Chat.tsx` |
+| Chat/tradução (IDs estáveis desde a Fase 8) | `chatbot.py`, `chat_ops.py`, `translate_ops.py`, `Chat.tsx`, `useReportStore.applyChatState` |
 | Proxy dev | `frontend/vite.config.ts` |
 | Documentação de uso | `README.md` |
 | Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `main.py` (`generate_endpoint`/`send_report_endpoint`) |
