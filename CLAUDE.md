@@ -19,10 +19,10 @@ O MySQL do Projectile é somente lido. Desde a Fundação/Slice 1 do
 `GUIA_EVOLUCAO_GERADOR_PROJECTILE.md`, existe um SEGUNDO banco próprio,
 `reports_db` (MySQL em container Docker, acessado via SQLAlchemy Core +
 Alembic), que persiste histórico/versionamento de cada geração de relatório
-— ver seção "Persistência de relatórios (reports_db)". A persistência
-gerencial local continua em `backend/data/management_kpi.json` e as guias
-do frontend em `localStorage`; nenhum dos dois foi migrado pro banco novo
-ainda.
+— ver seção "Persistência de relatórios (reports_db)". Os dados do Painel
+de Gerência/Diagnóstico também vivem no `reports_db` (tabelas `mgmt_*`,
+antes em `backend/data/management_kpi.json`) — ver "Persistência
+gerencial". As guias do frontend continuam em `localStorage`.
 
 ## Stack atual
 
@@ -31,7 +31,7 @@ ainda.
 | Backend | Python 3.11+, FastAPI 0.141.1, Uvicorn 0.49 |
 | XLSX/PDF | openpyxl para leitura, ZIP/XML para escrita, ReportLab, pypdf |
 | Banco Projectile | MySQL/PyMySQL (só leitura); senha via Windows Credential Manager/keyring |
-| Banco reports_db | MySQL em Docker; SQLAlchemy Core + Alembic; senha via keyring |
+| Banco reports_db | MySQL em Docker; SQLAlchemy Core + Alembic; senha via keyring. Guarda histórico de relatórios e os dados de Gerência/Diagnóstico |
 | Frontend | React 18, TypeScript 5.6, Vite 7.3.6, Zustand 4, immer 10 |
 | IA | Anthropic SDK + truststore |
 | E-mail | Microsoft Graph via MSAL |
@@ -185,7 +185,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `generator.py` | geração XLSX, feriados e dias úteis |
 | `pdf_generator.py` | PDF A4 e metadados |
 | `hours_analytics.py` | contrato, baseline, lacunas, outliers e séries |
-| `management.py` | KPIs, cache, amostras, fechados e JSON local |
+| `management.py` | KPIs, cache, amostras e fechados (regra de negócio; persistência em `services/management_store.py`) |
 | `email_ingest.py` | Graph, anexos, matching, leitura e envio de e-mail |
 | `chatbot.py` | chamadas Anthropic |
 | `chat_ops.py` | schema/aplicação das operações do chat |
@@ -196,6 +196,8 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `services/snapshot.py` | funções puras: canonical JSON, hash de dado/identidade, parse de competência |
 | `services/report_persistence.py` | `begin_generation`/`finish_generation_success`/`finish_generation_failure`/`reconcile_orphaned_generations`, `GenerationGuard` — sempre fail-open |
 | `services/audit.py` | `record_event()` — trilha de auditoria em `audit_log`, sempre fail-open |
+| `services/management_store.py` | persistência de Gerência/Diagnóstico nas tabelas `mgmt_*` — `load_document`, `write_session` (lock), `import_document`. **Não** é fail-open |
+| `tools/import_management_json.py` | importação única do antigo `management_kpi.json` (`python -m backend.app.tools.import_management_json [--replace-existing]`) |
 | `services/report_queries.py` | leituras pro histórico (`GET /reports/*`) e agregações do Analytics (`get_analytics_summary`, `GET /analytics/summary`) — **não** é fail-open: falha vira 502 (a única função do endpoint é ler) |
 
 ### API — routers (Fase 5)
@@ -248,8 +250,13 @@ Compartilhado entre routers: `api/dependencies.py` (`require_session`/`require_m
 
 ### Persistência gerencial
 
-- Arquivo: `backend/data/management_kpi.json` (ignorado pelo Git).
-- Escritas são protegidas por `RLock`; preserve escrita atômica/consistência.
+- Tabelas `mgmt_*` no `reports_db` (`db/reports_schema.py`, migration 0006), uma por seção do antigo `backend/data/management_kpi.json`. `services/management_store.py` só persiste; a regra continua em `management.py`, e `management_store.load_document()` devolve o MESMO formato de dict que o JSON tinha.
+- **Sem fail-open, decisão deliberada**: é dado primário (entradas manuais, amostras corrigidas à mão). Banco fora do ar → `ManagementStoreError` → handler em `main.py` responde 502 com mensagem genérica em qualquer rota. Nunca cair em silêncio pra um arquivo local (os dois divergiriam).
+- Toda escrita passa por `management_store.write_session()`, que trava a linha `samples_lock` de `mgmt_meta` (`SELECT ... FOR UPDATE`) — substitui o antigo `threading.RLock` e também serializa entre processos. Não grave nas tabelas `mgmt_*` fora de uma `write_session`.
+- Colunas de id (`message_id`, `sample_id`, `project_id`, `client`) usam `utf8mb4_bin` (`_exact_string`): o collation padrão ignora caixa e ids do Graph diferenciam.
+- `mgmt_kpi_samples.seq` preserva a ordem de inserção — é o desempate de `_recompute_duplicate_flags` quando duas amostras têm o mesmo `received_at`. Leia sempre ordenado por `seq`.
+- `email_ingest.py` deixa `ManagementStoreError` subir (não vira "anexo inválido"): falha de banco não pode marcar o e-mail como processado, senão a amostra se perde.
+- Importação única do JSON antigo: `python -m backend.app.tools.import_management_json` (passo 5/6 do `atualizar-servidor.bat`). Idempotente (registro em `mgmt_meta`), renomeia o JSON pra `.migrated-<data>` (backup, nunca apagado). **Recusa** se o banco já tiver dado de gerência sem registro de importação — acontece se o backend novo subir antes da importação e o polling reprocessar os e-mails, recriando as amostras SEM as correções manuais (`edited=True`) que só o JSON tem. Aconteceu de verdade na migração de dev. Saída deliberada: `--replace-existing` (descarta o do banco, guarda cópia em `mgmt_meta`).
 - Cache de horas gerenciais: 15 minutos por intervalo.
 - `pacote_scope = None` significa projeto inteiro; lista significa pacotes específicos.
 - Amostras automáticas duplicadas não entram duas vezes no faturado; amostras manuais têm regras próprias.
@@ -333,7 +340,8 @@ só com o container de pé (schema de teste separado, `reports_db_test`, ver
 
 Em 2026-09-22:
 
-- backend: 283 testes coletados (211 + 62 de `reports_db`/snapshot/histórico/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics, 1 skip pré-existente);
+- backend: 294 testes coletados (211 + 62 de `reports_db`/snapshot/histórico/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics + 12 de persistência de gerência em `test_management_store.py` − 1 teste antigo de concorrência por arquivo, 1 skip pré-existente). `test_management.py` (regra de negócio) roda em SQLite na memória (fixture `management_db`), sem Docker; o que depende do MySQL real (lock entre conexões, collation) é marcado `reports_db`;
+- `conftest.py:_no_real_email_polling` (autouse) desliga o loop de polling nos testes — com `AZURE_CLIENT_ID` no `.env`, `with TestClient(app)` chamava o Graph e o Projectile de verdade no startup;
 - frontend: 134 testes em 10 arquivos;
 - build: `tsc -b && vite build`.
 
@@ -354,7 +362,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 - Backend: sobe um serviço `mysql` (schema `reports_db_test`, usuário `reports_app`), instala `requirements-dev.txt`, roda `alembic upgrade head` (senha via `REPORTS_DB_TEST_PASSWORD`, não keyring — CI não tem Windows Credential Manager) e roda pytest.
 - Frontend: Node 20, `npm ci`, Vitest e build.
 - Não há deploy automático.
-- `scripts/atualizar-servidor.bat` atualiza `main`, instala dependências, sobe `reports-mysql` via Docker + `alembic upgrade head` (nunca reinicia o backend se a migration falhar), builda e reinicia via NSSM quando configurado.
+- `scripts/atualizar-servidor.bat` atualiza `main`, instala dependências, sobe `reports-mysql` via Docker + `alembic upgrade head` (nunca reinicia o backend se a migration falhar), builda, importa o JSON de gerência (`import_management_json`, último passo antes do restart de propósito — até o restart o backend antigo ainda grava no JSON) e reinicia via NSSM quando configurado.
 
 ## Git e escopo
 
@@ -376,8 +384,9 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Preview | `frontend/src/components/Preview/` |
 | Geração/download | `GenerateFooter.tsx`, `backend/app/api/routers/generation.py`, geradores |
 | Dashboard pessoal | `MyHoursDashboard.tsx`, `useMyHoursStore.ts`, `hours_analytics.py` |
-| KPIs gerenciais | `ManagementPanel.tsx`, `useManagementStore.ts`, `management.py` (regra), `api/routers/management.py` (rota) |
+| KPIs gerenciais | `ManagementPanel.tsx`, `useManagementStore.ts`, `management.py` (regra), `api/routers/management.py` (rota), `services/management_store.py` (persistência) |
 | Diagnóstico | `DiagnosticsPanel.tsx`, `useDiagnosticsStore.ts` |
+| Tabelas de gerência (`mgmt_*`) | `db/reports_schema.py` + migration em `backend/alembic/versions/`; importação do JSON em `tools/import_management_json.py` |
 | Parser XLSX | `backend/app/parser.py` |
 | Queries Projectile | `backend/app/projectile_db.py` |
 | E-mail | `backend/app/email_ingest.py`, `SendReportModal.tsx`, `api/routers/management.py` (`/management/kpis/check-emails`) |

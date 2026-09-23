@@ -10,7 +10,7 @@ Além do gerador, a aplicação reúne:
 - automação de leitura e envio de relatórios por e-mail via Microsoft Graph;
 - edição assistida e tradução via Anthropic.
 
-> O MySQL do Projectile continua sendo a fonte operacional, só leitura. Desde a introdução do histórico de relatórios, a aplicação também mantém um segundo banco próprio, `reports_db` (MySQL em container Docker), que guarda snapshot/versão/artifact de cada geração — ver [Histórico de relatórios (reports_db)](#histórico-de-relatórios-reports_db). Os KPIs gerenciais continuam em `backend/data/management_kpi.json`, fora do Git; nenhum dos dois foi migrado pro banco novo ainda.
+> O MySQL do Projectile continua sendo a fonte operacional, só leitura. Desde a introdução do histórico de relatórios, a aplicação também mantém um segundo banco próprio, `reports_db` (MySQL em container Docker), que guarda snapshot/versão/artifact de cada geração — ver [Histórico de relatórios (reports_db)](#histórico-de-relatórios-reports_db). Os dados do Painel de Gerência e do Diagnóstico (amostras, entradas manuais, fechados) também vivem no `reports_db`, nas tabelas `mgmt_*` — antes ficavam em `backend/data/management_kpi.json`.
 
 ## Fluxos disponíveis
 
@@ -238,6 +238,9 @@ backend/
       snapshot.py           # hash/identidade/canonical JSON
       report_persistence.py # begin/finish_generation, fail-open
       report_queries.py     # leituras do histórico + agregações de analytics (não fail-open)
+      management_store.py   # persistência de Gerência/Diagnóstico nas tabelas mgmt_* (não fail-open)
+    tools/
+      import_management_json.py  # importação única do antigo management_kpi.json
       audit.py               # trilha de auditoria, fail-open
   templates/
     relatorio_final_template.xlsx
@@ -490,7 +493,9 @@ Não há deploy automático. No servidor Windows, use:
 .\scripts\atualizar-servidor.bat
 ```
 
-O script faz `git pull origin main`, instala dependências, sobe `reports-mysql` via Docker e aplica `alembic upgrade head` (nunca reinicia o backend se a migration falhar), recompila o frontend e reinicia via NSSM quando `SERVICE_NAME` estiver configurado.
+O script faz `git pull origin main`, instala dependências, sobe `reports-mysql` via Docker e aplica `alembic upgrade head` (nunca reinicia o backend se a migration falhar), recompila o frontend, importa os dados de gerência do antigo `management_kpi.json` pro `reports_db` e reinicia via NSSM quando `SERVICE_NAME` estiver configurado.
+
+**Primeira atualização depois da migração dos dados de gerência:** a importação roda uma única vez e renomeia o JSON pra `management_kpi.json.migrated-<data>` (backup, nunca apagado). Evite editar o Diagnóstico/Painel de Gerência durante a atualização: até o restart, o backend antigo ainda grava no JSON. Sem NSSM configurado, reinicie o backend logo depois do script terminar, antes de alguém usar o sistema.
 
 ## Troubleshooting
 
@@ -503,6 +508,8 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 - **Logo ausente no build:** confirme os arquivos em `frontend/public/` antes de compilar.
 - **Template perde logo/desenhos:** não use `openpyxl.save()` na geração.
 - **`/generate` funciona mas nunca aparece `X-Report-Id` na resposta:** `reports-mysql` está fora do ar, `REPORTS_DB_ENABLED=false`, ou falta senha no keyring `reports_mysql` — isso é esperado ser silencioso (fail-open), não um erro; confira os logs do backend pra ver a causa.
+- **Painel de Gerência/Diagnóstico responde 502:** esses dados vivem no `reports_db` e, diferente do histórico, não têm fail-open — confira se o container `reports-mysql` está de pé (`docker compose ps`) e a senha no keyring `reports_mysql`.
+- **Importação do JSON de gerência recusa com "já tem dados de gerência sem registro de importação":** o backend novo subiu antes da importação e o polling de e-mail recriou as amostras a partir dos e-mails — **sem** as correções manuais feitas no Diagnóstico, que só o JSON tem. Rode `python -m backend.app.tools.import_management_json --replace-existing`: o JSON prevalece e o que estava no banco fica guardado em `mgmt_meta`.
 - **`alembic upgrade head` falha com "tabela já existe":** o schema já tem tabelas de uma tentativa anterior sem `alembic_version` atualizada — confira `SELECT * FROM alembic_version` no `reports_db` antes de rodar de novo.
 
 ## Documentação adicional
