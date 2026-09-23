@@ -48,7 +48,9 @@ from .api.dependencies import (  # noqa: F401 — re-exportado: testes fazem `fr
     require_translate_access,
 )
 from .api.routers import analytics, auth, chat, generation, history, my_hours, parsing
+from .api.errors import GENERIC_MANAGEMENT_DB_ERROR
 from .api.routers import management as management_router
+from .services.management_store import ManagementStoreError
 from .services.report_persistence import reconcile_orphaned_generations
 
 app = FastAPI(
@@ -151,6 +153,16 @@ def _sanitize_nonfinite(obj):
 async def _validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = _sanitize_nonfinite(jsonable_encoder(exc.errors()))
     return JSONResponse(status_code=422, content={"detail": errors})
+
+
+@app.exception_handler(ManagementStoreError)
+async def _management_store_exception_handler(request: Request, exc: ManagementStoreError):
+    """Dados de Gerência/Diagnóstico vivem no reports_db (sem fail-open):
+    banco fora do ar vira 502 com mensagem genérica em qualquer rota, sem
+    cada uma das rotas de /management/* precisar capturar isso à parte. O
+    detalhe (host, erro do driver) só vai pro log."""
+    logging.getLogger(__name__).error("Falha no reports_db (dados de gerência)", exc_info=exc)
+    return JSONResponse(status_code=502, content={"detail": GENERIC_MANAGEMENT_DB_ERROR})
 
 
 _FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")

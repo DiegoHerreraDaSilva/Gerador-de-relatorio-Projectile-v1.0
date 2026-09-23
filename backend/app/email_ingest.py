@@ -8,8 +8,8 @@ credentials, sem interação de usuário) → baixa o(s) anexo(s) `.xlsx`/`.pdf`
 → lê o projeto e resolve o valor de "Total de horas Mês/Ano:" (ver
 `resolve_total_hours`/`read_pdf_report_data` abaixo) → faz fuzzy match do
 nome do projeto contra o Projectile → calcula dias úteis entre o fechamento
-do mês do relatório e o envio do e-mail → grava uma amostra em
-`backend/data/management_kpi.json` via `management.append_project_kpi_sample`.
+do mês do relatório e o envio do e-mail → grava uma amostra no `reports_db`
+(tabela `mgmt_kpi_samples`) via `management.append_project_kpi_sample`.
 
 Não usa `data_only=True`/valor em cache do Excel: os relatórios `.xlsx` deste
 app são gerados via ZIP/XML manual (`generator.py`, nunca
@@ -53,6 +53,7 @@ from . import management
 from .generator import parse_month_label, parse_period_label, count_business_days, HIDDEN_HELPER_COL
 from .pdf_generator import PDF_METADATA_KEY
 from .projectile_db import ProjectileDbError, fetch_all_projects
+from .services.management_store import ManagementStoreError
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 _MAX_FORMULA_DEPTH = 10
@@ -882,6 +883,11 @@ def process_new_emails() -> dict:
                                 summary["duplicates_found"] += 1
                             else:
                                 summary["samples_added"] += 1
+                    except ManagementStoreError:
+                        # banco fora do ar não é defeito do anexo: sobe sem
+                        # marcar o e-mail como processado, pra ele ser
+                        # tentado de novo no próximo polling.
+                        raise
                     except (EmailIngestError, ProjectileDbError) as e:
                         attachment_errors.append(str(e))
                     except Exception as e:
@@ -903,12 +909,14 @@ def process_new_emails() -> dict:
             if attachment_errors:
                 management.append_skipped_message(message_id, received_at, "; ".join(attachment_errors))
                 summary["skipped"] += 1
+        except ManagementStoreError:
+            raise
         except (EmailIngestError, ProjectileDbError) as e:
             management.append_skipped_message(message_id, received_at, str(e))
             summary["skipped"] += 1
         except Exception as e:
             # Falha inesperada só nesta mensagem (ex: Base64 corrompido em
-            # fetch_report_attachments, erro de I/O ao gravar management_kpi.json) não
+            # fetch_report_attachments, anexo que quebra o parser) não
             # pode derrubar o ciclo inteiro: sem isto, as mensagens seguintes do
             # mesmo polling nunca seriam processadas, e como esta mensagem nunca é
             # marcada como processada, ela travaria a automação tentando de novo a

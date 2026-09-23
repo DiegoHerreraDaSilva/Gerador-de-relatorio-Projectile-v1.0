@@ -20,7 +20,7 @@ set SERVICE_NAME=
 cd /d "%~dp0.."
 
 echo.
-echo [1/5] Baixando codigo mais recente (git pull)...
+echo [1/6] Baixando codigo mais recente (git pull)...
 git pull origin main
 if errorlevel 1 (
     echo.
@@ -30,7 +30,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/5] Instalando dependencias do backend...
+echo [2/6] Instalando dependencias do backend...
 pip install -r backend\requirements.txt
 if errorlevel 1 (
     echo.
@@ -39,7 +39,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/5] Subindo reports-mysql e aplicando migrations...
+echo [3/6] Subindo reports-mysql e aplicando migrations...
 REM Regra de ouro: NUNCA reiniciar o uvicorn com codigo novo se a migration
 REM nao confirmou sucesso -- se algo falhar aqui, o processo antigo (codigo +
 REM schema compativeis entre si) continua servindo normalmente.
@@ -57,7 +57,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [4/5] Buildando o frontend...
+echo [4/6] Buildando o frontend...
 call npm --prefix frontend install
 if errorlevel 1 (
     echo.
@@ -72,7 +72,21 @@ if errorlevel 1 (
 )
 
 echo.
-echo [5/5] Reiniciando o backend...
+echo [5/6] Importando dados do painel de gerencia (JSON antigo) pro reports_db...
+REM Ultimo passo antes do restart de proposito: ate o restart, o backend
+REM ANTIGO continua rodando e ainda grava no JSON -- quanto mais perto do
+REM restart, menor a janela em que uma edicao do Diagnostico ficaria de fora.
+REM Idempotente: depois da primeira vez, so confirma que ja foi importado.
+REM Se falhar, o JSON nao e renomeado e o backend antigo segue servindo.
+python -m backend.app.tools.import_management_json
+if errorlevel 1 (
+    echo.
+    echo ERRO ao importar os dados do painel de gerencia.
+    goto :fim_com_erro
+)
+
+echo.
+echo [6/6] Reiniciando o backend...
 if "%SERVICE_NAME%"=="" (
     echo.
     echo Nenhum SERVICE_NAME configurado neste script.

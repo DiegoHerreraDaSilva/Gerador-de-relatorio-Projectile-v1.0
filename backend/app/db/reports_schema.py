@@ -25,9 +25,11 @@ from sqlalchemy import (
     DECIMAL,
     JSON,
     BigInteger,
+    Boolean,
     Column,
     Date,
     DateTime,
+    Double,
     ForeignKey,
     Index,
     Integer,
@@ -40,6 +42,15 @@ from sqlalchemy import (
 )
 
 metadata = MetaData()
+
+
+def _exact_string(length: int):
+    """VARCHAR com comparação exata (binária) no MySQL. O collation padrão
+    das tabelas (`utf8mb4_unicode_ci`) ignora maiúsculas/minúsculas, e ids
+    do Microsoft Graph diferenciam isso: dois `message_id` distintos só na
+    caixa colidiriam como a mesma chave. `with_variant` mantém o tipo
+    neutro em outros dialetos (SQLite dos testes não conhece esse collation)."""
+    return String(length).with_variant(String(length, collation="utf8mb4_bin"), "mysql")
 
 reports = Table(
     "reports",
@@ -196,4 +207,102 @@ audit_log = Table(
     mysql_engine="InnoDB",
     mysql_charset="utf8mb4",
     mysql_collate="utf8mb4_unicode_ci",
+)
+
+# Dados do Painel de Gerência / Diagnóstico, antes em
+# backend/data/management_kpi.json — uma tabela por seção daquele documento.
+# Diferente do histórico de relatórios, isto é dado PRIMÁRIO (entradas
+# manuais do gerente, amostras corrigidas à mão): não há fail-open, ver
+# services/management_store.py. Horas/dias em DOUBLE (não DECIMAL) pra
+# reproduzir exatamente o float que o JSON guardava.
+_MYSQL_TABLE_OPTS = dict(mysql_engine="InnoDB", mysql_charset="utf8mb4", mysql_collate="utf8mb4_unicode_ci")
+
+mgmt_manual_entries = Table(
+    "mgmt_manual_entries",
+    metadata,
+    Column("month", String(7), primary_key=True),
+    Column("billed_hours", Double, nullable=True),
+    Column("elaboration_days", Double, nullable=True),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+mgmt_kpi_samples = Table(
+    "mgmt_kpi_samples",
+    metadata,
+    Column("sample_id", _exact_string(64), primary_key=True),
+    # ordem de inserção (a posição na lista do JSON antigo) — desempate de
+    # `_recompute_duplicate_flags` quando duas amostras têm o mesmo
+    # `received_at`; sem isso a ordem de leitura seria indefinida.
+    Column("seq", BigInteger, nullable=False),
+    Column("email_message_id", _exact_string(512), nullable=False),
+    # texto ISO exatamente como o JSON guardava — a ordenação e a detecção de
+    # duplicata usam comparação de string, não de data.
+    Column("received_at", String(40), nullable=True),
+    Column("sender", String(255), nullable=True),
+    Column("report_project_text", Text, nullable=True),
+    Column("project_id", _exact_string(100), nullable=True),
+    Column("project_name", String(255), nullable=True),
+    Column("match_score", Double, nullable=True),
+    Column("month", String(7), nullable=True),
+    Column("billed_hours", Double, nullable=True),
+    Column("business_days", Double, nullable=True),
+    Column("pacote_scope", JSON, nullable=True),
+    Column("source", String(20), nullable=False),
+    Column("edited", Boolean, nullable=False, default=False),
+    Column("is_duplicate", Boolean, nullable=False, default=False),
+    # qualquer chave da amostra que não tenha coluna própria — a migração
+    # não pode descartar dado em silêncio.
+    Column("extra_json", JSON, nullable=True),
+    Index("idx_mgmt_samples_seq", "seq"),
+    Index("idx_mgmt_samples_message", "email_message_id"),
+    Index("idx_mgmt_samples_project_month", "project_id", "month"),
+    **_MYSQL_TABLE_OPTS,
+)
+
+mgmt_processed_messages = Table(
+    "mgmt_processed_messages",
+    metadata,
+    Column("message_id", _exact_string(512), primary_key=True),
+    Column("processed_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+mgmt_skipped_messages = Table(
+    "mgmt_skipped_messages",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("message_id", _exact_string(512), nullable=False),
+    Column("received_at", String(40), nullable=True),
+    Column("reason", Text, nullable=True),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+mgmt_closed_clients = Table(
+    "mgmt_closed_clients",
+    metadata,
+    Column("client", _exact_string(255), primary_key=True),
+    **_MYSQL_TABLE_OPTS,
+)
+
+mgmt_closed_projects = Table(
+    "mgmt_closed_projects",
+    metadata,
+    Column("project_id", _exact_string(100), primary_key=True),
+    **_MYSQL_TABLE_OPTS,
+)
+
+# Linha única usada como mutex (`SELECT ... FOR UPDATE`) pra toda escrita
+# que precisa ler TODAS as amostras antes de gravar (recalcular flags de
+# duplicata) — substitui o `threading.RLock` de antes e, ao contrário dele,
+# também serializa entre processos. Também guarda quando/de onde veio a
+# importação do JSON antigo (idempotência de `import_legacy_json`).
+mgmt_meta = Table(
+    "mgmt_meta",
+    metadata,
+    Column("key", String(50), primary_key=True),
+    Column("value_json", JSON, nullable=True),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
 )

@@ -5,7 +5,6 @@ projeto inteiro como enviado quando cobre só 1 pacote de trabalho (ver
 `email_ingest.py` que carrega o `pacote_scope` de cada amostra)."""
 from __future__ import annotations
 
-import json
 from datetime import date
 
 import pytest
@@ -13,24 +12,30 @@ import pytest
 from backend.app import management
 
 
-def _write_samples(data_file, samples, closed_clients=None, closed_projects=None):
-    data_file.write_text(
-        json.dumps({
-            "manual_entries": {},
-            "project_kpi_samples": samples,
-            "processed_message_ids": [],
-            "skipped_messages": [],
-            "closed_clients": closed_clients or [],
-            "closed_projects": closed_projects or [],
-        }),
-        encoding="utf-8",
-    )
+@pytest.fixture(autouse=True)
+def _management_db(management_db):
+    """Todo teste deste arquivo roda contra um banco `mgmt_*` vazio (SQLite em
+    memória, ver conftest.py:management_db)."""
+    yield management_db
+
+
+def _seed(samples, closed_clients=None, closed_projects=None):
+    """Estado inicial no formato do antigo management_kpi.json, gravado pelo
+    mesmo caminho da importação real (`import_legacy_document`)."""
+    management.import_legacy_document({
+        "manual_entries": {},
+        "project_kpi_samples": samples,
+        "processed_message_ids": [],
+        "skipped_messages": [],
+        "closed_clients": closed_clients or [],
+        "closed_projects": closed_projects or [],
+    })
 
 
 def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1", source="email", sample_id=None, business_days=1):
     # aceita tanto uma string única (a maioria dos testes, mais legível) quanto
     # já uma lista/None — `pacote_scope` internamente é sempre list|None
-    # (ver management._load_data, migração retroativa do formato antigo).
+    # (ver management.normalize_legacy_document).
     scope = [pacote_scope] if isinstance(pacote_scope, str) else pacote_scope
     sample = {
         "email_message_id": msg_id,
@@ -102,12 +107,10 @@ def test_selected_months_recorta_available_mas_nao_os_buckets(monkeypatch, tmp_p
     — os buckets de horas por mês (usados nos KPIs/gráfico) continuam com
     TODOS os meses, porque essa parte já é recortada depois, no frontend
     (ver `ManagementPanel.tsx` `displayRows`)."""
-    data_file = tmp_path / "management_kpi.json"
     row_agosto = _row("P1", "Pacote A", 10.0, day=15)
     row_julho = {**_row("P2", "Pacote B", 5.0, day=15), "data": date(2026, 7, 15)}
     _patch_projectile(monkeypatch, [row_agosto, row_julho])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, selected_months=["2026-08"], force_refresh=True)
 
@@ -120,10 +123,8 @@ def test_selected_months_recorta_available_mas_nao_os_buckets(monkeypatch, tmp_p
 
 
 def test_one_of_two_pacotes_sent_is_partial(monkeypatch, tmp_path):
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope="Pacote A", billed_hours=10.0)])
+    _seed([_sample("P1", "2026-08", pacote_scope="Pacote A", billed_hours=10.0)])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -133,11 +134,8 @@ def test_one_of_two_pacotes_sent_is_partial(monkeypatch, tmp_path):
 
 
 def test_all_pacotes_sent_is_sent(monkeypatch, tmp_path):
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(
-        data_file,
+    _seed(
         [
             _sample("P1", "2026-08", pacote_scope="Pacote A", billed_hours=10.0, msg_id="m1"),
             _sample("P1", "2026-08", pacote_scope="Pacote B", billed_hours=5.0, msg_id="m2"),
@@ -155,11 +153,8 @@ def test_one_sample_covering_multiple_pacotes_at_once_is_sent(monkeypatch, tmp_p
     """Edição manual do Diagnóstico permite marcar VÁRIOS pacotes numa única
     amostra (ex: um relatório que na real cobriu 2 pacotes de trabalho) —
     não precisa de 2 amostras separadas pra fechar "enviado"."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(
-        data_file,
+    _seed(
         [_sample("P1", "2026-08", pacote_scope=["Pacote A", "Pacote B"], billed_hours=15.0)],
     )
 
@@ -172,17 +167,12 @@ def test_one_sample_covering_multiple_pacotes_at_once_is_sent(monkeypatch, tmp_p
 
 def test_legacy_string_pacote_scope_migrates_to_list(tmp_path, monkeypatch):
     """Amostras gravadas antes da edição multi-pacote existir têm
-    `pacote_scope` como texto único — `_load_data` precisa migrar isso pra
-    lista de 1 item na primeira leitura, senão todo o resto do código (que
-    já assume list|None) quebra com dado antigo."""
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, msg_id="m1")])
-    # sobrescreve pra simular o formato ANTIGO (string), sem passar por
-    # `_sample`/`_write_samples` (que já produzem o formato novo).
-    raw = json.loads(data_file.read_text(encoding="utf-8"))
-    raw["project_kpi_samples"][0]["pacote_scope"] = "Pacote Antigo"
-    data_file.write_text(json.dumps(raw), encoding="utf-8")
+    `pacote_scope` como texto único — a importação precisa converter isso
+    pra lista de 1 item, senão todo o resto do código (que já assume
+    list|None) quebra com dado antigo."""
+    legacy = _sample("P1", "2026-08", pacote_scope=None, msg_id="m1")
+    legacy["pacote_scope"] = "Pacote Antigo"
+    _seed([legacy])
 
     samples = management.list_samples()["samples"]
 
@@ -190,9 +180,7 @@ def test_legacy_string_pacote_scope_migrates_to_list(tmp_path, monkeypatch):
 
 
 def test_update_project_kpi_sample_can_set_pacote_scope(tmp_path, monkeypatch):
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, msg_id="m1")])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, msg_id="m1")])
     sample_id = management.list_samples()["samples"][0]["sample_id"]
 
     ok = management.update_project_kpi_sample(sample_id, {"pacote_scope": ["Pacote A", "Pacote B"]})
@@ -240,10 +228,8 @@ def test_list_pacotes_for_project_month_none_ignores_month_filter(monkeypatch):
 def test_closed_project_status_overrides_none(monkeypatch, tmp_path):
     """Projeto fechado nunca aparece como "Não enviado" — mesmo com horas
     reais e nenhuma amostra, o status vira "closed"."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [], closed_projects=["P1"])
+    _seed([], closed_projects=["P1"])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -255,10 +241,8 @@ def test_closed_project_status_overrides_none(monkeypatch, tmp_path):
 def test_closed_client_cascades_to_all_its_projects(monkeypatch, tmp_path):
     """Fechar um CLIENTE fecha todos os projetos dele, sem precisar listar
     cada project_id em closed_projects."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P2", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [], closed_clients=["Cliente Teste"])
+    _seed([], closed_clients=["Cliente Teste"])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
 
@@ -271,11 +255,9 @@ def test_closed_client_matches_empty_client_via_sem_cliente_fallback(monkeypatch
     cliente cadastrado) — compute_monthly_kpis normaliza isso pra "Sem
     cliente" tanto no campo "client" da linha quanto na comparação contra
     closed_clients, então fechar "Sem cliente" fecha esses projetos."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
     monkeypatch.setattr(management, "fetch_project_details", lambda ids, conn=None: {pid: {"name": f"Projeto {pid}", "client": ""} for pid in ids})
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [], closed_clients=["Sem cliente"])
+    _seed([], closed_clients=["Sem cliente"])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -288,10 +270,8 @@ def test_closed_overrides_even_a_genuinely_sent_month(monkeypatch, tmp_path):
     """Fechar sobrepõe QUALQUER resultado automático, inclusive um "sent"
     de verdade — decisão confirmada com o usuário (100% reversível, não
     mexe em nenhuma amostra)."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0)], closed_projects=["P1"])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0)], closed_projects=["P1"])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -303,10 +283,8 @@ def test_manual_send_marker_created_and_detected(monkeypatch, tmp_path):
     """Amostra manual 0h/0dias (checkbox "Enviado" clicado numa linha
     "none"/"partial") é detectada como manual_send_marker_id, e como não há
     nenhuma outra evidência, é removível."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [
+    _seed([
         _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
     ])
 
@@ -322,10 +300,8 @@ def test_manual_send_marker_not_removable_when_real_evidence_covers_row(monkeypa
     """Se apagar o marcador AINDA deixaria a linha "sent" por evidência de
     e-mail real, ele não é removível (não faz sentido "desmarcar" algo que
     já está genuinamente enviado)."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [
+    _seed([
         _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1", source="email"),
         _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
     ])
@@ -342,10 +318,8 @@ def test_deleting_manual_send_marker_reverts_partial_status(monkeypatch, tmp_pat
     """Apagar o marcador manual (via delete_project_kpi_sample, mesmo
     endpoint que o botão "desmarcar" chama) reverte a linha pro status real
     calculado a partir das amostras que sobraram."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [
+    _seed([
         _sample("P1", "2026-08", pacote_scope=["Pacote A"], billed_hours=10.0, msg_id="m1", source="email"),
         _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
     ])
@@ -360,9 +334,7 @@ def test_deleting_manual_send_marker_reverts_partial_status(monkeypatch, tmp_pat
 
 
 def test_set_client_closed_and_reopen_round_trip(tmp_path, monkeypatch):
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     management.set_client_closed("Cliente A", True)
     assert management.get_closed_registry()["closed_clients"] == ["Cliente A"]
@@ -375,9 +347,7 @@ def test_set_client_closed_and_reopen_round_trip(tmp_path, monkeypatch):
 
 
 def test_set_project_closed_and_reopen_round_trip(tmp_path, monkeypatch):
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     management.set_project_closed("P1", True)
     assert management.get_closed_registry()["closed_projects"] == ["P1"]
@@ -386,21 +356,16 @@ def test_set_project_closed_and_reopen_round_trip(tmp_path, monkeypatch):
     assert management.get_closed_registry()["closed_projects"] == []
 
 
-def test_load_data_migrates_closed_keys_for_old_json_files(tmp_path, monkeypatch):
-    """Arquivo management_kpi.json de antes dessa funcionalidade existir não
-    tem closed_clients/closed_projects — _load_data precisa preencher com
+def test_import_accepts_old_json_without_closed_keys(tmp_path, monkeypatch):
+    """management_kpi.json de antes dos "fechados" existirem não tem
+    closed_clients/closed_projects — a importação precisa tratar isso como
     listas vazias sem quebrar nada."""
-    data_file = tmp_path / "management_kpi.json"
-    data_file.write_text(
-        json.dumps({
-            "manual_entries": {},
-            "project_kpi_samples": [],
-            "processed_message_ids": [],
-            "skipped_messages": [],
-        }),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
+    management.import_legacy_document({
+        "manual_entries": {},
+        "project_kpi_samples": [],
+        "processed_message_ids": [],
+        "skipped_messages": [],
+    })
 
     assert management.get_closed_registry() == {"closed_clients": [], "closed_projects": []}
 
@@ -409,10 +374,8 @@ def test_null_pacote_scope_covers_whole_project(monkeypatch, tmp_path):
     """Amostra sem pacote_scope (None) — relatório "por projeto" ou dado
     antigo (de antes dessa funcionalidade existir) — cobre tudo de uma vez,
     mesmo comportamento de antes desta mudança."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=15.0)])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, billed_hours=15.0)])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -422,10 +385,8 @@ def test_null_pacote_scope_covers_whole_project(monkeypatch, tmp_path):
 
 
 def test_no_samples_is_none(monkeypatch, tmp_path):
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -455,9 +416,7 @@ def _month_billed_hours(result, month="2026-08"):
 
 
 def test_second_sample_same_identity_is_flagged_duplicate(tmp_path, monkeypatch):
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     first_is_dup = management.append_project_kpi_sample(_sample("P1", "2026-08", pacote_scope=None, msg_id="m1"))
     second_is_dup = management.append_project_kpi_sample(_sample("P1", "2026-08", pacote_scope=None, msg_id="m2"))
@@ -474,9 +433,7 @@ def test_duplicate_even_with_different_hours(tmp_path, monkeypatch):
     que o valor de horas do reenvio seja diferente do já registrado — não
     tenta adivinhar se é correção ou engano (correção de verdade usa o
     override manual do Painel de Gerência)."""
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     management.append_project_kpi_sample(
         _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1")
@@ -489,9 +446,7 @@ def test_duplicate_even_with_different_hours(tmp_path, monkeypatch):
 
 
 def test_manual_sample_never_marked_duplicate(tmp_path, monkeypatch):
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1")])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1")])
 
     management.create_manual_project_kpi_sample("P1", "Projeto P1", "2026-08", 10.0, 2.0)
 
@@ -501,9 +456,7 @@ def test_manual_sample_never_marked_duplicate(tmp_path, monkeypatch):
 
 
 def test_deleting_original_sample_promotes_next_to_non_duplicate(tmp_path, monkeypatch):
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
     management.append_project_kpi_sample(_sample("P1", "2026-08", pacote_scope=None, msg_id="m1"))
     management.append_project_kpi_sample(_sample("P1", "2026-08", pacote_scope=None, msg_id="m2"))
     original_id = _find_sample(management.list_samples()["samples"], "m1")["sample_id"]
@@ -522,13 +475,11 @@ def test_deleting_original_sample_promotes_next_to_non_duplicate(tmp_path, monke
 # ---------------------------------------------------------------------------
 
 def test_persons_filter_scopes_worked_hours(monkeypatch, tmp_path):
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [
         _row("P1", "Pacote A", 10.0, person="Ana"),
         _row("P1", "Pacote A", 4.0, person="Beto"),
     ])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
 
@@ -541,10 +492,8 @@ def test_persons_filter_nulls_billed_and_performance(monkeypatch, tmp_path):
     saber quanto disso é de UMA pessoa, então saem None em vez de comparar o
     trabalhado de uma pessoa com o faturado do time inteiro (decisão
     confirmada com o usuário)."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0, person="Ana")])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=12.0)])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, billed_hours=12.0)])
 
     without_filter = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     with_filter = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
@@ -564,11 +513,9 @@ def test_persons_filter_does_not_affect_nonbillable(monkeypatch, tmp_path):
     """nonbillable_hours/nonbillable_kpi_pct são só de horas trabalhadas
     (tjob.pExternal='0') — não misturam com faturado, então continuam
     normalmente com o filtro de pessoa ativo."""
-    data_file = tmp_path / "management_kpi.json"
     row = {**_row("P1", "Pacote A", 10.0, person="Ana"), "external": "0"}
     _patch_projectile(monkeypatch, [row])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
 
@@ -581,13 +528,11 @@ def test_available_persons_ignores_own_filter(monkeypatch, tmp_path):
     """`available_persons` reflete todo mundo que apontou no recorte de
     Centro de Custo/Cliente/Projeto/Pacote — não esvazia pras outras opções
     quando uma pessoa já está selecionada (mesmo padrão de available_packages)."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [
         _row("P1", "Pacote A", 10.0, person="Ana"),
         _row("P1", "Pacote A", 4.0, person="Beto"),
     ])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
+    _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
 
@@ -598,10 +543,8 @@ def test_no_persons_filter_behaves_exactly_like_before(monkeypatch, tmp_path):
     """Regressão: sem `persons` (None, o padrão), billed_hours/perf_hours
     continuam calculados normalmente — a feature não muda nada pra quem não
     usa o filtro."""
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0, person="Ana")])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [_sample("P1", "2026-08", pacote_scope=None, billed_hours=12.0)])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, billed_hours=12.0)])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
 
@@ -611,11 +554,8 @@ def test_no_persons_filter_behaves_exactly_like_before(monkeypatch, tmp_path):
 
 
 def test_duplicate_excluded_from_billed_hours_sum(monkeypatch, tmp_path):
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(
-        data_file,
+    _seed(
         [
             _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1"),
             _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m2"),
@@ -628,11 +568,8 @@ def test_duplicate_excluded_from_billed_hours_sum(monkeypatch, tmp_path):
 
 
 def test_different_pacote_scope_is_not_duplicate(monkeypatch, tmp_path):
-    data_file = tmp_path / "management_kpi.json"
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(
-        data_file,
+    _seed(
         [
             _sample("P1", "2026-08", pacote_scope="Pacote A", billed_hours=10.0, msg_id="m1"),
             _sample("P1", "2026-08", pacote_scope="Pacote B", billed_hours=5.0, msg_id="m2"),
@@ -688,73 +625,3 @@ def test_load_translate_allowed_logins_falls_back_when_env_missing(monkeypatch):
     logins = management._load_translate_allowed_logins()
 
     assert logins == {"dherrera"}
-
-
-# ---------------------------------------------------------------------------
-# Escrita concorrente em management_kpi.json — bug real relatado: um relatório
-# manual adicionado pelo Diagnóstico "sumiu" depois de reiniciar o backend.
-# Causa: _load_data()/_save_data() fazem leitura-modificação-escrita sem
-# nenhum lock, e o loop de polling de e-mail (_poll_emails_loop, rodando em
-# thread separada via asyncio.to_thread) chama funções que fazem o mesmo
-# ciclo — se o polling carrega o arquivo, demora (chamada de rede real) e só
-# depois salva, ele sobrescreve com um snapshot antigo qualquer escrita feita
-# nesse meio-tempo (ex: o usuário adicionando uma amostra manual).
-# ---------------------------------------------------------------------------
-
-def test_concurrent_writes_do_not_lose_data(tmp_path, monkeypatch):
-    """Duas escritas concorrentes — uma "lenta" (simulando o polling de
-    e-mail, que carrega o arquivo, demora numa chamada de rede real e só
-    depois salva) e uma "rápida" (simulando o usuário adicionando uma
-    amostra manual pelo Diagnóstico) — não podem se perder uma à outra.
-
-    Antes de `_DATA_LOCK` existir, isso reproduzia o bug relatado (um
-    relatório manual "sumindo" depois de reiniciar o backend, porque o
-    polling de e-mail salvava por cima com um snapshot carregado ANTES da
-    escrita manual): a operação lenta ficava livre pra carregar um snapshot
-    desatualizado enquanto a rápida escrevia por baixo dela, e ao salvar de
-    volta apagava essa escrita. Com o lock, a rápida fica bloqueada até a
-    lenta soltar o lock — mais lento, mas nunca perde dado."""
-    import threading
-
-    data_file = tmp_path / "management_kpi.json"
-    monkeypatch.setattr(management, "_DATA_FILE", str(data_file))
-    _write_samples(data_file, [])
-
-    slow_holds_lock = threading.Event()
-    fast_may_proceed = threading.Event()
-    original_load_data = management._load_data
-
-    def slow_first_load():
-        data = original_load_data()
-        # simula a demora real de uma chamada de rede (Graph) no meio do
-        # ciclo de polling, com o lock já em mãos (ver set_manual_entry).
-        slow_holds_lock.set()
-        fast_may_proceed.wait(timeout=2)
-        return data
-
-    monkeypatch.setattr(management, "_load_data", slow_first_load)
-
-    slow_thread = threading.Thread(target=lambda: management.set_manual_entry("2026-08", 100.0, 5.0))
-    fast_thread = threading.Thread(
-        target=lambda: management.append_project_kpi_sample(
-            {
-                "email_message_id": "manual-x", "received_at": "2026-09-10T12:00:00Z",
-                "sender": "manual", "report_project_text": "Projeto X", "project_id": "P1",
-                "project_name": "Projeto X", "match_score": 1.0, "month": "2026-08",
-                "billed_hours": 10.0, "business_days": 1, "source": "manual",
-                "edited": False, "pacote_scope": None, "sample_id": "s1",
-            }
-        )
-    )
-
-    slow_thread.start()
-    assert slow_holds_lock.wait(timeout=2), "operação lenta não chegou a segurar o lock a tempo"
-    fast_thread.start()  # fica bloqueada esperando o lock (comportamento esperado)
-    fast_may_proceed.set()  # libera a lenta pra terminar e soltar o lock
-    slow_thread.join(timeout=2)
-    fast_thread.join(timeout=2)
-
-    final = original_load_data()
-    assert final["manual_entries"].get("2026-08") == {"billed_hours": 100.0, "elaboration_days": 5.0}
-    assert len(final["project_kpi_samples"]) == 1
-    assert final["project_kpi_samples"][0]["sample_id"] == "s1"

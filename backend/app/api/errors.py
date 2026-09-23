@@ -14,6 +14,7 @@ from fastapi import HTTPException
 GENERIC_DB_ERROR = "Erro ao conectar no banco do Projectile. Tente de novo em instantes."
 GENERIC_EMAIL_ERROR = "Erro ao enviar/consultar e-mail pelo Microsoft Graph. Tente de novo em instantes."
 GENERIC_REPORTS_DB_ERROR = "Erro ao consultar o histórico de relatórios. Tente de novo em instantes."
+GENERIC_MANAGEMENT_DB_ERROR = "Erro ao acessar os dados do painel de gerência. Tente de novo em instantes."
 
 
 def log_and_generic_error(e: Exception, status_code: int = 502, generic_message: str | None = None) -> HTTPException:

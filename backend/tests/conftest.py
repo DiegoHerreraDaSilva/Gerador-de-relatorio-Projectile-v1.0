@@ -68,7 +68,7 @@ def reports_db_engine(monkeypatch):
 
     from backend.app.core.config import get_settings
     from backend.app.db.reports_schema import metadata
-    from backend.app.services import audit, report_persistence, report_queries
+    from backend.app.services import audit, management_store, report_persistence, report_queries
 
     settings = get_settings()
     host, port, user = settings.reports_db_host, settings.reports_db_port, settings.reports_db_user
@@ -116,6 +116,28 @@ def reports_db_engine(monkeypatch):
     monkeypatch.setattr(report_persistence, "get_engine", lambda: engine)
     monkeypatch.setattr(report_queries, "get_engine", lambda: engine)
     monkeypatch.setattr(audit, "get_engine", lambda: engine)
+    monkeypatch.setattr(management_store, "get_engine", lambda: engine)
 
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def management_db(monkeypatch):
+    """Banco das tabelas `mgmt_*` (Painel de Gerência/Diagnóstico) em SQLite
+    na memória — os testes de REGRA de `management.py` não precisam de
+    Docker. O que depende do MySQL de verdade (collation binária, lock entre
+    conexões concorrentes) fica em test_management_store.py, marcado
+    `reports_db`."""
+    from sqlalchemy.pool import StaticPool
+
+    from backend.app.db.reports_schema import metadata
+    from backend.app.services import management_store
+
+    engine = create_engine(
+        "sqlite+pysqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
+    metadata.create_all(engine, tables=[t for t in metadata.sorted_tables if t.name.startswith("mgmt_")])
+    monkeypatch.setattr(management_store, "get_engine", lambda: engine)
     yield engine
     engine.dispose()

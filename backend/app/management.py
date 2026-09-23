@@ -22,11 +22,11 @@ relatório Power BI de referência:
 - Elaboração dos relatórios (dias) = automática por padrão (ver
   `email_ingest.py`), com override manual por mês continuando disponível.
 
-Persistência: os valores manuais precisam sobreviver a reinícios do backend,
-diferente do resto do app (que só usa `tempfile`, sem nada persistente).
-Guarda isso num único JSON simples em `backend/data/management_kpi.json` —
-não é um banco, só um arquivo, no mesmo nível de simplicidade do resto do
-projeto.
+Persistência: tabelas `mgmt_*` no `reports_db` (ver
+`services/management_store.py`), no mesmo formato de dict que o antigo
+`backend/data/management_kpi.json` tinha — as funções abaixo só trocaram a
+camada de gravação. Não é fail-open: se o banco cair, as telas de Gerência e
+Diagnóstico respondem 502.
 
 Faturadas (`billed_hours`) e KPI (Dias) (`elaboration_days`) por mês têm duas
 fontes possíveis:
@@ -50,13 +50,12 @@ from __future__ import annotations
 
 import calendar
 import html
-import json
 import os
-import threading
 import time
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
+from .db.reports_schema import mgmt_closed_clients, mgmt_closed_projects
 from .projectile_db import (
     extract_project_code,
     fetch_clients_for_projects,
@@ -67,6 +66,8 @@ from .projectile_db import (
     fetch_project_names_for_ids,
     open_connection,
 )
+from .services import management_store
+
 
 def _load_management_panel_logins() -> set[str]:
     """Allowlist de logins com acesso ao Painel de Gerência, via
@@ -130,30 +131,15 @@ def _is_manual_send_marker(sample: dict) -> bool:
         and float(sample.get("business_days") or 0) == 0
     )
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-_DATA_FILE = os.path.join(_DATA_DIR, "management_kpi.json")
+# Arquivo onde esses dados viviam antes de irem pro reports_db (tabelas
+# mgmt_*, ver services/management_store.py). Só é lido uma vez, pela
+# importação (`python -m backend.app.tools.import_management_json`).
+LEGACY_JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "management_kpi.json")
 
-# protege TODO load-modifica-salva de management_kpi.json como uma transação
-# atômica — sem isso, uma escrita "lenta" (ex: _poll_emails_loop, que carrega
-# o arquivo, faz uma chamada de rede real pro Graph e só depois salva, tudo
-# numa thread separada via asyncio.to_thread) podia carregar um snapshot
-# ANTES de outra escrita "rápida" e concorrente (ex: o usuário adicionando um
-# relatório manual pela tela de Diagnóstico), e ao salvar por cima minutos
-# depois, apagar silenciosamente essa escrita concorrente — bug real
-# reproduzido em backend/tests/test_management.py::
-# test_concurrent_writes_without_lock_lose_data. RLock (não Lock) porque as
-# funções públicas abaixo chamam _load_data()/_save_data(), que também
-# tomam o lock — precisa ser reentrante pela mesma thread.
-_DATA_LOCK = threading.RLock()
-
-_DEFAULT_DATA = {
-    "manual_entries": {},
-    "project_kpi_samples": [],
-    "processed_message_ids": [],
-    "skipped_messages": [],
-    "closed_clients": [],
-    "closed_projects": [],
-}
+_LEGACY_SECTIONS = (
+    "manual_entries", "project_kpi_samples", "processed_message_ids",
+    "skipped_messages", "closed_clients", "closed_projects",
+)
 
 # cache em memória das linhas cruas de `fetch_engineering_hours` por
 # intervalo de datas — essa query é o gargalo real do painel (~50s neste
@@ -175,73 +161,51 @@ def _get_cached_rows(start_date: str, end_date: str, force_refresh: bool = False
     return rows
 
 
-def _load_data() -> dict:
-    if not os.path.exists(_DATA_FILE):
-        return {
-            "manual_entries": {},
-            "project_kpi_samples": [],
-            "processed_message_ids": [],
-            "skipped_messages": [],
-            "closed_clients": [],
-            "closed_projects": [],
-        }
-    with open(_DATA_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    data.setdefault("manual_entries", {})
-    data.setdefault("project_kpi_samples", [])
-    data.setdefault("processed_message_ids", [])
-    data.setdefault("skipped_messages", [])
-    # "fechado" (clientes/projetos que nunca enviam relatório por e-mail) é
-    # permanente, não por competência — registro simples, sem migração de
-    # amostra nenhuma por trás, ver get_closed_registry/set_*_closed.
-    data.setdefault("closed_clients", [])
-    data.setdefault("closed_projects", [])
-
-    # migração retroativa: amostras gravadas antes da tela de Diagnóstico
-    # existir não têm `sample_id`/`source`/`edited` — sem um id estável não
-    # dá pra editar/apagar uma amostra específica (email_message_id não é
-    # único quando um e-mail tem vários anexos). Salva de volta só se algo
-    # mudou, pra não reescrever o arquivo à toa a cada leitura.
-    migrated = False
-    for sample in data["project_kpi_samples"]:
-        if "sample_id" not in sample:
-            sample["sample_id"] = uuid4().hex
-            migrated = True
-        if "source" not in sample:
-            sample["source"] = "email"
-            migrated = True
-        if "edited" not in sample:
-            sample["edited"] = False
-            migrated = True
-        if "pacote_scope" not in sample:
-            # amostras antigas (antes do modo "por pacote de trabalho")
-            # sempre cobriam o projeto inteiro — None preserva esse
-            # comportamento em vez de marcar dado antigo como "parcial".
-            sample["pacote_scope"] = None
-            migrated = True
-        elif isinstance(sample["pacote_scope"], str):
-            # formato antigo: um texto único (o app só permitia marcar UM
-            # pacote por amostra). A edição manual no Diagnóstico agora
-            # permite escolher vários de uma vez — migra pra lista de 1 item,
-            # o resto do código (compute_monthly_kpis, dedup, frontend) só
-            # lida com list|None a partir daqui.
-            sample["pacote_scope"] = [sample["pacote_scope"]]
-            migrated = True
-    if any("is_duplicate" not in sample for sample in data["project_kpi_samples"]):
-        # depende de olhar TODAS as amostras juntas (não dá pra decidir
-        # amostra a amostra), por isso é uma passada própria, não um
-        # default fixo dentro do loop acima — ver _recompute_duplicate_flags.
-        _recompute_duplicate_flags(data["project_kpi_samples"])
-        migrated = True
-    if migrated:
-        _save_data(data)
-    return data
+def _with_sample_defaults(sample: dict) -> dict:
+    """Campos que toda amostra precisa ter. Amostras gravadas antes da tela
+    de Diagnóstico existir não têm `sample_id`/`source`/`edited` (sem id
+    estável não dá pra editar/apagar uma amostra específica —
+    `email_message_id` não é único quando um e-mail tem vários anexos).
+    Muta e devolve o próprio dict."""
+    sample.setdefault("sample_id", uuid4().hex)
+    sample.setdefault("source", "email")
+    sample.setdefault("edited", False)
+    if "pacote_scope" not in sample:
+        # amostras antigas (antes do modo "por pacote de trabalho") sempre
+        # cobriam o projeto inteiro — None preserva esse comportamento em
+        # vez de marcar dado antigo como "parcial".
+        sample["pacote_scope"] = None
+    elif isinstance(sample["pacote_scope"], str):
+        # formato antigo: um texto único (o app só permitia marcar UM pacote
+        # por amostra) — o resto do código só lida com list|None.
+        sample["pacote_scope"] = [sample["pacote_scope"]]
+    return sample
 
 
-def _save_data(data: dict) -> None:
-    os.makedirs(_DATA_DIR, exist_ok=True)
-    with open(_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def normalize_legacy_document(raw: dict) -> tuple[dict, dict]:
+    """Converte o conteúdo de um `management_kpi.json` antigo no formato
+    atual — a mesma migração retroativa que `_load_data` aplicava a cada
+    leitura quando esses dados viviam no arquivo. Devolve `(documento,
+    chaves_ignoradas)`; as ignoradas são seções sem tabela própria (ex:
+    `nonbillable_packages`), guardadas à parte pela importação."""
+    document = {key: raw.get(key) for key in _LEGACY_SECTIONS}
+    document["manual_entries"] = document["manual_entries"] or {}
+    for key in _LEGACY_SECTIONS[1:]:
+        document[key] = list(document[key] or [])
+    for sample in document["project_kpi_samples"]:
+        _with_sample_defaults(sample)
+    # flags de duplicata dependem de olhar TODAS as amostras juntas — sempre
+    # recalculadas aqui, em vez de confiar no que veio gravado no arquivo.
+    _recompute_duplicate_flags(document["project_kpi_samples"])
+    ignored = {key: value for key, value in raw.items() if key not in _LEGACY_SECTIONS}
+    return document, ignored
+
+
+def import_legacy_document(raw: dict, source_path: str | None = None, replace_existing: bool = False) -> dict:
+    document, ignored = normalize_legacy_document(raw)
+    return management_store.import_document(
+        document, source_path=source_path, ignored_keys=ignored, replace_existing=replace_existing,
+    )
 
 
 def _recompute_duplicate_flags(samples: list[dict]) -> None:
@@ -274,19 +238,15 @@ def _recompute_duplicate_flags(samples: list[dict]) -> None:
 
 
 def set_manual_entry(month: str, billed_hours: float | None, elaboration_days: float | None) -> None:
-    with _DATA_LOCK:
-        data = _load_data()
-        data["manual_entries"][month] = {"billed_hours": billed_hours, "elaboration_days": elaboration_days}
-        _save_data(data)
+    with management_store.write_session() as session:
+        session.upsert_manual_entry(month, billed_hours, elaboration_days)
 
 
 def is_message_processed(message_id: str) -> bool:
     """Consultado por `email_ingest.py` antes de baixar/processar um e-mail —
     garante idempotência mesmo com pollings sobrepostos ou reinícios do
     backend (`--reload`) no meio de um ciclo."""
-    with _DATA_LOCK:
-        data = _load_data()
-        return message_id in data["processed_message_ids"]
+    return management_store.is_message_processed(message_id)
 
 
 def append_project_kpi_sample(sample: dict) -> bool:
@@ -300,15 +260,21 @@ def append_project_kpi_sample(sample: dict) -> bool:
     Devolve `True` se a amostra saiu marcada `is_duplicate` (mesmo
     `project_id`/`month`/`pacote_scope` de uma amostra já existente — ver
     `_recompute_duplicate_flags`) — `email_ingest.py` usa isso pra contar
-    separadamente no resumo do polling em vez de somar como "amostra nova"."""
-    with _DATA_LOCK:
-        data = _load_data()
-        data["project_kpi_samples"].append(sample)
-        _recompute_duplicate_flags(data["project_kpi_samples"])
-        if sample["email_message_id"] not in data["processed_message_ids"]:
-            data["processed_message_ids"].append(sample["email_message_id"])
-        _save_data(data)
-        return bool(sample.get("is_duplicate"))
+    separadamente no resumo do polling em vez de somar como "amostra nova".
+
+    Amostra e "e-mail processado" gravam na MESMA transação: se o banco
+    falhar no meio, nada fica gravado e o e-mail é reprocessado no próximo
+    polling, em vez de ficar marcado como processado sem a amostra."""
+    _with_sample_defaults(sample)
+    with management_store.write_session() as session:
+        session.insert_sample(sample)
+        session.mark_processed(sample["email_message_id"])
+        samples = session.all_samples()
+        _recompute_duplicate_flags(samples)
+        session.save_duplicate_flags(samples)
+    stored = next(s for s in samples if s["sample_id"] == sample["sample_id"])
+    sample["is_duplicate"] = bool(stored["is_duplicate"])
+    return sample["is_duplicate"]
 
 
 def append_skipped_message(message_id: str, received_at: str, reason: str) -> None:
@@ -317,14 +283,9 @@ def append_skipped_message(message_id: str, received_at: str, reason: str) -> No
     (sem anexo .xlsx reconhecível, "Total de horas" não encontrado, etc) e
     marca o e-mail como processado — não fica tentando de novo a cada
     polling, mas fica visível no diagnóstico."""
-    with _DATA_LOCK:
-        data = _load_data()
-        data["skipped_messages"].append({
-            "message_id": message_id, "received_at": received_at, "reason": reason,
-        })
-        if message_id not in data["processed_message_ids"]:
-            data["processed_message_ids"].append(message_id)
-        _save_data(data)
+    with management_store.write_session() as session:
+        session.insert_skipped(message_id, received_at, reason)
+        session.mark_processed(message_id)
 
 
 def list_samples(month: str | None = None) -> dict:
@@ -333,8 +294,7 @@ def list_samples(month: str | None = None) -> dict:
     (projeto, mês), e o que foi pulado, já que o match de projeto é
     automático e sem revisão humana. `month=None` lista tudo (aba "Todos" da
     tela); com `month`, filtra só aquele mês, mesmo comportamento de antes."""
-    with _DATA_LOCK:
-        data = _load_data()
+    data = management_store.load_document()
     samples = data["project_kpi_samples"]
     skipped = data["skipped_messages"]
     if month is not None:
@@ -352,23 +312,23 @@ def update_project_kpi_sample(sample_id: str, patch: dict) -> bool:
     "email"`), preservando a distinção entre dado automático corrigido e
     dado 100% manual. Devolve `False` se `sample_id` não existir (o endpoint
     responde 404 nesse caso)."""
-    with _DATA_LOCK:
-        data = _load_data()
-        for sample in data["project_kpi_samples"]:
-            if sample.get("sample_id") != sample_id:
-                continue
-            allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days", "pacote_scope"}
-            for key, value in patch.items():
-                if key in allowed_fields:
-                    sample[key] = value
-            if sample.get("source") == "email":
-                sample["edited"] = True
-            # corrigir project_id/month pode mudar se essa amostra passa a
-            # colidir (ou deixa de colidir) com outra — recalcula do zero.
-            _recompute_duplicate_flags(data["project_kpi_samples"])
-            _save_data(data)
-            return True
-        return False
+    allowed_fields = {"project_id", "project_name", "month", "billed_hours", "business_days", "pacote_scope"}
+    with management_store.write_session() as session:
+        samples = session.all_samples()
+        sample = next((s for s in samples if s.get("sample_id") == sample_id), None)
+        if sample is None:
+            return False
+        for key, value in patch.items():
+            if key in allowed_fields:
+                sample[key] = value
+        if sample.get("source") == "email":
+            sample["edited"] = True
+        session.replace_sample(sample)
+        # corrigir project_id/month pode mudar se essa amostra passa a
+        # colidir (ou deixa de colidir) com outra — recalcula do zero.
+        _recompute_duplicate_flags(samples)
+        session.save_duplicate_flags(samples)
+        return True
 
 
 def delete_project_kpi_sample(sample_id: str) -> bool:
@@ -376,32 +336,23 @@ def delete_project_kpi_sample(sample_id: str) -> bool:
     match errado do cálculo. Não mexe em `processed_message_ids`: o e-mail
     original continua marcado como processado e não volta a ser reprocessado
     no próximo polling (decisão confirmada com o usuário)."""
-    with _DATA_LOCK:
-        data = _load_data()
-        samples = data["project_kpi_samples"]
-        remaining = [s for s in samples if s.get("sample_id") != sample_id]
-        if len(remaining) == len(samples):
+    with management_store.write_session() as session:
+        if not session.delete_sample(sample_id):
             return False
         # apagar a amostra "original" (não-duplicada) de uma identidade precisa
         # promover a próxima da mesma identidade de volta a não-duplicada.
+        remaining = session.all_samples()
         _recompute_duplicate_flags(remaining)
-        data["project_kpi_samples"] = remaining
-        _save_data(data)
+        session.save_duplicate_flags(remaining)
         return True
 
 
 def get_closed_registry() -> dict:
     """Lê o registro permanente de clientes/projetos "fechados" (nunca
     enviam relatório por e-mail pro cliente) — usado pelo popup de
-    "Fechados" do Painel de Gerência e, indiretamente via `_load_data`,
-    por `compute_monthly_kpis`. Devolve cópias, não a lista viva do dict
-    interno (quem chama não pode mutar isso por engano)."""
-    with _DATA_LOCK:
-        data = _load_data()
-        return {
-            "closed_clients": list(data.get("closed_clients", [])),
-            "closed_projects": list(data.get("closed_projects", [])),
-        }
+    "Fechados" do Painel de Gerência e, indiretamente, por
+    `compute_monthly_kpis`."""
+    return management_store.get_closed_registry()
 
 
 def set_client_closed(client: str, closed: bool) -> None:
@@ -410,15 +361,8 @@ def set_client_closed(client: str, closed: bool) -> None:
     "closed" em `compute_monthly_kpis` (comparado por nome de cliente
     exibido, ver `client_display` lá). Toggle idempotente: fechar 2x não
     duplica, desfechar um cliente já aberto não é erro."""
-    with _DATA_LOCK:
-        data = _load_data()
-        closed_clients = set(data.get("closed_clients", []))
-        if closed:
-            closed_clients.add(client)
-        else:
-            closed_clients.discard(client)
-        data["closed_clients"] = sorted(closed_clients)
-        _save_data(data)
+    with management_store.write_session() as session:
+        session.set_closed(mgmt_closed_clients, "client", client, closed)
 
 
 def set_project_closed(project_id: str, closed: bool) -> None:
@@ -426,15 +370,8 @@ def set_project_closed(project_id: str, closed: bool) -> None:
     individual — nunca de pacote de trabalho (decisão do usuário: fechar é
     só cliente inteiro ou projeto inteiro, pacote nunca é fechável
     isoladamente)."""
-    with _DATA_LOCK:
-        data = _load_data()
-        closed_projects = set(data.get("closed_projects", []))
-        if closed:
-            closed_projects.add(project_id)
-        else:
-            closed_projects.discard(project_id)
-        data["closed_projects"] = sorted(closed_projects)
-        _save_data(data)
+    with management_store.write_session() as session:
+        session.set_closed(mgmt_closed_projects, "project_id", project_id, closed)
 
 
 def create_manual_project_kpi_sample(
@@ -565,8 +502,7 @@ def compute_monthly_kpis(
     persons: list[str] | None = None,
     force_refresh: bool = False,
 ) -> dict:
-    with _DATA_LOCK:
-        data = _load_data()
+    data = management_store.load_document()
     manual_entries: dict = data["manual_entries"]
 
     active_cost_centers = cost_centers or ENGINEERING_COST_CENTERS
