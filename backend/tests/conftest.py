@@ -16,6 +16,21 @@ if str(_REPO_ROOT) not in sys.path:
 _REPORTS_DB_TEST_NAME = "reports_db_test"
 
 
+@pytest.fixture(autouse=True)
+def _no_real_email_polling(monkeypatch):
+    """`with TestClient(app)` roda os hooks de startup, e um deles inicia o
+    polling de e-mail — com `AZURE_CLIENT_ID` no `.env` de dev, isso chamava o
+    Microsoft Graph e o Projectile DE VERDADE durante os testes e gravava as
+    amostras nos dados reais de gerência. Nenhum teste depende desse loop;
+    `email_ingest.process_new_emails` é testado direto."""
+    from backend.app import main
+
+    async def _idle() -> None:
+        return None
+
+    monkeypatch.setattr(main, "_poll_emails_loop", _idle)
+
+
 @pytest.fixture
 def reports_db_engine(monkeypatch):
     """Engine real contra um schema de TESTE separado (`reports_db_test`),
@@ -83,10 +98,14 @@ def reports_db_engine(monkeypatch):
     engine = create_engine(test_url, pool_pre_ping=True)
     metadata.create_all(engine)
 
+    # DELETE, não TRUNCATE: no MySQL TRUNCATE é DDL (recria a tabela, ~0,3s
+    # cada) e isso roda antes de CADA teste marcado reports_db, em toda
+    # tabela — o custo cresce a cada tabela nova do schema. Nas tabelas
+    # minúsculas dos testes, DELETE é praticamente instantâneo.
     with engine.begin() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
         for table in reversed(metadata.sorted_tables):
-            conn.execute(text(f"TRUNCATE TABLE `{table.name}`"))
+            conn.execute(text(f"DELETE FROM `{table.name}`"))
         conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
     # report_persistence/report_queries/audit cada um faz `from ..db.reports_db
