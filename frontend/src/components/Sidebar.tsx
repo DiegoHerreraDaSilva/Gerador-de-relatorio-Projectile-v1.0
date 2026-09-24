@@ -4,7 +4,7 @@ import {
   ChevronLeft, Menu, X, Plus,
 } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
-import { useAuthStore } from "../store/useAuthStore";
+import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { ReportTabsBar } from "./ReportTabsBar";
@@ -29,16 +29,20 @@ function initialsFor(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; managerOnly?: boolean }> = [
-  { view: "report", label: "Gerar relatório", icon: FileText },
-  { view: "dashboard", label: "Dashboard de horas", icon: Activity },
-  // sem managerOnly: quem não é gerente também vê, mas só os PRÓPRIOS
-  // relatórios — filtro é aplicado no backend (main._require_report_access),
+// "all": todo mundo logado; "coordinator": gerente ou coordenador;
+// "manager": só gerente. Só controla o menu — o backend barra por conta própria.
+type NavAccess = "all" | "coordinator" | "manager";
+
+const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; access: NavAccess }> = [
+  { view: "report", label: "Gerar relatório", icon: FileText, access: "all" },
+  { view: "dashboard", label: "Dashboard de horas", icon: Activity, access: "all" },
+  // todo mundo vê, mas só os PRÓPRIOS relatórios (coordenador também) — só o
+  // gerente vê os de todos; filtro aplicado no backend (_require_report_access),
   // mesmo princípio de /parse-db e /my-hours.
-  { view: "history", label: "Histórico de relatórios", icon: History },
-  { view: "management", label: "Painel de gerência", icon: LayoutDashboard, managerOnly: true },
-  { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, managerOnly: true },
-  { view: "analytics", label: "Analytics", icon: BarChart3, managerOnly: true },
+  { view: "history", label: "Histórico de relatórios", icon: History, access: "all" },
+  { view: "management", label: "Painel de gerência", icon: LayoutDashboard, access: "manager" },
+  { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, access: "coordinator" },
+  { view: "analytics", label: "Analytics", icon: BarChart3, access: "manager" },
 ];
 
 export function Sidebar({
@@ -50,7 +54,9 @@ export function Sidebar({
 }) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const canSeeManagementPanel = Boolean(user?.isManager);
+  const canAccess = (access: NavAccess) =>
+    access === "all" || (access === "manager" ? Boolean(user?.isManager) : hasCoordinatorAccess(user));
+  const roleLabel = user?.isManager ? "Gerente" : user?.isCoordinator ? "Coordenador" : "Colaborador";
   const addTab = useReportTabsStore((s) => s.addTab);
 
   const [theme, setTheme] = useState<Theme>(() => {
@@ -163,7 +169,7 @@ export function Sidebar({
 
         <nav className="sidebar-nav" aria-label="Navegação principal">
           {showLabels && <p className="sidebar-section-label">Navegação</p>}
-          {NAV_ITEMS.filter((item) => !item.managerOnly || canSeeManagementPanel).map((item) => {
+          {NAV_ITEMS.filter((item) => canAccess(item.access)).map((item) => {
             const Icon = item.icon;
             const active = view === item.view;
             return (
@@ -206,7 +212,7 @@ export function Sidebar({
             {showLabels && (
               <div className="sidebar-footer-text">
                 <span className="sidebar-user-name">{user.name}</span>
-                <span className="sidebar-user-role">{user.isManager ? "Gerente" : "Colaborador"}</span>
+                <span className="sidebar-user-role">{roleLabel}</span>
               </div>
             )}
             <div className="sidebar-footer-actions">

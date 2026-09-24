@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-type User = { name: string; login: string; email: string; isManager: boolean; translateAllowed: boolean };
+type User = {
+  name: string;
+  login: string;
+  email: string;
+  isManager: boolean;
+  isCoordinator: boolean;
+  translateAllowed: boolean;
+};
 
 function toUser(raw: any): User {
   return {
@@ -8,8 +15,17 @@ function toUser(raw: any): User {
     login: raw.login,
     email: raw.email,
     isManager: Boolean(raw.is_manager),
+    isCoordinator: Boolean(raw.is_coordinator),
     translateAllowed: Boolean(raw.is_translate_allowed),
   };
+}
+
+/** Gerente ou coordenador: Diagnóstico e busca por cliente/projeto na
+ * importação. Painel de Gerência e Analytics continuam só com `isManager`.
+ * Só esconde/mostra tela — quem barra de verdade é o backend
+ * (`require_manager_or_coordinator`). */
+export function hasCoordinatorAccess(user: User | null): boolean {
+  return Boolean(user && (user.isManager || user.isCoordinator));
 }
 
 interface AuthState {

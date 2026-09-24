@@ -105,6 +105,23 @@ def _load_translate_allowed_logins() -> set[str]:
 
 TRANSLATE_ALLOWED_LOGINS = _load_translate_allowed_logins()
 
+
+def _load_coordinator_logins() -> set[str]:
+    """Allowlist de coordenadores, via COORDINATOR_LOGINS (logins separados
+    por vírgula). Coordenador acessa Gerar relatório (inclusive busca por
+    cliente/projeto), Dashboard de horas, o próprio Histórico e o Diagnóstico
+    — nunca o Painel de Gerência nem o Analytics, e nunca os KPIs
+    (`/management/kpis`) nem pela API. Sem fallback, ao contrário das outras
+    allowlists: env vazia = nenhum coordenador (dar acesso a mais por falta
+    de configuração seria o erro perigoso aqui). Gerente não precisa estar
+    nesta lista — já tem acesso a tudo. Mesma normalização em minúsculas
+    (ver `_load_management_panel_logins`)."""
+    raw = os.environ.get("COORDINATOR_LOGINS", "")
+    return {login.strip().lower() for login in raw.split(",") if login.strip()}
+
+
+COORDINATOR_LOGINS = _load_coordinator_logins()
+
 # times/centros de custo de engenharia disponíveis pro filtro — o usuário
 # confirmou que "CAD + CAE juntos" é a equipe (não existe um valor literal
 # "Engenharia" no Projectile, ver investigação de schema desta sessão).

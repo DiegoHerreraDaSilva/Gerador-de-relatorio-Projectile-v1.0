@@ -57,6 +57,7 @@ async def login_endpoint(payload: LoginRequest, request: Request, response: Resp
     return {
         "name": user["name"], "login": user["login"], "email": user["email"],
         "is_manager": user["login"].lower() in management.MANAGEMENT_PANEL_LOGINS,
+        "is_coordinator": user["login"].lower() in management.COORDINATOR_LOGINS,
         "is_translate_allowed": user["login"].lower() in management.TRANSLATE_ALLOWED_LOGINS,
     }
 
@@ -69,6 +70,7 @@ async def me_endpoint(request: Request):
     return {
         "name": session["name"], "login": session["login"], "email": session["email"],
         "is_manager": session["login"].lower() in management.MANAGEMENT_PANEL_LOGINS,
+        "is_coordinator": session["login"].lower() in management.COORDINATOR_LOGINS,
         "is_translate_allowed": session["login"].lower() in management.TRANSLATE_ALLOWED_LOGINS,
     }
 

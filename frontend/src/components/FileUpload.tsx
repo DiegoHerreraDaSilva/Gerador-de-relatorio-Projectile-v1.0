@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
-import { useAuthStore } from "../store/useAuthStore";
+import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { buildPeriodLabel, getReportYearOptions, parsePeriodLabelForControls } from "../utils/period";
 import { getReportImportActionState } from "../utils/reportImport";
@@ -288,7 +288,8 @@ export function FileUpload() {
   const [dragging, setDragging] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [searching, setSearching] = useState(false);
-  const isManager = useAuthStore((s) => s.user?.isManager);
+  // busca por cliente/projeto (horas de toda a equipe): gerente ou coordenador
+  const canSearchByClient = useAuthStore((s) => hasCoordinatorAccess(s.user));
   const reportMode = useReportStore((s) => s.reportMode);
   const showImportCard = useReportStore((s) => s.showImportCard);
   const monthLabel = useReportStore((s) => s.header.monthLabel);
@@ -493,7 +494,7 @@ export function FileUpload() {
   // deseja buscar") só existe no fluxo Projectile E pra quem é gerente —
   // os números dos cards seguintes precisam se ajustar conforme ela existe
   // ou não (3 cards no total pra quem não é gerente, mesmo em Projectile).
-  const showSourceStep2 = source === "db" && isManager;
+  const showSourceStep2 = source === "db" && canSearchByClient;
   const organizeStepNumber = showSourceStep2 ? 3 : 2;
   const periodStepNumber = showSourceStep2 ? 4 : 3;
   const flowDescription =

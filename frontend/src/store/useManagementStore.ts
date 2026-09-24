@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useAuthStore } from "./useAuthStore";
 
 export type KpiSource = "manual" | "auto" | null;
 
@@ -56,6 +57,36 @@ type KpisResponse = {
   project_send_status: ProjectSendStatusRow[];
 };
 
+// resposta de /management/send-status (quem não é gerente): sem KPI nenhum —
+// `months` só com a chave do mês, sem horas nem breakdown.
+type SendStatusResponse = Omit<KpisResponse, "months" | "nonbillable_breakdown" | "cost_centers"> & {
+  months: { month: string }[];
+};
+
+/** Mesmo formato de KpisResponse pro resto da store não precisar saber de
+ * onde veio. Os números ficam zerados/nulos de propósito: o Painel de
+ * Gerência (único lugar que os mostra) nem aparece pra quem não é gerente —
+ * o Diagnóstico e o filtro de Competência só usam `month`. */
+function fromSendStatus(data: SendStatusResponse): KpisResponse {
+  return {
+    ...data,
+    cost_centers: [],
+    nonbillable_breakdown: [],
+    months: data.months.map(({ month }) => ({
+      month,
+      worked_hours: 0,
+      billed_hours: null,
+      billed_hours_source: null,
+      perf_hours: null,
+      perf_kpi_pct: null,
+      elaboration_days: null,
+      elaboration_days_source: null,
+      nonbillable_hours: 0,
+      nonbillable_kpi_pct: null,
+    })),
+  };
+}
+
 export const ALL_COST_CENTERS = ["CAD", "CAE"];
 // sentinela pro período "últimos 12 meses corridos" (padrão) — qualquer outro
 // valor de `period` é tratado como um ano fechado (Jan-Dez), ex: "2026".
@@ -95,6 +126,10 @@ interface ManagementState {
   refreshing: boolean;
   _inFlight: boolean;
   _pending: boolean;
+  // login de quem gerou os dados em memória — a store sobrevive ao logout, e
+  // sem isso um coordenador que entrasse no mesmo navegador depois de um
+  // gerente (sem recarregar a página) herdaria os KPIs dele na memória.
+  _loadedForLogin: string | null;
   // Cliente/Projeto/Pacote não podem se autocolapsar: marcar um Cliente não
   // pode fazer os OUTROS clientes sumirem do próprio dropdown de Cliente,
   // senão não dava pra trocar de filtro. Por isso `availableProjects` etc.
@@ -189,6 +224,7 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   refreshing: false,
   _inFlight: false,
   _pending: false,
+  _loadedForLogin: null,
   _optionsScopeKey: null,
   period: ROLLING_PERIOD,
   selectedMonths: [],
@@ -199,6 +235,16 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
   persons: [],
 
   load: async (force = false, bypassBackendCache = false) => {
+    const user = useAuthStore.getState().user;
+    const login = user?.login ?? null;
+    if (get()._loadedForLogin !== login) {
+      // outro usuário: descarta o que o anterior carregou antes de buscar.
+      set({
+        rows: null, nonbillableBreakdown: [], projectSendStatus: [],
+        availableProjects: [], availableClients: [], availablePackages: [], availablePersons: [],
+        projectCodes: {}, projectClients: {}, loaded: false, _optionsScopeKey: null, _loadedForLogin: login,
+      });
+    }
     if (get().loaded && !force) return;
     if (get()._inFlight) {
       // já tem uma busca rodando — esse banco é lento (às vezes 1min+), então
@@ -211,9 +257,15 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
     set({ refreshing: true, _inFlight: true, _pending: false });
     try {
       const query = buildQuery(get(), bypassBackendCache);
-      const res = await fetch(`/management/kpis?${query}`);
+      // coordenador não tem acesso aos KPIs (403 em /management/kpis) — o
+      // Diagnóstico dele usa a versão sem números.
+      const isManager = Boolean(user?.isManager);
+      const res = await fetch(`${isManager ? "/management/kpis" : "/management/send-status"}?${query}`);
       if (!res.ok) throw new Error(`Erro ${res.status}`);
-      const data: KpisResponse = await res.json();
+      const data: KpisResponse = isManager ? await res.json() : fromSendStatus(await res.json());
+      // resposta de uma busca disparada pelo usuário ANTERIOR, que chegou
+      // depois da troca de login — descarta em vez de gravar por cima.
+      if (get()._loadedForLogin !== login) return;
       const scopeKey = optionsScopeKey(get().period, get().selectedMonths);
       set({
         rows: data.months,

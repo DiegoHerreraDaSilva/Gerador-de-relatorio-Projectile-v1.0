@@ -40,6 +40,17 @@ def require_manager(_user: dict = Depends(require_session)) -> dict:
     return _user
 
 
+def require_manager_or_coordinator(_user: dict = Depends(require_session)) -> dict:
+    """Gerente ou coordenador — usado pelas rotas do Diagnóstico e da busca
+    por cliente/projeto na importação. Os KPIs do Painel de Gerência
+    (`/management/kpis`), a entrada manual mensal e o Analytics continuam em
+    `require_manager`: coordenador não enxerga esses números nem pela API
+    (o Diagnóstico usa `/management/send-status`, sem horas)."""
+    if not (is_manager(_user) or is_coordinator(_user)):
+        raise HTTPException(403, "Sem acesso a esta área.")
+    return _user
+
+
 def require_translate_access(_user: dict = Depends(require_session)) -> dict:
     """Barra com 403 quem não está na allowlist de tradução — cada clique no
     botão "EN" do preview chama a API da Anthropic, então isso existe pra
@@ -55,6 +66,10 @@ def is_manager(user: dict) -> bool:
     pros lugares que precisam só CONSULTAR (não bloquear) — ex.: computar
     `is_manager` na resposta de login, ou filtrar `/reports` sem 403."""
     return user["login"].lower() in management.MANAGEMENT_PANEL_LOGINS
+
+
+def is_coordinator(user: dict) -> bool:
+    return user["login"].lower() in management.COORDINATOR_LOGINS
 
 
 def is_translate_allowed(user: dict) -> bool:

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from ...parser import parse_projectile_export
 from ...projectile_db import ProjectileDbError, fetch_employee_hours, fetch_project_details, fetch_project_hours
 from ...projectile_db import group_hours, group_hours_by_project
-from ..dependencies import require_manager, require_session
+from ..dependencies import require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
 from ..shared import build_parse_response, resolve_month_range
 
@@ -137,7 +137,7 @@ class ParseDbClientRequest(BaseModel):
 
 
 @router.post("/parse-db-client")
-async def parse_db_client_endpoint(payload: ParseDbClientRequest, _user: dict = Depends(require_manager)):
+async def parse_db_client_endpoint(payload: ParseDbClientRequest, _user: dict = Depends(require_manager_or_coordinator)):
     start_date, end_date = resolve_month_range(payload.month_label)
 
     try:
