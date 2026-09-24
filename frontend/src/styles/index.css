@@ -536,7 +536,12 @@
   .mgmt-filter-reset:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
   .mgmt-filter-reset:disabled { opacity: 0.45; cursor: default; }
   .mgmt-filter-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
-  .management-filters .month-dropdown, .myh-filters .month-dropdown { flex: none; width: 100%; }
+  /* `.month-dropdown` tem `flex: 0 0 190px` (feito pra linhas horizontais);
+     dentro do `.mgmt-filter` (coluna) isso vira ALTURA — card esticado e a
+     lista abrindo 190px abaixo do botão. Todo contêiner que usa
+     `.mgmt-filter` precisa entrar aqui. */
+  .management-filters .month-dropdown, .myh-filters .month-dropdown,
+  .myh-employee-picker .month-dropdown { flex: none; width: 100%; }
   .management-filters .month-dropdown-list, .myh-filters .month-dropdown-list { width: 100%; max-height: 260px; }
   /* qualifica com o ancestral `.mgmt-filter` pra ganhar de propósito de
      `.month-dropdown-trigger` (mesma especificidade, definida depois no
@@ -644,6 +649,26 @@
     background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
     box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
   }
+
+  /* seletor de colaborador (gerente/coordenador) — mesma "barra" dos filtros
+     logo abaixo, pra ler como parte do mesmo bloco de controles. */
+  .myh-employee-picker {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px;
+    padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border);
+    background: linear-gradient(163deg, var(--surface) 0%, var(--surface-grad) 140%);
+    box-shadow: inset 0 1px 0 0 var(--hairline), var(--shadow-card);
+    /* filho do .myh-page (flex em coluna) estica por padrão — aqui o card
+       encolhe até a largura do seletor. */
+    align-self: flex-start;
+    max-width: 100%;
+  }
+  /* largura fixa (não %): num pai que encolhe pro conteúdo, porcentagem não
+     tem referência. max-width segura telas estreitas. */
+  .myh-employee-dropdown { width: 360px; max-width: 100%; }
+  .myh-employee-picker .month-dropdown-list { width: 100%; max-height: 320px; }
+  /* a regra global `button {}` dá borda e fundo a todo botão; os itens da
+     lista são <button> e só zeravam o fundo. */
+  .myh-employee-picker .month-dropdown-option { border: none; }
 
   .period-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--surface-2); }
   .period-seg button {
@@ -2358,6 +2383,28 @@
   }
   .month-dropdown-option:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .month-dropdown-option.active { background: var(--accent); color: #fff; font-weight: 700; }
+  /* busca opcional do SingleSelectDropdown (`searchPlaceholder`) — gruda no
+     topo da lista pra continuar visível ao rolar as opções. top:-6px anula o
+     padding da própria lista. */
+  .month-dropdown-search {
+    position: sticky;
+    top: -6px;
+    z-index: 1;
+    margin: -6px -6px 4px;
+    padding: 6px;
+    background: var(--surface);
+  }
+  .month-dropdown-search input {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: inherit;
+  }
+  .month-dropdown-search input:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
 
   /* stepper de ano customizado (spinner nativo não dá pra estilizar de verdade) */
   .year-stepper {

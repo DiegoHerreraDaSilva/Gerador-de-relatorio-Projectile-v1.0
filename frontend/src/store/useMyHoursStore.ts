@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useAuthStore } from "./useAuthStore";
 import {
   EMPTY_MY_HOURS_FILTERS,
   type MyHoursBusinessDays,
@@ -12,6 +13,8 @@ import {
 } from "../utils/myHours";
 
 export type MyHoursPeriod = "current_month" | "last_3" | "last_6" | "last_12";
+
+export type EmployeeOption = { employee_id: string; name: string; cost_center: string | null };
 
 /** Separa os motivos de falha porque a ação de saída é diferente em cada um:
  * sessão expirada precisa de login, erro de entrada precisa da mensagem do
@@ -55,6 +58,20 @@ interface MyHoursState {
   _inFlight: boolean;
   _pending: boolean;
 
+  /** Colaborador escolhido por gerente/coordenador no seletor — `null` = o
+   * próprio usuário. Quem pode escolher e quem pode ser escolhido é decidido
+   * no backend (`/my-hours?employee_id=`); aqui é só a seleção. */
+  employeeId: string | null;
+  /** Nome de quem os dados em tela são — vem da resposta, não da seleção. */
+  viewingName: string;
+  employees: EmployeeOption[];
+  employeesLoaded: boolean;
+  employeesError: string;
+  // login de quem carregou os dados em memória — a store sobrevive ao
+  // logout, e o próximo usuário do mesmo navegador veria as horas (e o
+  // colaborador escolhido) do anterior.
+  _loadedForLogin: string | null;
+
   /** Filtros de Competência/Cliente/Projeto/Pacote — mesmo conceito e nomes
    * do Painel de Gerência (`ManagementFilters.tsx`), cruzando entre si: cada
    * dropdown mostra só as opções que sobrevivem aos OUTROS filtros ativos
@@ -69,6 +86,8 @@ interface MyHoursState {
   selectedDate: string | null;
 
   load: (force?: boolean) => Promise<void>;
+  loadEmployees: () => Promise<void>;
+  setEmployee: (employeeId: string | null) => void;
   setPeriod: (period: MyHoursPeriod) => void;
   setFilter: (dim: keyof MyHoursFilters, values: string[]) => void;
   togglePacoteFilter: (pacote: string) => void;
@@ -99,30 +118,56 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
   _pending: false,
   filters: EMPTY_MY_HOURS_FILTERS,
   selectedDate: null,
+  employeeId: null,
+  viewingName: "",
+  employees: [],
+  employeesLoaded: false,
+  employeesError: "",
+  _loadedForLogin: null,
 
   load: async (force = false) => {
+    const login = useAuthStore.getState().user?.login ?? null;
+    if (get()._loadedForLogin !== login) {
+      set({
+        entries: [], loaded: false, employeeId: null, viewingName: "",
+        employees: [], employeesLoaded: false, employeesError: "",
+        filters: EMPTY_MY_HOURS_FILTERS, selectedDate: null, _loadedForLogin: login,
+      });
+    }
     if (get().loaded && !force) return;
     if (get()._inFlight) {
       set({ _pending: true });
       return;
     }
     set({ refreshing: true, _inFlight: true, _pending: false });
+    const requestedEmployee = get().employeeId;
     try {
-      const res = await fetch(`/my-hours?period=${get().period}`);
+      const params = new URLSearchParams({ period: get().period });
+      if (requestedEmployee) params.set("employee_id", requestedEmployee);
+      const res = await fetch(`/my-hours?${params.toString()}`);
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
           set({ error: "Sua sessão expirou. Entre novamente.", errorKind: "session" });
           return;
         }
-        if (res.status === 400) {
+        if (res.status === 400 || res.status === 403 || res.status === 404) {
+          // 403/404 só acontecem escolhendo outro colaborador (sem acesso,
+          // ou fora da engenharia) — a mensagem do backend explica qual.
           const body = await res.json().catch(() => null);
-          set({ error: body?.detail || "Período inválido.", errorKind: "input" });
+          set({ error: body?.detail || "Não consegui carregar esse recorte.", errorKind: "input" });
           return;
         }
         throw new Error(`HTTP ${res.status}`);
       }
       const data: MyHoursResponse = await res.json();
+      // resposta de uma seleção (ou de um login) que já mudou — descarta; o
+      // `_pending` abaixo busca de novo com a seleção atual.
+      if (get().employeeId !== requestedEmployee || get()._loadedForLogin !== login) {
+        set({ _pending: true });
+        return;
+      }
       set({
+        viewingName: data.employee?.name ?? "",
         entries: data.entries,
         businessDays: data.business_days,
         reference: data.reference,
@@ -158,6 +203,26 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
   // `refreshing` já cobre o feedback, mantendo o dado anterior esmaecido.
   setPeriod: (period) => {
     set({ period });
+    get().load(true);
+  },
+
+  loadEmployees: async () => {
+    if (get().employeesLoaded) return;
+    try {
+      const res = await fetch("/my-hours/employees");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: { employees: EmployeeOption[] } = await res.json();
+      set({ employees: data.employees, employeesLoaded: true, employeesError: "" });
+    } catch {
+      set({ employeesError: "Não consegui carregar a lista de colaboradores." });
+    }
+  },
+
+  // filtros de Competência/Cliente/Projeto/Pacote são de uma pessoa (as
+  // opções vêm dos lançamentos dela) — `load` já os zera ao receber os dados
+  // da nova pessoa. `loaded` fica true pelo mesmo motivo de `setPeriod`.
+  setEmployee: (employeeId) => {
+    set({ employeeId });
     get().load(true);
   },
 

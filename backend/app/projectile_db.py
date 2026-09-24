@@ -406,6 +406,51 @@ def fetch_engineering_hours(
         raise ProjectileDbError(f"Falha ao consultar horas de engenharia do Projectile: {e}") from e
 
 
+def fetch_engineering_employees(start_date: str, end_date: str) -> list[dict]:
+    """Funcionários de engenharia (CAD+CAE) com ao menos um apontamento no
+    período — o universo que gerente/coordenador pode escolher no Dashboard
+    de horas (`/my-hours?employee_id=`). Mesmo join e filtros de
+    `fetch_engineering_hours` (sysClientId + índice de data), só que
+    `DISTINCT` por funcionário. Nome montado como no login
+    (`auth.verify_projectile_login`): `pFirstName pName`, com fallback pro
+    `tjob.capEmployee`."""
+    try:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT te.pEmployee AS employee_id, te.pFirstName, te.pName,
+                       te.pFiliale, te.pCostCenter AS cost_center, tj.capEmployee
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
+                WHERE (te.pCostCenter LIKE %s OR te.pCostCenter LIKE %s)
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                """,
+                ("%CAD%", "%CAE%", _SYS_CLIENT_ID, start_date, end_date),
+            )
+            rows = cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar funcionários de engenharia do Projectile: {e}") from e
+
+    employees: dict[str, dict] = {}
+    for row in rows:
+        employee_id = str(row["employee_id"] or "").strip()
+        if not employee_id or employee_id in employees:
+            continue
+        first = html.unescape(html.unescape(str(row.get("pFirstName") or ""))).strip()
+        last = html.unescape(html.unescape(str(row.get("pName") or ""))).strip()
+        name = f"{first} {last}".strip() or html.unescape(str(row.get("capEmployee") or "")).strip() or employee_id
+        employees[employee_id] = {
+            "employee_id": employee_id,
+            "name": name,
+            "filiale": html.unescape(str(row.get("pFiliale") or "")).strip() or None,
+            "cost_center": html.unescape(str(row.get("cost_center") or "")).strip() or None,
+        }
+    return sorted(employees.values(), key=lambda e: e["name"].casefold())
+
+
 _PROJECT_CODE_RE = re.compile(r"^(\d+)")
 
 

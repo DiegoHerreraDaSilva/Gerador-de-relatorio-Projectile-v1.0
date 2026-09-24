@@ -22,9 +22,10 @@ const DIMENSIONS: { dim: keyof Filters; label: string }[] = [
  * lançamentos filtrados pelos OUTROS dropdows (`filterOptions`, que ignora a
  * própria dimensão — ver `utils/myHours.ts`).
  *
- * Só aparecem opções que o usuário logado realmente apontou: `entries` já
- * chega do backend restrito a ele (`/my-hours` nunca expõe dado de outro
- * funcionário), então não existe universo maior a filtrar aqui. */
+ * Só aparecem opções que a pessoa em tela realmente apontou: `entries` já
+ * chega do backend restrito a ela — o próprio usuário, ou o colaborador que
+ * gerente/coordenador escolheu no `EmployeePicker` — então não existe
+ * universo maior a filtrar aqui. */
 export function MyHoursFilters({
   entries,
   filters,

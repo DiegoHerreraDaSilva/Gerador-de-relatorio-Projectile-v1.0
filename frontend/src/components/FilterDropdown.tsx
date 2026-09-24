@@ -2,6 +2,10 @@ import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 
+function normalizeForSearch(text: string): string {
+  return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
 /** Dropdowns de filtro compartilhados entre o Painel de Gerência e o
  * Dashboard de horas — extraídos de `ManagementFilters.tsx` pra não duplicar
  * a mesma UI (mesma classe CSS `.mgmt-filter`/`.month-dropdown`) em dois
@@ -13,6 +17,7 @@ export function SingleSelectDropdown({
   labelFor,
   onChange,
   className,
+  searchPlaceholder,
 }: {
   label: string;
   options: string[];
@@ -20,30 +25,63 @@ export function SingleSelectDropdown({
   labelFor: (opt: string) => string;
   onChange: (value: string) => void;
   className?: string;
+  /** Com isso, a lista ganha uma caixa de busca no topo (filtra por
+   * `labelFor`, sem diferenciar maiúsculas nem acentos). */
+  searchPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(wrapRef, () => setOpen(false), open);
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
+  useClickOutside(wrapRef, close, open);
+
+  const normalized = normalizeForSearch(query.trim());
+  const visible = normalized
+    ? options.filter((opt) => normalizeForSearch(labelFor(opt)).includes(normalized))
+    : options;
 
   return (
     <div className={`mgmt-filter ${className ?? ""}`}>
       <span className="mgmt-filter-label">{label}</span>
       <div className="month-dropdown" ref={wrapRef}>
-        <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
-          <span className="mgmt-filter-summary">{labelFor(value)}</span>
+        <button type="button" className="month-dropdown-trigger" onClick={() => (open ? close() : setOpen(true))}>
+          <span className="mgmt-filter-summary" title={labelFor(value)}>{labelFor(value)}</span>
           <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
         </button>
         {open && (
           <ul className="month-dropdown-list" role="listbox">
-            {options.map((opt) => (
+            {searchPlaceholder && (
+              <li className="month-dropdown-search">
+                <input
+                  type="search"
+                  autoFocus
+                  value={query}
+                  placeholder={searchPlaceholder}
+                  aria-label={searchPlaceholder}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") close();
+                    if (e.key === "Enter" && visible.length === 1) {
+                      onChange(visible[0]);
+                      close();
+                    }
+                  }}
+                />
+              </li>
+            )}
+            {visible.length === 0 && <li className="mgmt-filter-empty">Nenhum resultado</li>}
+            {visible.map((opt) => (
               <li key={opt}>
                 <button
                   type="button"
                   className={`month-dropdown-option ${opt === value ? "active" : ""}`}
                   onClick={() => {
                     onChange(opt);
-                    setOpen(false);
+                    close();
                   }}
                 >
                   {labelFor(opt)}

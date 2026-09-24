@@ -8,6 +8,7 @@ import { MonthlyColumns } from "./MyHours/MonthlyColumns";
 import { PacoteBars } from "./MyHours/PacoteBars";
 import { PeriodSegmented } from "./MyHours/PeriodSegmented";
 import { MyHoursFilters } from "./MyHours/MyHoursFilters";
+import { EmployeePicker } from "./MyHours/EmployeePicker";
 import { MyHoursSkeleton } from "./MyHours/MyHoursSkeleton";
 import { fmtNum } from "../utils/fmt";
 import {
@@ -109,6 +110,7 @@ export function MyHoursDashboard() {
     return (
       <div className="myh-page page-container">
         <MyHoursHeader s={s} />
+        <EmployeePicker />
         <div className="myh-card myh-card--error" role="alert">
           <p className="error-text">
             <AlertTriangle size={15} strokeWidth={2} /> {s.error}
@@ -125,6 +127,7 @@ export function MyHoursDashboard() {
     return (
       <div className="myh-page page-container" aria-busy="true">
         <MyHoursHeader s={s} />
+        <EmployeePicker />
         <p className="sr-only" aria-live="polite">Carregando suas horas</p>
         <MyHoursSkeleton />
       </div>
@@ -137,6 +140,7 @@ export function MyHoursDashboard() {
   return (
     <div className="myh-page page-container">
       <MyHoursHeader s={s} />
+      <EmployeePicker />
 
       {s.error && (
         <div className="myh-banner myh-banner--error" role="alert">
@@ -509,7 +513,9 @@ function MyHoursHeader({ s }: { s: ReturnType<typeof useMyHoursStore.getState> }
   return (
     <header className="myh-head">
       <div>
-        <h2 className="myh-title">Suas horas apontadas</h2>
+        <h2 className="myh-title">
+          {s.employeeId ? `Horas de ${s.viewingName || "colaborador"}` : "Suas horas apontadas"}
+        </h2>
         <p className="myh-prov muted">
           Projectile
           {s.startDate && ` · ${brDate(s.startDate)} – ${brDate(s.endDate)}`}

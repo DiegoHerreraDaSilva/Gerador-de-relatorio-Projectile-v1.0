@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import time
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,10 +28,11 @@ from ...projectile_db import (
     ProjectileDbError,
     fetch_daily_hours_totals,
     fetch_employee_contracts,
+    fetch_engineering_employees,
     fetch_my_hours,
     fetch_project_details,
 )
-from ..dependencies import require_session
+from ..dependencies import is_coordinator, is_manager, require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
 
 router = APIRouter()
@@ -66,6 +68,64 @@ def _unescape_twice(value: object) -> str:
     return html.unescape(text)
 
 
+_EMPLOYEES_CACHE_TTL_SECONDS = 15 * 60
+_employees_cache: dict[str, object] = {"fetched_at": 0.0, "employees": None}
+
+
+def _engineering_employees() -> list[dict]:
+    """Quem gerente/coordenador pode escolher: engenharia (CAD+CAE) com
+    apontamento na mesma janela do histórico do dashboard. Cache de 15 min
+    (mesma ideia de `management._get_cached_rows`) — trocar de pessoa no
+    seletor não pode custar uma consulta nova no Projectile a cada clique."""
+    cached = _employees_cache["employees"]
+    if cached is not None and time.time() - float(_employees_cache["fetched_at"]) < _EMPLOYEES_CACHE_TTL_SECONDS:
+        return cached  # type: ignore[return-value]
+    today = date.today()
+    employees = fetch_engineering_employees(
+        (today - timedelta(days=_MY_HOURS_HISTORY_DAYS)).isoformat(), today.isoformat()
+    )
+    _employees_cache.update(fetched_at=time.time(), employees=employees)
+    return employees
+
+
+def _resolve_target(user: dict, employee_id: str | None) -> tuple[str | None, str, str | None]:
+    """(employee_id, nome, filial) de quem o dashboard vai mostrar.
+
+    Sem `employee_id` (ou o próprio): o usuário da sessão, como sempre foi.
+    De outra pessoa: só gerente/coordenador, e só alguém da lista de
+    engenharia — o id vindo do cliente nunca é usado direto, sempre
+    re-resolvido aqui (mesmo princípio de `/parse-db`). A filial vem do
+    Projectile, não do cliente: ela muda o feriado municipal nos dias úteis."""
+    own_id = str(user.get("employee_id") or "").strip() or None
+    if not employee_id or employee_id == own_id:
+        return own_id, user["name"], user.get("filiale")
+    if not (is_manager(user) or is_coordinator(user)):
+        raise HTTPException(403, "Sem acesso às horas de outro colaborador.")
+    try:
+        employees = _engineering_employees()
+    except ProjectileDbError as e:
+        raise log_and_generic_error(e)
+    target = next((e for e in employees if e["employee_id"] == employee_id), None)
+    if target is None:
+        raise HTTPException(404, "Colaborador não encontrado na engenharia (CAD/CAE).")
+    return target["employee_id"], target["name"], target["filiale"]
+
+
+@router.get("/my-hours/employees")
+async def my_hours_employees_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
+    """Lista do seletor de colaborador do Dashboard de horas."""
+    try:
+        employees = _engineering_employees()
+    except ProjectileDbError as e:
+        raise log_and_generic_error(e)
+    return {
+        "employees": [
+            {"employee_id": e["employee_id"], "name": e["name"], "cost_center": e["cost_center"]}
+            for e in employees
+        ]
+    }
+
+
 def _entry_times(row: dict) -> tuple[str | None, str | None]:
     """`ttimebit.pStart`/`pEnd` validados para "HH:MM". Um span negativo
     (fim antes do início, virada de meia-noite) invalida os DOIS lados: exibir
@@ -77,9 +137,15 @@ def _entry_times(row: dict) -> tuple[str | None, str | None]:
 
 
 @router.get("/my-hours")
-async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends(require_session)):
-    """Dashboard de horas pessoal — dado do PRÓPRIO usuário logado (mesma
+async def my_hours_endpoint(
+    period: str = "current_month",
+    employee_id: str | None = None,
+    _user: dict = Depends(require_session),
+):
+    """Dashboard de horas — por padrão do PRÓPRIO usuário logado (mesma
     regra de `/parse-db`: nunca confia em identidade vinda do cliente).
+    `employee_id` de outra pessoa só vale pra gerente/coordenador, e só pra
+    alguém de engenharia (ver `_resolve_target`).
 
     Devolve os lançamentos do período MAIS o contexto que o frontend não pode
     derivar deles: a lista de dias úteis (pra achar os que ficaram sem
@@ -97,8 +163,7 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
         raise HTTPException(400, f"Período inválido: {period!r} (use current_month/last_3/last_6/last_12).")
     start_date, end_date = _my_hours_date_range(period)
     today = date.today()
-    employee_id, employee_name = _user.get("employee_id"), _user["name"]
-    filiale = _user.get("filiale")
+    employee_id, employee_name, filiale = _resolve_target(_user, employee_id)
 
     # feriado estadual (SP, sempre) + municipal (Santo André, se for a
     # filial da pessoa) — só neste dashboard pessoal, nunca em
@@ -170,6 +235,9 @@ async def my_hours_endpoint(period: str = "current_month", _user: dict = Depends
 
     return {
         "period": period,
+        # de quem são estes dados — a tela confere contra a pessoa escolhida
+        # pra não mostrar uma resposta atrasada de uma seleção anterior.
+        "employee": {"employee_id": employee_id, "name": employee_name},
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "today": today.isoformat(),

@@ -77,6 +77,9 @@ export type MyHoursDailyStats = {
 
 export type MyHoursResponse = {
   period: string;
+  /** de quem são estes dados — o próprio usuário, ou o colaborador escolhido
+   * por gerente/coordenador no seletor. */
+  employee: { employee_id: string | null; name: string };
   start_date: string;
   end_date: string;
   today: string;
