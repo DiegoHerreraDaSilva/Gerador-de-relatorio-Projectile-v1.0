@@ -1176,6 +1176,9 @@
   }
 
   .send-status-card-toolbar { display: flex; justify-content: flex-start; margin-bottom: -6px; }
+  /* no Diagnóstico os cards ocupam a largura toda (não encolhem pro
+     conteúdo como em .side-by-side-cards) — a tabela acompanha o card. */
+  .diagnostics-panel .send-status-table-wrap .kpi-table { width: 100%; }
   .send-status-card-toolbar button { display: inline-flex; align-items: center; gap: 6px; }
 
   /* tela de Diagnóstico — editar/apagar/cadastrar amostra de e-mail */
@@ -3261,6 +3264,17 @@
   .history-table-wrap .kpi-table { width: 100%; }
   .history-table-wrap .kpi-table th,
   .history-table-wrap .kpi-table td { text-align: left; }
+  /* .kpi-table força nowrap (feita pra KPI numérico curto): nomes longos de
+     Projeto/Competência alargavam a tabela além do card e empurravam
+     "Ver detalhes" pra fora. max-width:0 faz essas duas colunas ficarem só
+     com o espaço que sobra e cortarem com reticências (texto inteiro no
+     title da célula). */
+  .history-table-wrap .kpi-table td:nth-child(2),
+  .history-table-wrap .kpi-table td:nth-child(3) {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .history-table-wrap .kpi-table tr.active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
   .history-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
@@ -3326,3 +3340,20 @@
   .analytics-section .kpi-table td { text-align: left; }
   .analytics-section .kpi-table td:last-child,
   .analytics-section .kpi-table th:last-child { text-align: right; }
+
+  /* no máximo 8 linhas visíveis + cabeçalho; o resto rola. Altura de linha
+     fixada (line-height 20px + padding 5px×2 + borda 1px = 31px) pra que o
+     max-height corte exatamente na 8ª linha. Cabeçalho fica grudado no topo;
+     a linha de baixo dele vira box-shadow porque a borda de <th> some ao rolar
+     com border-collapse. */
+  .analytics-scroll-8 { max-height: calc(31px * 9); overflow-y: auto; }
+  .analytics-scroll-8 .kpi-table th,
+  .analytics-scroll-8 .kpi-table td { line-height: 20px; }
+  .analytics-scroll-8 .kpi-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+    border-bottom: none;
+    box-shadow: inset 0 -1px 0 var(--border);
+  }

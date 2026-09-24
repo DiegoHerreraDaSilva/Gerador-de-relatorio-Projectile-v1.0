@@ -76,20 +76,12 @@ export function AnalyticsPanel() {
               <span className="analytics-total-label">Relatórios</span>
             </div>
             <div className="card analytics-total-card">
-              <span className="analytics-total-value">{summary.totals.versions}</span>
-              <span className="analytics-total-label">Versões</span>
-            </div>
-            <div className="card analytics-total-card">
               <span className="analytics-total-value">{summary.totals.artifacts}</span>
               <span className="analytics-total-label">Arquivos gerados</span>
             </div>
             <div className="card analytics-total-card">
               <span className="analytics-total-value">{formatPercent(summary.generation.failure_rate)}</span>
               <span className="analytics-total-label">Taxa de falha na geração</span>
-            </div>
-            <div className="card analytics-total-card">
-              <span className="analytics-total-value">{formatMs(summary.generation.avg_duration_ms)}</span>
-              <span className="analytics-total-label">Tempo médio de geração</span>
             </div>
           </div>
 
@@ -123,22 +115,24 @@ export function AnalyticsPanel() {
               {summary.hours_by_group.length === 0 ? (
                 <p className="muted">Sem dados ainda.</p>
               ) : (
-                <table className="kpi-table">
-                  <thead>
-                    <tr>
-                      <th>Grupo</th>
-                      <th>Horas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.hours_by_group.map((row) => (
-                      <tr key={row.group_name}>
-                        <td>{row.group_name}</td>
-                        <td>{formatHours(row.hours)}</td>
+                <div className="analytics-scroll-8">
+                  <table className="kpi-table">
+                    <thead>
+                      <tr>
+                        <th>Grupo</th>
+                        <th>Horas</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {summary.hours_by_group.map((row) => (
+                        <tr key={row.group_name}>
+                          <td>{row.group_name}</td>
+                          <td>{formatHours(row.hours)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </section>
 

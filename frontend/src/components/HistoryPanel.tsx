@@ -115,24 +115,29 @@ export function HistoryPanel() {
               </tr>
             </thead>
             <tbody>
-              {reports.map((r) => (
-                <tr key={r.id} className={r.id === selectedReportId ? "active" : ""}>
-                  <td>{r.report_number}</td>
-                  <td title={r.project_name_snapshot}>{r.project_name_snapshot}</td>
-                  <td>
-                    {r.competence_label}
-                    {r.scope ? ` · ${r.scope}` : ""}
-                  </td>
-                  <td>v{r.current_version_number ?? "—"}</td>
-                  <td>{r.created_by_name_snapshot}</td>
-                  <td>{formatDateTime(r.updated_at)}</td>
-                  <td>
-                    <button type="button" className="btn-secondary" onClick={() => selectReport(r.id)}>
-                      Ver detalhes
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {reports.map((r) => {
+                // no modo "por pacote" o escopo é o próprio nome do pacote, que
+                // já aparece na coluna Projeto — repetir só alargava a tabela.
+                const competence =
+                  r.scope && r.scope !== r.project_name_snapshot
+                    ? `${r.competence_label} · ${r.scope}`
+                    : r.competence_label;
+                return (
+                  <tr key={r.id} className={r.id === selectedReportId ? "active" : ""}>
+                    <td>{r.report_number}</td>
+                    <td title={r.project_name_snapshot}>{r.project_name_snapshot}</td>
+                    <td title={competence}>{competence}</td>
+                    <td>v{r.current_version_number ?? "—"}</td>
+                    <td>{r.created_by_name_snapshot}</td>
+                    <td>{formatDateTime(r.updated_at)}</td>
+                    <td>
+                      <button type="button" className="btn-secondary" onClick={() => selectReport(r.id)}>
+                        Ver detalhes
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

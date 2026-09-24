@@ -5,6 +5,7 @@ import { ExtraHoursInput } from "./ExtraHoursInput";
 import { ManagementFilters } from "./ManagementFilters";
 import { SortableTh } from "./SortableTh";
 import { PageHeader } from "./PageHeader";
+import { SendStatusCard } from "./SendStatusCard";
 import { useManagementStore } from "../store/useManagementStore";
 import { useDiagnosticsStore, type Sample, type Project, type SkippedMessage } from "../store/useDiagnosticsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
@@ -446,6 +447,10 @@ export function DiagnosticsPanel() {
       <ManagementFilters showCostCenter={false} showPackage={false} />
 
       {error && <div className="card"><p className="error-text">{error}</p></div>}
+
+      {/* marcar/desmarcar "Enviado" cria/apaga uma amostra manual — recarrega
+          a tabela de Amostras logo abaixo pra ela aparecer/sumir na hora. */}
+      <SendStatusCard displayMonths={displayMonths} loading={!rows} onChanged={() => load(true)} />
 
       <div className="card diagnostics-table-card diagnostics-samples-card">
         <div className="diagnostics-card-head">
