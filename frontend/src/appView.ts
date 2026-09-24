@@ -1,4 +1,11 @@
-export type AppView = "report" | "management" | "diagnostics" | "dashboard" | "history" | "analytics";
+export type AppView =
+  | "report"
+  | "management"
+  | "diagnostics"
+  | "dashboard"
+  | "history"
+  | "analytics"
+  | "analytics-chat";
 
 export const VIEW_TITLES: Record<AppView, string> = {
   report: "Geração de Relatório de Horas",
@@ -7,4 +14,5 @@ export const VIEW_TITLES: Record<AppView, string> = {
   dashboard: "Dashboard de horas",
   history: "Histórico de relatórios",
   analytics: "Analytics",
+  "analytics-chat": "Chat analítico",
 };

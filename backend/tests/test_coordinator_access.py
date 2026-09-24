@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from backend.app import auth, management
 from backend.app.api.dependencies import require_manager, require_manager_or_coordinator, require_session
 from backend.app.api.routers import analytics as analytics_router
+from backend.app.api.routers import analytics_chat as analytics_chat_router
 from backend.app.api.routers import management as management_router
 from backend.app.api.routers import parsing as parsing_router
 from backend.app.main import app
@@ -23,6 +24,7 @@ _MANAGER_ONLY = {
     ("POST", "/management/kpis/check-emails"),
     ("PUT", "/management/kpis/{month}"),
     ("GET", "/analytics/summary"),
+    ("POST", "/analytics/chat"),
 }
 
 
@@ -54,6 +56,7 @@ def test_matriz_de_autorizacao_de_toda_rota_de_gerencia():
     routes = [
         *management_router.router.routes,
         *analytics_router.router.routes,
+        *analytics_chat_router.router.routes,
         *[r for r in parsing_router.router.routes if r.path == "/parse-db-client"],
     ]
     assert routes

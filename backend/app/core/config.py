@@ -45,6 +45,31 @@ class Settings(BaseSettings):
     # precisar reverter/reduplicar deploy se o banco novo der problema.
     reports_db_enabled: bool = True
 
+    # Chat analítico (aba "Chat analítico", só gerente) — ver backend/app/analytics/.
+    # Jev (TypeSafe AI) classifica a pergunta. Duas formas de acesso, mesmo
+    # protocolo: pelo OpenRouter (OPENROUTER_API_KEY, tem prioridade) ou
+    # direto na TypeSafe (TYPESAFE_API_KEY). Sem nenhuma, o Claude classifica.
+    openrouter_api_key: str = ""
+    typesafe_api_key: str = ""
+    jev_model: str = "jev-latest"
+    jev_timeout_seconds: float = 3.0
+    # Confiança mínima do Jev, senão o Claude interpreta. Vale pra rota e pra
+    # toda ESCOLHA feita (intent, período, cliente...); "nenhum" tem limiar
+    # próprio, mais baixo. Calibrado em 2026-09-24 com 24 perguntas reais pelo
+    # OpenRouter (metade no meio de conversa): o Jev acerta 22/24, mas a
+    # confiança dele é baixa mesmo quando acerta (métrica certa com 0,5–0,7).
+    # 0,60/0,40 → 20 aceitas (1 com formato diferente, número certo), 4 pro
+    # Claude; 0,80/0,60 → 0 erradas, mas 11 pro Claude.
+    jev_min_confidence: float = 0.60
+    jev_min_confidence_none: float = 0.40
+    # Modelo do chat analítico — separado de ANTHROPIC_MODEL (chat de edição
+    # do relatório). Haiku: as tarefas são curtas e a latência importa mais.
+    analytics_chat_model: str = "claude-haiku-4-5-20251001"
+    analytics_chat_max_rows: int = 1000
+    analytics_chat_max_months: int = 24
+    # tamanho máximo (JSON) do resultado agregado mandado pro Claude
+    analytics_chat_max_claude_payload_bytes: int = 20_000
+
 
 @lru_cache
 def get_settings() -> Settings:

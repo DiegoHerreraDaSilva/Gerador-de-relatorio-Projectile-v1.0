@@ -3404,3 +3404,158 @@
     border-bottom: none;
     box-shadow: inset 0 -1px 0 var(--border);
   }
+
+  /* ============================================================
+     Chat analítico (AnalyticsChatPanel.tsx + analytics/VisualizationRenderer.tsx).
+     Uma superfície só, na altura da janela: vazia, a pergunta fica no
+     centro; com conversa, o campo desce e fica preso embaixo. Respostas sem
+     balão — o fio teal à esquerda marca "isto veio dos dados".
+     Botões com estilo explícito: a regra global `button {}` dá borda/fundo
+     a todo <button>.
+     ============================================================ */
+  /* esta tela não tem o rodapé fixo de "Gerar relatório" */
+  .app-main:has(.achat-page) { padding-bottom: 24px; }
+  .achat-page { display: flex; flex-direction: column; gap: 16px; }
+
+  .achat-shell {
+    display: flex; flex-direction: column;
+    height: calc(100dvh - 170px); min-height: 520px;
+    border: 1px solid var(--border); border-radius: 16px;
+    background: linear-gradient(170deg, var(--surface) 0%, var(--surface-grad) 130%);
+    box-shadow: inset 0 1px 0 0 var(--hairline);
+    overflow: hidden;
+  }
+
+  /* --- estado inicial --- */
+  .achat-start {
+    flex: 1; overflow-y: auto;
+    display: flex; flex-direction: column; justify-content: center; gap: 22px;
+    width: min(100%, 760px); margin: 0 auto; padding: 32px 24px;
+  }
+  .achat-start-title { margin: 0; font-size: 1.45rem; font-weight: 600; line-height: 1.3; color: var(--text); letter-spacing: -0.01em; }
+  .achat-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .achat-group h4 { margin: 0 0 8px; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+  .achat-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .achat-suggestion {
+    width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px;
+    border: none; background: transparent; color: var(--text); font-size: 0.88rem; line-height: 1.35;
+  }
+  .achat-suggestion:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-hi); }
+  .achat-suggestion:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
+
+  /* --- conversa --- */
+  .achat-thread {
+    flex: 1; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 22px;
+    padding: 28px max(24px, calc((100% - 820px) / 2)) 16px;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .achat-thread::-webkit-scrollbar { width: 8px; }
+  .achat-thread::-webkit-scrollbar-track { background: transparent; }
+  .achat-thread::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+
+  .achat-question {
+    align-self: flex-end; max-width: 75%; margin: 0;
+    padding: 8px 14px; border-radius: 14px 14px 4px 14px;
+    background: var(--surface-2); color: var(--text); font-size: 0.92rem; line-height: 1.45; white-space: pre-wrap;
+  }
+  .achat-error { margin: 0; padding-left: 16px; border-left: 2px solid var(--bad); color: var(--bad); font-size: 0.9rem; }
+
+  .achat-answer {
+    display: flex; flex-direction: column; gap: 14px;
+    padding-left: 18px; border-left: 2px solid var(--accent);
+  }
+  .achat-reply { margin: 0; max-width: 68ch; font-size: 0.98rem; line-height: 1.55; color: var(--text); }
+  .achat-reply--secondary { margin-top: -8px; font-size: 0.9rem; color: var(--text-muted); }
+
+  .achat-kpi { margin: 0; display: flex; align-items: baseline; gap: 8px; line-height: 1; }
+  .achat-kpi-value { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.02em; color: var(--text); font-variant-numeric: tabular-nums; }
+  .achat-kpi-unit { font-size: 1.1rem; font-weight: 600; color: var(--accent-hi); }
+
+  .achat-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 0.75rem; }
+  .achat-meta div { display: flex; gap: 5px; }
+  .achat-meta dt { color: var(--text-muted); }
+  .achat-meta dd { margin: 0; color: var(--text); }
+
+  .achat-pending { display: flex; align-items: center; gap: 10px; padding-left: 20px; font-size: 0.85rem; color: var(--text-muted); }
+  .achat-pending-bar {
+    width: 28px; height: 3px; border-radius: 3px;
+    background: linear-gradient(90deg, transparent, var(--accent-hi), transparent);
+    background-size: 200% 100%; animation: achat-scan 1.1s linear infinite;
+  }
+  @keyframes achat-scan { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  @media (prefers-reduced-motion: reduce) { .achat-pending-bar { animation: none; background: var(--accent); } }
+
+  /* --- campo de pergunta --- */
+  .achat-dock { padding: 12px max(24px, calc((100% - 820px) / 2)) 18px; border-top: 1px solid var(--border); }
+  .achat-composer {
+    display: flex; align-items: flex-end; gap: 8px;
+    padding: 6px 6px 6px 16px; border-radius: 14px;
+    border: 1px solid var(--border); background: var(--surface-2);
+  }
+  .achat-composer:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); }
+  .achat-composer textarea {
+    flex: 1; min-width: 0; resize: none; overflow-y: auto;
+    padding: 9px 0; border: none; background: transparent; color: var(--text);
+    font: inherit; font-size: 0.95rem; line-height: 1.45;
+  }
+  .achat-composer textarea:focus { outline: none; }
+  .achat-composer textarea::placeholder { color: var(--text-muted); }
+  .achat-send {
+    flex: none; display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
+    border: none; border-radius: 10px; background: var(--accent); color: #fff;
+  }
+  .achat-send:disabled { background: var(--surface); color: var(--text-muted); cursor: default; }
+  .achat-send:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+
+  /* --- gráficos --- */
+  .achat-chart { margin: 0; padding: 14px 16px; border-radius: 12px; background: var(--surface-2); }
+  .achat-chart figcaption { margin-bottom: 12px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
+
+  .achat-hbars { display: flex; flex-direction: column; gap: 7px; }
+  .achat-hbar-row { display: grid; grid-template-columns: minmax(120px, 32%) 1fr auto; align-items: center; gap: 12px; font-size: 0.82rem; }
+  .achat-hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .achat-hbar-track { position: relative; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--text) 7%, transparent); overflow: hidden; }
+  .achat-hbar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: var(--accent); }
+  /* variação (análise): barras saem do centro — aumento pra direita, queda pra esquerda */
+  .achat-hbar-track.is-diverging::before { content: ""; position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1px; background: var(--text-muted); opacity: .5; }
+  .achat-hbar-track.is-diverging .achat-hbar-fill { left: 50%; }
+  .achat-hbar-track.is-diverging .achat-hbar-fill.is-negative { left: auto; right: 50%; }
+  .achat-hbar-fill.is-negative { background: var(--bad); }
+  .achat-hbar-value { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+
+  .achat-vbars { display: flex; align-items: flex-end; gap: 18px; height: 200px; }
+  .achat-vbar-col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .achat-vbar-track { flex: 1; width: min(100%, 64px); display: flex; align-items: flex-end; }
+  .achat-vbar-fill { width: 100%; border-radius: 6px 6px 2px 2px; background: var(--accent); }
+  .achat-vbar-fill.is-negative { background: var(--bad); }
+  .achat-vbar-value { font-size: 0.8rem; color: var(--text); font-variant-numeric: tabular-nums; }
+  .achat-vbar-label { font-size: 0.78rem; color: var(--text-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .achat-line { width: 100%; height: auto; display: block; }
+  .achat-line-axis { stroke: var(--border); stroke-width: 1; }
+  .achat-line-path { fill: none; stroke: var(--accent-hi); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  .achat-line-dot { fill: var(--accent-hi); stroke: var(--surface-2); stroke-width: 2; }
+  .achat-line-label { fill: var(--text-muted); font-size: 11px; }
+  .achat-line-value { fill: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  /* --- tabela recolhível --- */
+  .achat-table summary {
+    width: fit-content; cursor: pointer; list-style: none;
+    font-size: 0.85rem; font-weight: 600; color: var(--accent-hi);
+  }
+  .achat-table summary::-webkit-details-marker { display: none; }
+  .achat-table summary::before { content: "▸"; display: inline-block; margin-right: 6px; transition: transform .15s ease; }
+  .achat-table[open] summary::before { transform: rotate(90deg); }
+  .achat-table summary:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; border-radius: 4px; }
+  .achat-table-wrap { margin-top: 10px; max-height: 300px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .achat-table .kpi-table { width: 100%; }
+  .achat-table .kpi-table th:first-child, .achat-table .kpi-table td:first-child { text-align: left; }
+
+  @media (max-width: 760px) {
+    .achat-shell { height: auto; min-height: calc(100dvh - 190px); }
+    .achat-groups { grid-template-columns: 1fr; gap: 14px; }
+    .achat-start-title { font-size: 1.2rem; }
+    .achat-question { max-width: 90%; }
+    .achat-hbar-row { grid-template-columns: minmax(80px, 38%) 1fr auto; gap: 8px; }
+  }

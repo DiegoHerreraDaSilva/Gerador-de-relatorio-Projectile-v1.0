@@ -68,6 +68,7 @@ def reports_db_engine(monkeypatch):
 
     from backend.app.core.config import get_settings
     from backend.app.db.reports_schema import metadata
+    from backend.app.repositories import report_analytics_repository
     from backend.app.services import audit, management_store, report_persistence, report_queries
 
     settings = get_settings()
@@ -117,6 +118,7 @@ def reports_db_engine(monkeypatch):
     monkeypatch.setattr(report_queries, "get_engine", lambda: engine)
     monkeypatch.setattr(audit, "get_engine", lambda: engine)
     monkeypatch.setattr(management_store, "get_engine", lambda: engine)
+    monkeypatch.setattr(report_analytics_repository, "get_engine", lambda: engine)
 
     yield engine
     engine.dispose()

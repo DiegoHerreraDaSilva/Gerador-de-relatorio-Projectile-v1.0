@@ -47,7 +47,7 @@ from .api.dependencies import (  # noqa: F401 — re-exportado: testes fazem `fr
     require_session,
     require_translate_access,
 )
-from .api.routers import analytics, auth, chat, generation, history, my_hours, parsing
+from .api.routers import analytics, analytics_chat, auth, chat, generation, history, my_hours, parsing
 from .api.errors import GENERIC_MANAGEMENT_DB_ERROR
 from .api.routers import management as management_router
 from .services.management_store import ManagementStoreError
@@ -83,6 +83,7 @@ app.include_router(generation.router)
 app.include_router(history.router)
 app.include_router(chat.router)
 app.include_router(analytics.router)
+app.include_router(analytics_chat.router)
 
 
 @app.middleware("http")
