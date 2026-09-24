@@ -119,7 +119,16 @@ Pontos importantes:
 - A sessão usa token opaco em cookie `HttpOnly`, `SameSite=Lax`, com duração de 8 horas.
 - O rate limit permite 5 falhas por IP antes de bloquear novas tentativas por 15 minutos.
 - Todas as rotas de negócio exigem sessão.
-- Rotas `/management/*` e a busca por cliente exigem gerente.
+- Três papéis, definidos por allowlist no `.env`:
+
+  | Papel | Variável | Acesso |
+  |---|---|---|
+  | Gerente | `MANAGEMENT_PANEL_LOGINS` | tudo |
+  | Coordenador | `COORDINATOR_LOGINS` | Gerar relatório (inclusive busca por cliente/projeto), Dashboard de horas (as próprias ou de qualquer colaborador de engenharia), o próprio Histórico e Diagnóstico de relatórios |
+  | Colaborador | — (qualquer outro login) | Gerar relatório (só as próprias horas), Dashboard de horas e o próprio Histórico |
+
+- O coordenador não vê os KPIs do Painel de Gerência nem pela API: `/management/kpis` e `/analytics/summary` respondem 403 pra ele, e o Diagnóstico usa `/management/send-status`, que não traz horas, faturamento nem performance.
+- Mudou uma allowlist? Reinicie o backend.
 - `/translate-activities` exige login em `TRANSLATE_ALLOWED_LOGINS`.
 - Swagger, ReDoc e OpenAPI ficam desativados em todas as execuções.
 
@@ -381,9 +390,14 @@ Acesse `http://localhost:8011`.
 | `REPORTS_DB_ENABLED` | histórico de relatórios | `true`; desliga a persistência sem reverter código |
 | `REPORTS_MYSQL_ROOT_PASSWORD` / `REPORTS_MYSQL_APP_PASSWORD` | bootstrap do `docker-compose.yml` | só usadas na 1ª subida do container, nunca em runtime |
 | `MANAGEMENT_PANEL_LOGINS` | acesso gerencial | lista CSV; fallback `dherrera` |
+| `COORDINATOR_LOGINS` | acesso de coordenador | lista CSV; sem fallback (vazia = nenhum coordenador) |
 | `TRANSLATE_ALLOWED_LOGINS` | tradução | lista CSV; fallback `dherrera` |
-| `ANTHROPIC_API_KEY` | chat e tradução | sem default |
-| `ANTHROPIC_MODEL` | chat e tradução | `claude-sonnet-5` |
+| `ANTHROPIC_API_KEY` | chat de edição, tradução e chat analítico | sem default |
+| `ANTHROPIC_MODEL` | chat de edição, tradução e chat analítico | `claude-sonnet-5` |
+| `OPENROUTER_API_KEY` | Jev pelo OpenRouter (`openrouter.ai/api/v1/systemone`) | sem default; tem prioridade sobre `TYPESAFE_API_KEY`. Sem nenhuma das duas, o Claude classifica |
+| `TYPESAFE_API_KEY` | Jev, classificador do chat analítico | sem default; sem ela o Claude classifica (1 chamada a mais por pergunta). Com ela, a pergunta e as listas de clientes/colaboradores vão pra TypeSafe AI |
+| `JEV_MODEL` | Jev | `jev-latest` |
+| `ANALYTICS_CHAT_MODEL` | Claude do chat analítico (sem thinking) | `claude-haiku-4-5-20251001`; o chat de edição continua em `ANTHROPIC_MODEL` |
 | `AZURE_TENANT_ID` | automação de e-mail | sem default |
 | `AZURE_CLIENT_ID` | automação de e-mail | habilita o polling no startup |
 | `AZURE_CLIENT_SECRET` | automação de e-mail | sem default |
@@ -429,7 +443,8 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login`.
 | `POST /parse` | lê um XLSX (`file`, `mode=single|multi`) |
 | `POST /parse-db` | busca o usuário logado por mês/período |
 | `POST /parse-db-client` | busca projetos selecionados; requer gerente |
-| `GET /my-hours` | dashboard pessoal (`current_month`, `last_3`, `last_6`, `last_12`) |
+| `GET /my-hours` | dashboard de horas (`current_month`, `last_3`, `last_6`, `last_12`); `employee_id` opcional pra gerente/coordenador ver alguém de engenharia (CAD+CAE) |
+| `GET /my-hours/employees` | lista do seletor de colaborador (engenharia com apontamento recente); requer gerente ou coordenador |
 | `POST /generate` | gera XLSX/PDF direto ou ZIP; persiste histórico em `reports_db` (fail-open) |
 | `POST /send-report` | gera anexos e envia via Microsoft Graph; mesma persistência fail-open |
 | `POST /chat` | aplica operações de edição sugeridas pela IA |
@@ -456,6 +471,7 @@ Todas exigem gerente.
 | Método e rota | Função |
 |---|---|
 | `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
+| `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consultas fixas (nunca SQL gerado por IA); Jev (TypeSafe AI) classifica e o Claude só explica/planeja |
 | `GET /management/clients-with-hours` | clientes ativos no mês/período |
 | `GET /management/client-projects` | projetos ativos de um cliente |
 | `GET /management/kpis` | KPIs e filtros gerenciais |

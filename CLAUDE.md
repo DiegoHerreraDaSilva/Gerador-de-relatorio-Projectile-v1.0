@@ -49,8 +49,12 @@ gerencial". As guias do frontend continuam em `localStorage`.
 
 ### Identidade e autorização
 
-- `/parse-db` e `/my-hours` sempre usam a identidade da sessão; nunca aceite `employee_id`/nome vindo do cliente para consultar outra pessoa.
-- `/parse-db-client` e todas as rotas `/management/*` exigem `require_manager`.
+- `/parse-db` sempre usa a identidade da sessão; nunca aceite `employee_id`/nome vindo do cliente para consultar outra pessoa.
+- `/my-hours` usa a sessão por padrão. **Única exceção deliberada:** `?employee_id=` de outra pessoa, só pra gerente/coordenador (colaborador → 403) e só pra alguém de engenharia (CAD+CAE com apontamento na janela do histórico; fora disso → 404). O id do cliente nunca é usado direto: `my_hours._resolve_target` re-resolve contra `fetch_engineering_employees`, e nome e **filial** (que decide o feriado municipal de Santo André) vêm do Projectile, não do cliente. Lista do seletor: `GET /my-hours/employees` (cache de 15 min, sem filial no payload).
+- Três papéis: **gerente** (`MANAGEMENT_PANEL_LOGINS`, acesso a tudo), **coordenador** (`COORDINATOR_LOGINS`) e colaborador (o resto).
+- Coordenador: Gerar relatório (inclusive busca por cliente/projeto), Dashboard de horas, o **próprio** Histórico e o Diagnóstico. Nunca Painel de Gerência nem Analytics, e **nunca os KPIs nem pela API**: o Diagnóstico dele usa `/management/send-status` (sem horas/faturamento/performance, resposta montada por lista branca `_SEND_STATUS_KEYS`), e `/management/kpis` responde 403.
+- Só gerente (`require_manager`): `/management/kpis`, `/management/kpis/check-emails`, `PUT /management/kpis/{month}`, `/analytics/summary`, `POST /analytics/chat`. Gerente ou coordenador (`require_manager_or_coordinator`): `/parse-db-client` e as demais rotas `/management/*` (amostras, projetos, pacotes, Fechados, `send-status`).
+- `backend/tests/test_coordinator_access.py` tem uma **matriz de autorização**: toda rota de `/management/*`, `/analytics/*` e `/parse-db-client` precisa estar classificada lá. Rota nova nesses routers sem decisão explícita de acesso faz o teste falhar — decida e atualize `_MANAGER_ONLY`.
 - `/translate-activities` exige `require_translate_access`.
 - Não exponha distinção entre usuário inexistente e senha incorreta.
 - Não habilite Swagger/ReDoc/OpenAPI sem uma decisão explícita de segurança.
@@ -115,12 +119,24 @@ gerencial". As guias do frontend continuam em `localStorage`.
   Fica esparso/vazio até acumular meses de uso real — isso é esperado,
   não um bug.
 
+### Chat analítico (`backend/app/analytics/`)
+
+Aba "Chat analítico", só gerente (`POST /analytics/chat`). Separado do `/chat` de edição: nunca mexe no relatório aberto. Plano de origem: `PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md`.
+
+- **Nunca SQL gerado por IA.** Toda consulta é uma intent da whitelist (`intents.py`) → handler do `query_engine.py` → `repositories/`. Intent, mês, cliente ou colaborador que não existem nas opções são descartados (`router._validated`) antes de qualquer consulta.
+- **Jev (TypeSafe AI) só escolhe entre opções** (docs.typesafe.ai): não extrai datas nem nomes. Por isso cada filtro é uma pergunta `choice` com opções montadas a cada chamada (`periods.month_options`, clientes e colaboradores das linhas de horas). Período: `month` (um mês, ou o primeiro de um intervalo) + `month_end` (último mês do intervalo, só vale com `month`) ou `relative`; sem nada, últimos 12 meses (e a resposta avisa). Anos são tratados sem IA (`periods.years_mentioned`, regex com `\b`): ano fora da janela de 24 meses → resposta fixa dizendo a janela, sem consulta (o Jev não tem esse ano nas opções e respondia "nenhum período", caindo no padrão em silêncio); ano citado sem NENHUM nome de mês (`periods.mentions_month`, com/sem acento, abreviado) → janeiro a dezembro, cortado na janela com aviso, mesmo que o classificador tenha escolhido um mês (o Jev real escolhia janeiro pra "horas em 2026"). Explicações (`simple_with_explanation`) recebem participação, acumulado, `top_3` e `others_after_top_3` já calculados (`service._compact_for_claude`): sem isso o Claude somava percentuais de cabeça, errava, e o grounding descartava 4 de 4 textos; com eles, 11 de 12 aproveitados. Jev fora do ar, sem chave (`OPENROUTER_API_KEY`/`TYPESAFE_API_KEY`) ou sem confiança → o Claude classifica com `tool_choice` forçado e enums. Confiança (`router._weakest`): rota e toda escolha de valor precisam de `JEV_MIN_CONFIDENCE` (0,60); resposta "nenhum" precisa só de `JEV_MIN_CONFIDENCE_NONE` (0,40) — a confiança do Jev é baixa mesmo quando acerta (métrica certa com 0,5–0,7). Desenho calibrado contra o Jev real, não mude sem recalibrar: (1) mês e período relativo são UMA pergunta `period` (separados, ele marcava os dois e um contradizia o outro); (2) a pergunta anterior NÃO vai no `state` da mensagem — ele "herdava" a métrica anterior numa pergunta nova; ela vai só numa 2ª chamada paralela, que decide `follow_up` (`router._ask_jev`); (3) as `criteria` das intents dizem "ONE total" vs "A LIST", pra separar total de quebra. Calibração de 2026-09-24 (24 perguntas reais, metade no meio de conversa, OpenRouter): 22/24 certas sem limiar; com 0,60/0,40, 20 aceitas (1 em formato diferente, número certo) e 4 pro Claude; ~0,4 s por pergunta.
+- **Rotas:** `simple_data` (formatter, **0 Claude**), `simple_with_explanation` (Claude explica o resultado já agregado), `analysis` (Claude planeja, Python calcula, Claude fecha: `compare_periods` = mesma métrica em dois meses DIFERENTES — plano com o mesmo mês dos dois lados é rejeitado; `compare_items` = clientes ou colaboradores citados, entre si, num período — mínimo 2 itens válidos, percentuais são entre os comparados). O planner usa UMA ferramenta por análise (`tool_choice: any`), cada uma só com os seus campos: com um formulário único misturando os dois, o Haiku montava `compare_periods` pra "Lucca e Leonardo" (1 em 5); separado, 30/30. O `interpret` do Claude define `follow_up` explicitamente (só mensagem incompleta, "e em agosto?"); sem isso ele marcava toda pergunta como continuação e herdava filtros da anterior, `general`, `out_of_scope` (recusa fixa, 0 Claude).
+- **Grounding** (`grounding.py`): texto do Claude com número que não veio dos dados é descartado e vale o texto determinístico (`metadata.claude_text_used = false`). Não afrouxe isso: é o que garante que o Claude não calcula.
+- **Fontes:** relatórios, versões e gerações vêm do `reports_db` (`repositories/report_analytics_repository.py`); horas por cliente, projeto, colaborador e pacote vêm do Projectile via `management._get_cached_rows` (cache 15 min, janela fixa de 24 meses), porque o `reports_db` não tem cliente nem funcionário por lançamento. `metadata.source` sempre informa qual.
+- Contexto de conversa sem estado no servidor: o frontend devolve `{conversation_id, last_intent, last_filters}` (validado por `schemas.py`, `extra="forbid"`). Toda pergunta vai pro `audit_log` (`action="analytics_chat_query"`), com rota, intent, classificador, chamadas e tokens do Claude e latência.
+- Falha do Claude nunca derruba uma resposta que já tem dado: cai no texto determinístico. Projectile fora do ar derruba só as intents de horas (502); as de relatórios seguem.
+
 ## Arquitetura do frontend
 
-`App.tsx` controla seis views sem React Router:
+`App.tsx` controla sete views sem React Router:
 
 ```ts
-type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history" | "analytics";
+type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history" | "analytics" | "analytics-chat";
 ```
 
 - `Sidebar.tsx`: logo, navegação, guias abertas, tema, usuário e logout. É recolhível no desktop e drawer no mobile.
@@ -131,9 +147,12 @@ type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history"
 - `GenerateFooter.tsx`: formatos, nome, performance, download e abertura do modal de envio.
 - `MyHoursDashboard.tsx`: dashboard pessoal.
 - `ManagementPanel.tsx`: KPIs e gráficos gerenciais.
-- `DiagnosticsPanel.tsx`: amostras, duplicidades e mensagens ignoradas.
+- `DiagnosticsPanel.tsx`: "Relatórios enviados" (`SendStatusCard.tsx`, status de envio por projeto/mês + popup de Fechados — saiu do Painel de Gerência), amostras, duplicidades e mensagens ignoradas. Marcar/desmarcar "Enviado" cria/apaga uma amostra manual, por isso o card chama `onChanged` pra recarregar a tabela de Amostras.
 - `HistoryPanel.tsx`: histórico de relatórios (`reports_db`) — lista, versões, gerações, artifacts e auditoria. Visível pra todo mundo (não só gerente); backend filtra pra só os próprios relatórios de quem não é gerente.
-- `AnalyticsPanel.tsx`: métricas agregadas sobre `reports_db` (horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis) — só gerente (`managerOnly` em `Sidebar.tsx` + `require_manager` no backend).
+- `AnalyticsPanel.tsx`: métricas agregadas sobre `reports_db` (horas por competência/grupo/projeto, taxa de falha, relatórios por mês, responsáveis) — só gerente (`access: "manager"` em `Sidebar.tsx` + `require_manager` no backend).
+- `AnalyticsChatPanel.tsx`: chat analítico (só gerente) — texto + visualizações (`analytics/VisualizationRenderer.tsx`, contrato de `backend/app/analytics/visualization.py`: `kpi`, `bar`, `horizontal_bar`, `line`) + tabela recolhível, com fonte e período. O renderer só desenha dados; nunca recebe HTML/SVG do servidor.
+- Menu por papel: `NAV_ITEMS` em `Sidebar.tsx` tem `access: "all" | "coordinator" | "manager"`; `hasCoordinatorAccess(user)` (`useAuthStore.ts`) = gerente ou coordenador. Isso só esconde tela — quem barra de verdade é o backend.
+- `useManagementStore.load()` busca `/management/kpis` pra gerente e `/management/send-status` pra coordenador (`fromSendStatus` preenche os números com zero/nulo — só o Painel os mostraria, e ele não aparece pro coordenador). A store descarta os dados quando o login muda (`_loadedForLogin`): ela sobrevive ao logout, e sem isso um coordenador herdaria na memória os KPIs de um gerente que usou o mesmo navegador.
 
 Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram substituídos pela sidebar e pelos blocos horizontais.
 
@@ -165,11 +184,12 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `useAuthStore.ts` | sessão, login/logout, gerente e tradução |
 | `useReportStore.ts` | relatório ativo, header, importação, edição, undo, drag e split |
 | `useReportTabsStore.ts` | múltiplas guias e persistência local |
-| `useMyHoursStore.ts` | dashboard pessoal e filtros |
+| `useMyHoursStore.ts` | dashboard de horas, filtros e o colaborador escolhido (`employeeId`, `null` = o próprio; seletor `MyHours/EmployeePicker.tsx`, só gerente/coordenador). Descarta os dados quando o login muda (`_loadedForLogin`) e respostas de uma seleção que já mudou |
 | `useManagementStore.ts` | KPIs, filtros, fechados e status de envio |
 | `useDiagnosticsStore.ts` | amostras e projetos do diagnóstico |
 | `useHistoryStore.ts` | lista/paginação/filtros de `GET /reports`, detalhe do relatório selecionado (versões, gerações, artifacts, auditoria) e detalhe de uma versão |
 | `useAnalyticsStore.ts` | `GET /analytics/summary` — resumo único (sem paginação/filtro), `loading`/`error` |
+| `useAnalyticsChatStore.ts` | mensagens do chat analítico e o contexto curto devolvido pelo backend; descarta tudo quando o login muda (`ensureUser`) |
 
 ## Backend
 
@@ -214,8 +234,9 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `api/routers/history.py` | `/reports/*`, `/artifacts/{id}/download` | — |
 | `api/routers/chat.py` | `/chat`, `/translate-activities` | `ChatState`, `ChatGroup`, `ChatActivity`, `ChatPackage`, `ChatRequest`, `ChatResponse`, `TranslatePayload` |
 | `api/routers/analytics.py` | `/analytics/summary` (só gerente, `require_manager`) | — |
+| `api/routers/analytics_chat.py` | `POST /analytics/chat` (só gerente) | `AnalyticsChatRequest` (em `analytics/schemas.py`) |
 
-Compartilhado entre routers: `api/dependencies.py` (`require_session`/`require_manager`/`require_translate_access`/`SESSION_COOKIE`), `api/errors.py` (`log_and_generic_error`/`GENERIC_*_ERROR`), `api/shared.py` (`resolve_month_range`, `build_parse_response`).
+Compartilhado entre routers: `api/dependencies.py` (`require_session`/`require_manager`/`require_manager_or_coordinator`/`require_translate_access`/`SESSION_COOKIE`), `api/errors.py` (`log_and_generic_error`/`GENERIC_*_ERROR`), `api/shared.py` (`resolve_month_range`, `build_parse_response`).
 
 **Gotcha de teste**: `require_manager`/`require_translate_access` (em `api/dependencies.py`) e `_require_report_access` (em `api/routers/history.py`) leem `management.MANAGEMENT_PANEL_LOGINS`/`management.TRANSLATE_ALLOWED_LOGINS` como **atributo do módulo** (`from .. import management` + `management.MANAGEMENT_PANEL_LOGINS`), nunca `from ..management import MANAGEMENT_PANEL_LOGINS` — um `from import` copiaria o `set` pro namespace local NA HORA DO IMPORT, e `monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", ...)` (o padrão usado nos testes) não afetaria essa cópia. Mesma categoria de bug já encontrada uma vez com `get_engine` em `report_persistence.py`/`report_queries.py`/`audit.py` (três bindings independentes da mesma função) — ao adicionar um novo consumidor de estado "testável por monkeypatch", sempre referencie via atributo do módulo definidor, nunca via `from import`.
 
@@ -278,12 +299,15 @@ Não altere nomes/casing sem migração coordenada.
 - `/parse`: multipart `file`, `mode=single|multi` → `{packages, issues}`.
 - `/parse-db`: `{month_label, mode}` → mesmo formato de `/parse`; identidade da sessão.
 - `/parse-db-client`: `{project_ids, month_label, mode=projeto|pacote}`; gerente.
-- `/my-hours?period=current_month|last_3|last_6|last_12`.
+- `/my-hours?period=current_month|last_3|last_6|last_12[&employee_id=]` → inclui `employee: {employee_id, name}` (de quem são os dados). `employee_id` de outra pessoa: ver "Identidade e autorização".
+- `GET /my-hours/employees` (gerente ou coordenador) → `{employees: [{employee_id, name, cost_center}]}`.
 - `/generate`: `GeneratePayload` em snake_case; arquivo direto para 1 pacote/1 formato, ZIP nos demais casos. Headers `X-Report-Id`/`X-Report-Version-Id`/`X-Report-Version-Number` (caso único) ou `X-Report-Ids` (zip, `report_id:version_id` separados por vírgula) são **aditivos** — ausentes se a persistência em `reports_db` falhou (fail-open) ou está desligada; nunca confie na presença deles.
 - `/send-report`: mesmos pacotes + destinatário/assunto/mensagem/formatos; nunca ZIPa anexos. Mesma persistência fail-open de `/generate` (`created_from="send_report_endpoint"`), sem headers extra na resposta (que é só `{"ok": true}`).
 - `/chat`: `ChatState` em camelCase e histórico `{role,text}`; aplica operações atomicamente.
 - `/translate-activities`: `{items:[{id,text}], target_language: en|de}`.
-- `/management/kpis`: filtros repetíveis `cost_centers`, `clients`, `projects`, `packages`, `selected_months`, `persons`.
+- `/management/kpis`: filtros repetíveis `cost_centers`, `clients`, `projects`, `packages`, `selected_months`, `persons`. Só gerente.
+- `/management/send-status`: mesmos filtros de `/management/kpis`; devolve só `months` (`[{month}]`), `project_send_status` e as opções de filtro (`available_*`, `project_codes`, `project_clients`). Gerente ou coordenador.
+- `/auth/login` e `/auth/me`: `{name, login, email, is_manager, is_coordinator, is_translate_allowed}`.
 - `/management/kpis/samples`: CRUD de amostras; PATCH usa `exclude_unset` para distinguir `pacote_scope` ausente de `None`.
 - `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db` (Fase 2+4). Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. Download registra `artifact_downloaded` em `audit_log`.
 - `GET /analytics/summary` (Fase 9, só gerente): `{totals: {reports, versions, artifacts}, hours_by_competence, hours_by_group, hours_by_project, generation: {total, failed, failure_rate, avg_duration_ms, by_format}, reports_over_time, top_creators}` — sem paginação, resumo único; horas contam só a versão atual de cada relatório.
@@ -296,8 +320,9 @@ Fonte: `.env.example`.
 
 - Projectile: `PROJECTILE_DB_HOST`, `PROJECTILE_DB_PORT`, `PROJECTILE_DB_USER`, `PROJECTILE_DB_NAME`; senha no keyring `projectile_mysql`. `PROJECTILE_SYS_CLIENT_ID` (default `"0"`) e `PROJECTILE_DB_POOL_SIZE` (default `5`, tamanho do pool de conexões — ver `projectile_db.py`) vêm de `core/config.Settings`.
 - reports_db: `REPORTS_DB_HOST`, `REPORTS_DB_PORT`, `REPORTS_DB_USER`, `REPORTS_DB_NAME`; senha no keyring `reports_mysql`. `REPORTS_DB_ENABLED` (default `true`) desliga a persistência sem reverter código. `REPORTS_MYSQL_ROOT_PASSWORD`/`REPORTS_MYSQL_APP_PASSWORD` são só bootstrap do `docker-compose.yml` (primeira subida do container) — nunca lidos em runtime pela aplicação.
-- Permissões: `MANAGEMENT_PANEL_LOGINS`, `TRANSLATE_ALLOWED_LOGINS`.
-- Anthropic: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`.
+- Permissões: `MANAGEMENT_PANEL_LOGINS` (gerente; fallback `dherrera`), `COORDINATOR_LOGINS` (coordenador; **sem fallback** — vazia = nenhum), `TRANSLATE_ALLOWED_LOGINS`.
+- Anthropic: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (chat de edição/tradução). O chat analítico usa `ANALYTICS_CHAT_MODEL` (padrão `claude-haiku-4-5-20251001`, sem extended thinking).
+- Jev (chat analítico): `OPENROUTER_API_KEY` (Jev pelo OpenRouter, tem prioridade) ou `TYPESAFE_API_KEY` (direto na TypeSafe); sem nenhuma, o Claude classifica. Endereços fixos em `integrations/jev.py`, nunca configuráveis, `JEV_MODEL` (padrão `jev-latest`); limiares e guardrails em `core/config.Settings` (`JEV_MIN_CONFIDENCE`, `ANALYTICS_CHAT_MAX_ROWS`, `ANALYTICS_CHAT_MAX_MONTHS`, `ANALYTICS_CHAT_MAX_CLAUDE_PAYLOAD_BYTES`). Com chave, a pergunta e as listas de clientes/colaboradores vão pro OpenRouter e/ou pra TypeSafe AI.
 - Graph: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `GRAPH_MAILBOX`, `ALBERTO_EMAIL`, `EMAIL_POLL_INTERVAL_SECONDS`.
 - Arquivo: `REPORT_PROTECTION_PASSWORD`.
 
@@ -340,9 +365,9 @@ só com o container de pé (schema de teste separado, `reports_db_test`, ver
 
 Em 2026-09-22:
 
-- backend: 294 testes coletados (211 + 62 de `reports_db`/snapshot/histórico/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics + 12 de persistência de gerência em `test_management_store.py` − 1 teste antigo de concorrência por arquivo, 1 skip pré-existente). `test_management.py` (regra de negócio) roda em SQLite na memória (fixture `management_db`), sem Docker; o que depende do MySQL real (lock entre conexões, collation) é marcado `reports_db`;
+- backend: 376 testes coletados (63 do chat analítico em `test_analytics_chat.py`/`test_analytics_chat_units.py`, com Jev e Claude sempre falsos; 211 + 62 de `reports_db`/snapshot/histórico/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics + 12 de persistência de gerência em `test_management_store.py` + 10 do papel de coordenador em `test_coordinator_access.py` + 9 do seletor de colaborador em `test_my_hours_employee_selection.py` − 1 teste antigo de concorrência por arquivo, 1 skip pré-existente). `test_management.py` (regra de negócio) roda em SQLite na memória (fixture `management_db`), sem Docker; o que depende do MySQL real (lock entre conexões, collation) é marcado `reports_db`;
 - `conftest.py:_no_real_email_polling` (autouse) desliga o loop de polling nos testes — com `AZURE_CLIENT_ID` no `.env`, `with TestClient(app)` chamava o Graph e o Projectile de verdade no startup;
-- frontend: 134 testes em 10 arquivos;
+- frontend: 136 testes em 11 arquivos;
 - build: `tsc -b && vite build`.
 
 Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vitest/Vite no sandbox Windows indica bloqueio ao subprocesso do esbuild; repita fora do sandbox antes de classificar como falha do código.
@@ -395,6 +420,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Documentação de uso | `README.md` |
 | Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `api/routers/generation.py` (`generate_endpoint`/`send_report_endpoint`) |
 | Tela de histórico | `frontend/src/components/HistoryPanel.tsx`, `useHistoryStore.ts`, `utils/historyFormat.ts` |
+| Chat analítico | `backend/app/analytics/` (catálogo em `intents.py`, fluxo em `service.py`), `integrations/jev.py`, `repositories/`, `api/routers/analytics_chat.py`; `frontend/src/components/AnalyticsChatPanel.tsx`, `analytics/VisualizationRenderer.tsx`, `useAnalyticsChatStore.ts` |
 | Métricas agregadas (Analytics) | `backend/app/services/report_queries.py` (`get_analytics_summary`), `api/routers/analytics.py`; `frontend/src/components/AnalyticsPanel.tsx`, `useAnalyticsStore.ts` |
 | Schema do `reports_db` | `backend/app/db/reports_schema.py` + nova migration em `backend/alembic/versions/` |
 | Config central (`reports_db`/`sysClientId`) | `backend/app/core/config.py` |
