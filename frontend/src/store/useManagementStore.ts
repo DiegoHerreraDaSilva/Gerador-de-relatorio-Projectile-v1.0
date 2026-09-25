@@ -92,6 +92,21 @@ export const ALL_COST_CENTERS = ["CAD", "CAE"];
 // valor de `period` é tratado como um ano fechado (Jan-Dez), ex: "2026".
 export const ROLLING_PERIOD = "rolling";
 
+// ano mais antigo com apontamento real no Projectile (MIN(pDate) de
+// ttimebit, checado direto no banco) — não é um número arbitrário.
+const EARLIEST_DATA_YEAR = 2008;
+
+/** Períodos do filtro por papel: gerente vê todos os anos desde 2008;
+ * coordenador, só os últimos 12 meses e o ano passado (o backend barra o
+ * resto com 403 em `/management/send-status`). */
+export function periodOptionsFor(isManager: boolean, currentYear = new Date().getFullYear()): string[] {
+  if (!isManager) return [ROLLING_PERIOD, String(currentYear - 1)];
+  return [
+    ROLLING_PERIOD,
+    ...Array.from({ length: currentYear - EARLIEST_DATA_YEAR + 1 }, (_, i) => String(currentYear - i)),
+  ];
+}
+
 interface ManagementState {
   rows: MonthRow[] | null;
   nonbillableBreakdown: NonbillablePackageRow[];
@@ -244,6 +259,11 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
         availableProjects: [], availableClients: [], availablePackages: [], availablePersons: [],
         projectCodes: {}, projectClients: {}, loaded: false, _optionsScopeKey: null, _loadedForLogin: login,
       });
+      // os filtros sobrevivem à troca de login: um ano que o gerente escolheu
+      // não pode ficar pro coordenador (o backend responderia 403)
+      if (!periodOptionsFor(Boolean(user?.isManager)).includes(get().period)) {
+        set({ period: ROLLING_PERIOD, selectedMonths: [] });
+      }
     }
     if (get().loaded && !force) return;
     if (get()._inFlight) {

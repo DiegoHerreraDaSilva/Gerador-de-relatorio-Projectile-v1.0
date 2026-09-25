@@ -1,20 +1,13 @@
 import { RotateCcw } from "lucide-react";
-import { ALL_COST_CENTERS, ROLLING_PERIOD, useManagementStore } from "../store/useManagementStore";
+import { useAuthStore } from "../store/useAuthStore";
+import { ALL_COST_CENTERS, ROLLING_PERIOD, periodOptionsFor, useManagementStore } from "../store/useManagementStore";
 import { MultiSelectDropdown, SingleSelectDropdown } from "./FilterDropdown";
-
-// ano mais antigo com apontamento real no Projectile (MIN(pDate) de
-// ttimebit, checado direto no banco) — não é um número arbitrário.
-const EARLIEST_DATA_YEAR = 2008;
-const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = [
-  ROLLING_PERIOD,
-  ...Array.from({ length: CURRENT_YEAR - EARLIEST_DATA_YEAR + 1 }, (_, i) => String(CURRENT_YEAR - i)),
-];
 
 export function ManagementFilters({
   showCostCenter = true,
   showPackage = true,
 }: { showCostCenter?: boolean; showPackage?: boolean } = {}) {
+  const isManager = useAuthStore((s) => Boolean(s.user?.isManager));
   const rows = useManagementStore((s) => s.rows);
   const period = useManagementStore((s) => s.period);
   const selectedMonths = useManagementStore((s) => s.selectedMonths);
@@ -62,7 +55,7 @@ export function ManagementFilters({
     <aside className="management-filters">
       <SingleSelectDropdown
         label="Período"
-        options={YEAR_OPTIONS}
+        options={periodOptionsFor(isManager)}
         value={period}
         labelFor={(opt) => (opt === ROLLING_PERIOD ? "Últimos 12 meses" : opt)}
         onChange={setPeriod}

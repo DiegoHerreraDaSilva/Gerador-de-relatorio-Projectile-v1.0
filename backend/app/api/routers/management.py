@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from ... import email_ingest
 from ...management import (
+    _resolve_period,
     compute_monthly_kpis,
     create_manual_project_kpi_sample,
     delete_project_kpi_sample,
@@ -36,11 +38,33 @@ from ...projectile_db import (
     fetch_project_ids_for_clients,
     fetch_project_ids_with_hours,
 )
-from ..dependencies import require_manager, require_manager_or_coordinator
+from ..dependencies import is_manager, require_manager, require_manager_or_coordinator
 from ..errors import GENERIC_DB_ERROR, GENERIC_EMAIL_ERROR, log_and_generic_error
 from ..shared import resolve_month_range
 
 router = APIRouter()
+
+COORDINATOR_PERIOD_ERROR = "Coordenador vê só os últimos 12 meses e o ano passado."
+
+
+def _coordinator_months() -> set[str]:
+    """Meses que o coordenador pode ver no Diagnóstico: os últimos 12 meses
+    corridos e o ano passado inteiro. Gerente vê todos os períodos."""
+    _, _, rolling = _resolve_period(12, None)
+    _, _, last_year = _resolve_period(12, date.today().year - 1)
+    return set(rolling) | set(last_year)
+
+
+def _check_coordinator_period(user: dict, months: int, year: int | None) -> None:
+    """Barra no backend o que a tela já esconde: coordenador só pede os
+    últimos 12 meses (`months=12`, sem `year`) ou o ano passado."""
+    if is_manager(user):
+        return
+    if year is None and months == 12:
+        return
+    if year == date.today().year - 1:
+        return
+    raise HTTPException(403, COORDINATOR_PERIOD_ERROR)
 
 
 @router.get("/management/clients-with-hours")
@@ -131,10 +155,12 @@ async def management_send_status_endpoint(
     force_refresh: bool = False,
     _user: dict = Depends(require_manager_or_coordinator),
 ):
-    """Versão de `/management/kpis` pro Diagnóstico, acessível a coordenador:
+    """Versão de `/management/kpis` pro Diagnóstico, acessível a coordenador
+    (só nos períodos de `_check_coordinator_period`):
     status de envio por projeto/mês e opções de filtro, SEM horas
     trabalhadas/faturadas, performance ou não faturáveis. `months` vem só com
     a chave do mês (a tela usa pra saber quais meses estão no período)."""
+    _check_coordinator_period(_user, months, year)
     try:
         result = compute_monthly_kpis(
             months,
@@ -192,7 +218,17 @@ async def management_kpi_samples_endpoint(month: str | None = None, _user: dict 
     `month`, lista tudo (aba "Todos" da tela)."""
     if month is not None and not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
-    return list_samples(month)
+    result = list_samples(month)
+    if is_manager(_user):
+        return result
+    # coordenador: só amostras e mensagens puladas dos meses que ele pode ver
+    allowed = _coordinator_months()
+    return {
+        "samples": [s for s in result["samples"] if s.get("month") in allowed],
+        "skipped_messages": [
+            s for s in result["skipped_messages"] if str(s.get("received_at") or "")[:7] in allowed
+        ],
+    }
 
 
 class ManualSampleCreatePayload(BaseModel):
