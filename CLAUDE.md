@@ -10,10 +10,12 @@ Aplicação interna full stack para:
 2. importar horas por XLSX ou MySQL;
 3. revisar e editar relatórios;
 4. gerar/enviar XLSX e PDF;
-5. acompanhar horas pessoais;
-6. acompanhar e diagnosticar KPIs gerenciais;
+5. acompanhar horas pessoais (ou de um colaborador de engenharia, pra gerente/coordenador);
+6. acompanhar e diagnosticar KPIs gerenciais e o status de envio dos relatórios;
 7. automatizar ingestão de relatórios por Microsoft Graph;
-8. editar/traduzir conteúdo com Anthropic.
+8. editar/traduzir conteúdo com Anthropic;
+9. consultar o histórico de relatórios gerados (versões, arquivos, auditoria);
+10. analisar horas, faturado e envio em linguagem natural (Analytics e Chat analítico).
 
 O MySQL do Projectile é somente lido. Desde a Fundação/Slice 1 do
 `GUIA_EVOLUCAO_GERADOR_PROJECTILE.md`, existe um SEGUNDO banco próprio,
@@ -33,7 +35,7 @@ gerencial". As guias do frontend continuam em `localStorage`.
 | Banco Projectile | MySQL/PyMySQL (só leitura); senha via Windows Credential Manager/keyring |
 | Banco reports_db | MySQL em Docker; SQLAlchemy Core + Alembic; senha via keyring. Guarda histórico de relatórios e os dados de Gerência/Diagnóstico |
 | Frontend | React 18, TypeScript 5.6, Vite 7.3.6, Zustand 4, immer 10 |
-| IA | Anthropic SDK + truststore |
+| IA | Anthropic SDK + truststore; Jev (TypeSafe AI, via OpenRouter ou direto) só no chat analítico, por HTTP (`integrations/jev.py`) |
 | E-mail | Microsoft Graph via MSAL |
 | Testes | pytest + Vitest |
 
@@ -154,8 +156,8 @@ type AppView = "report" | "dashboard" | "management" | "diagnostics" | "history"
 - `ManagementPanel.tsx`: KPIs e gráficos gerenciais.
 - `DiagnosticsPanel.tsx`: "Relatórios enviados" (`SendStatusCard.tsx`, status de envio por projeto/mês + popup de Fechados — saiu do Painel de Gerência), amostras, duplicidades e mensagens ignoradas. Marcar/desmarcar "Enviado" cria/apaga uma amostra manual, por isso o card chama `onChanged` pra recarregar a tabela de Amostras.
 - `HistoryPanel.tsx`: histórico de relatórios (`reports_db`) — lista, versões, gerações, artifacts e auditoria. Visível pra todo mundo (não só gerente); backend filtra pra só os próprios relatórios de quem não é gerente.
-- `AnalyticsPanel.tsx`: métricas agregadas sobre `reports_db` (horas por competência/grupo/projeto, taxa de falha, relatórios por mês, responsáveis) — só gerente (`access: "manager"` em `Sidebar.tsx` + `require_manager` no backend).
-- `AnalyticsChatPanel.tsx`: chat analítico (só gerente) — texto + visualizações (`analytics/VisualizationRenderer.tsx`, contrato de `backend/app/analytics/cross_output.py`/`visualization.py`: `kpi` (vários = `KpiGrid`), `bar`, `horizontal_bar` (agrupada ou `stacked`), `line` multissérie, `donut`, `heatmap`) + tabela com ordenação por coluna, linha de total e "Baixar Excel" (`POST /analytics/chat/export`), com fonte e período. Cor das séries por posição (`--achat-s0..s4`, `--achat-tail` pra "Outros"; paleta validada ≥ 3:1 nos dois temas). O renderer só desenha dados; nunca recebe HTML/SVG do servidor.
+- `AnalyticsPanel.tsx`: métricas agregadas sobre `reports_db` (horas por competência/grupo/projeto, taxa de falha, relatórios por mês, responsáveis) — só gerente (`access: "manager"` em `Sidebar.tsx` + `require_manager` no backend). Cada bloco é um `AnalyticsSection` com no máximo 8 linhas visíveis (`.analytics-scroll-8`: altura de linha fixa em 31px e cabeçalho grudado; mudou o padding da célula, recalcule o `max-height`).
+- `AnalyticsChatPanel.tsx`: chat analítico (só gerente) — texto + visualizações (`analytics/VisualizationRenderer.tsx`, contrato de `backend/app/analytics/cross_output.py`/`visualization.py`: `kpi` (vários = `KpiGrid`), `bar`, `horizontal_bar` (agrupada ou `stacked`), `line` multissérie, `donut`, `heatmap`) + tabela com ordenação por coluna, linha de total e "Baixar Excel" (`POST /analytics/chat/export`), com fonte e período. Cor das séries por posição (`--achat-s0..s4`, `--achat-tail` pra "Outros"; paleta validada ≥ 3:1 nos dois temas). Linha e barra vertical têm eixo Y com marcas redondas (`niceTicks`: passo 1/2/2,5/5 × 10ⁿ, sempre incluindo o zero, inteiro pra contagem) e grade; barra vertical tem base no zero (negativo desce, em vermelho). Barra horizontal fica sem eixo: o valor já vai escrito em cada barra. O renderer só desenha dados; nunca recebe HTML/SVG do servidor.
 - Menu por papel: `NAV_ITEMS` em `Sidebar.tsx` tem `access: "all" | "coordinator" | "manager"`; `hasCoordinatorAccess(user)` (`useAuthStore.ts`) = gerente ou coordenador. Isso só esconde tela — quem barra de verdade é o backend.
 - `useManagementStore.load()` busca `/management/kpis` pra gerente e `/management/send-status` pra coordenador (`fromSendStatus` preenche os números com zero/nulo — só o Painel os mostraria, e ele não aparece pro coordenador). A store descarta os dados quando o login muda (`_loadedForLogin`): ela sobrevive ao logout, e sem isso um coordenador herdaria na memória os KPIs de um gerente que usou o mesmo navegador.
 
@@ -175,6 +177,8 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 ### Tema e layout
 
 - Tokens globais ficam em `frontend/src/styles/index.css`.
+- Barra de rolagem: há um estilo global (`::-webkit-scrollbar*` + fallback `scrollbar-width`/`scrollbar-color` no Firefox via `@supports not selector(...)`). Área rolável nova não precisa de CSS próprio de barra; só defina se quiser algo diferente.
+- `.page-header` não tem margem embaixo: telas com contêiner flex usam `gap` (Gerência, Diagnóstico, Chat analítico); Histórico e Analytics, que empilham `.card` em fluxo normal, dão `margin-bottom: 22px` ao cabeçalho. Tela nova: use um dos dois, senão o fio do cabeçalho cola no primeiro card.
 - Tema escuro usa azul-noite (`--bg`, `--surface`, `--surface-2`); não volte às superfícies cinza neutro.
 - Tema claro fica em `:root[data-theme="light"]`.
 - Sidebar usa `position: sticky` e altura de viewport. A reserva do footer fixo pertence a `.app-main`, não ao `body`; mover essa reserva para fora do `.app-shell` faz a sidebar subir no fim da página.
@@ -192,7 +196,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `useMyHoursStore.ts` | dashboard de horas, filtros e o colaborador escolhido (`employeeId`, `null` = o próprio; seletor `MyHours/EmployeePicker.tsx`, só gerente/coordenador). Descarta os dados quando o login muda (`_loadedForLogin`) e respostas de uma seleção que já mudou |
 | `useManagementStore.ts` | KPIs, filtros, fechados e status de envio |
 | `useDiagnosticsStore.ts` | amostras e projetos do diagnóstico |
-| `useHistoryStore.ts` | lista/paginação/filtros de `GET /reports`, detalhe do relatório selecionado (versões, gerações, artifacts, auditoria) e detalhe de uma versão |
+| `useHistoryStore.ts` | lista/paginação/busca geral (`filters.search` → `?q=`) de `GET /reports`, detalhe do relatório selecionado (versões, gerações, artifacts, auditoria) e detalhe de uma versão |
 | `useAnalyticsStore.ts` | `GET /analytics/summary` — resumo único (sem paginação/filtro), `loading`/`error` |
 | `useAnalyticsChatStore.ts` | mensagens do chat analítico e o contexto curto devolvido pelo backend; descarta tudo quando o login muda (`ensureUser`) |
 
@@ -215,7 +219,10 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `chatbot.py` | chamadas Anthropic |
 | `chat_ops.py` | schema/aplicação das operações do chat |
 | `translate_ops.py` | contrato de tradução |
-| `core/config.py` | `Settings` (pydantic-settings) — só `reports_db_*`/`projectile_sys_client_id`/`projectile_db_pool_size` por ora, não todas as env vars |
+| `core/config.py` | `Settings` (pydantic-settings) — `reports_db_*`, `projectile_sys_client_id`, `projectile_db_pool_size` e as do chat analítico (`openrouter_api_key`, `typesafe_api_key`, `jev_*`, `analytics_chat_*`); não todas as env vars (as de Projectile, allowlists, Anthropic e Graph ainda são lidas por `os.environ`) |
+| `analytics/` | chat analítico — ver a seção "Chat analítico" acima e a linha em "Onde mexer" |
+| `integrations/jev.py` | cliente HTTP do Jev; endereços fixos (OpenRouter, TypeSafe), nunca configuráveis |
+| `repositories/` | leituras do chat analítico: `engineering_hours_repository.py` (horas CAD+CAE, mesma carga/cache do Painel) e `report_analytics_repository.py` (relatórios gerados no `reports_db`) |
 | `db/reports_db.py` | engine SQLAlchemy do `reports_db` (pool de verdade, `connect_timeout` curto) |
 | `db/reports_schema.py` | `Table`/`MetaData` das 7 tabelas do histórico (SQLAlchemy Core, não ORM); alvo do `alembic revision --autogenerate` |
 | `services/snapshot.py` | funções puras: canonical JSON, hash de dado/identidade, parse de competência |
@@ -303,7 +310,7 @@ Não altere nomes/casing sem migração coordenada.
 
 - `/parse`: multipart `file`, `mode=single|multi` → `{packages, issues}`.
 - `/parse-db`: `{month_label, mode}` → mesmo formato de `/parse`; identidade da sessão.
-- `/parse-db-client`: `{project_ids, month_label, mode=projeto|pacote}`; gerente.
+- `/parse-db-client`: `{project_ids, month_label, mode=projeto|pacote}`; gerente ou coordenador.
 - `/my-hours?period=current_month|last_3|last_6|last_12[&employee_id=]` → inclui `employee: {employee_id, name}` (de quem são os dados). `employee_id` de outra pessoa: ver "Identidade e autorização".
 - `GET /my-hours/employees` (gerente ou coordenador) → `{employees: [{employee_id, name, cost_center}]}`.
 - `/generate`: `GeneratePayload` em snake_case; arquivo direto para 1 pacote/1 formato, ZIP nos demais casos. Headers `X-Report-Id`/`X-Report-Version-Id`/`X-Report-Version-Number` (caso único) ou `X-Report-Ids` (zip, `report_id:version_id` separados por vírgula) são **aditivos** — ausentes se a persistência em `reports_db` falhou (fail-open) ou está desligada; nunca confie na presença deles.
@@ -314,7 +321,7 @@ Não altere nomes/casing sem migração coordenada.
 - `/management/send-status`: mesmos filtros de `/management/kpis`; devolve só `months` (`[{month}]`), `project_send_status` e as opções de filtro (`available_*`, `project_codes`, `project_clients`). Gerente ou coordenador.
 - `/auth/login` e `/auth/me`: `{name, login, email, is_manager, is_coordinator, is_translate_allowed}`.
 - `/management/kpis/samples`: CRUD de amostras; PATCH usa `exclude_unset` para distinguir `pacote_scope` ausente de `None`.
-- `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db` (Fase 2+4). Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. Download registra `artifact_downloaded` em `audit_log`.
+- `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db` (Fase 2+4). Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. `GET /reports?q=` é a busca geral da tela (`report_queries._search_condition`): cada palavra precisa aparecer em alguma de Número, Projeto, Competência/escopo ou Criado por (nome/login), sem diferenciar maiúscula e com `%`/`_` literais; pra quem não é gerente roda dentro dos próprios relatórios. É no backend porque a lista é paginada; a tela busca 300 ms depois da última tecla e descarta resposta de busca antiga (`latestReportsRequest`). Download registra `artifact_downloaded` em `audit_log`.
 - `POST /analytics/chat` (só gerente): `{message, context?}` → `{conversation_id, route, intent, reply, visualizations, tables: [{title, columns, column_types, rows, totals, truncated}], metadata: {source, source_label, period_*, classifier, claude_calls, claude_text_used, latency_ms}, context: {conversation_id, last_intent, last_filters, last_spec}}`. `POST /analytics/chat/export` (só gerente): `{title, columns, column_types?, rows, totals?}` → .xlsx.
 - `GET /analytics/summary` (Fase 9, só gerente): `{totals: {reports, versions, artifacts}, hours_by_competence, hours_by_group, hours_by_project, generation: {total, failed, failure_rate, avg_duration_ms, by_format}, reports_over_time, top_creators}` — sem paginação, resumo único; horas contam só a versão atual de cada relatório.
 
@@ -369,11 +376,11 @@ só com o container de pé (schema de teste separado, `reports_db_test`, ver
 
 ### Baseline atual de testes
 
-Em 2026-09-22:
+Em 2026-09-25:
 
-- backend: 419 testes coletados (100 do chat analítico, em `test_analytics_chat.py`/`test_analytics_chat_units.py`/`test_analytics_crossquery.py`, com Jev e Claude sempre falsos; 211 + 62 de `reports_db`/snapshot/histórico/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics + 12 de persistência de gerência em `test_management_store.py` + 16 do papel de coordenador (inclusive o período do Diagnóstico) em `test_coordinator_access.py` + 9 do seletor de colaborador em `test_my_hours_employee_selection.py` − 1 teste antigo de concorrência por arquivo, 1 skip pré-existente). `test_management.py` (regra de negócio) roda em SQLite na memória (fixture `management_db`), sem Docker; o que depende do MySQL real (lock entre conexões, collation) é marcado `reports_db`;
+- backend: 421 testes coletados (100 do chat analítico, em `test_analytics_chat.py`/`test_analytics_chat_units.py`/`test_analytics_crossquery.py`, com Jev e Claude sempre falsos; 211 + 64 de `reports_db`/snapshot/histórico (2 da busca geral)/auditoria/upload/chat + 6 do pool de conexões do Projectile + 3 de analytics + 12 de persistência de gerência em `test_management_store.py` + 16 do papel de coordenador (inclusive o período do Diagnóstico) em `test_coordinator_access.py` + 9 do seletor de colaborador em `test_my_hours_employee_selection.py` − 1 teste antigo de concorrência por arquivo, 1 skip pré-existente). `test_management.py` (regra de negócio) roda em SQLite na memória (fixture `management_db`), sem Docker; o que depende do MySQL real (lock entre conexões, collation) é marcado `reports_db`;
 - `conftest.py:_no_real_email_polling` (autouse) desliga o loop de polling nos testes — com `AZURE_CLIENT_ID` no `.env`, `with TestClient(app)` chamava o Graph e o Projectile de verdade no startup;
-- frontend: 149 testes em 13 arquivos;
+- frontend: 156 testes em 13 arquivos;
 - build: `tsc -b && vite build`.
 
 Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vitest/Vite no sandbox Windows indica bloqueio ao subprocesso do esbuild; repita fora do sandbox antes de classificar como falha do código.
@@ -429,13 +436,13 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Chat analítico | `backend/app/analytics/`: medidas/dimensões em `catalog.py`, motor em `crossquery.py`, dados em `facts.py`, gráficos/tabelas/texto em `cross_output.py`, travas em `signals.py`, atalhos do Jev em `intents.py`, fluxo em `service.py`, Excel em `export.py`; `integrations/jev.py`, `repositories/`, `api/routers/analytics_chat.py`; `frontend/src/components/AnalyticsChatPanel.tsx`, `analytics/VisualizationRenderer.tsx`, `useAnalyticsChatStore.ts` |
 | Métricas agregadas (Analytics) | `backend/app/services/report_queries.py` (`get_analytics_summary`), `api/routers/analytics.py`; `frontend/src/components/AnalyticsPanel.tsx`, `useAnalyticsStore.ts` |
 | Schema do `reports_db` | `backend/app/db/reports_schema.py` + nova migration em `backend/alembic/versions/` |
-| Config central (`reports_db`/`sysClientId`) | `backend/app/core/config.py` |
+| Config central (`reports_db`/`sysClientId`/chat analítico) | `backend/app/core/config.py` |
 | Adicionar rota API nova | `backend/app/api/routers/<domínio>.py` (nunca `main.py` diretamente) — ver "API — routers" |
 | Autenticação/sessão | `backend/app/auth.py` (regra), `api/routers/auth.py` (rota), `api/dependencies.py` (`require_session`/`require_manager`) |
 
 ## Checklist antes de concluir
 
-- O comportamento solicitado funciona nos cinco contextos de navegação?
+- O comportamento solicitado funciona nas sete telas (e com os três papéis: gerente, coordenador, colaborador)?
 - Estado de uma guia não vazou para outra?
 - Tema claro e escuro continuam legíveis?
 - Sidebar expandida, recolhida e mobile continuam utilizáveis?

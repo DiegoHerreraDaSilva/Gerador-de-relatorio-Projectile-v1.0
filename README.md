@@ -4,9 +4,11 @@ Aplicação web interna da Schwaben Engineering para transformar apontamentos do
 
 Além do gerador, a aplicação reúne:
 
-- dashboard pessoal de horas;
+- dashboard de horas (pessoal, ou de qualquer colaborador de engenharia pra gerente/coordenador);
 - painel gerencial de KPIs;
-- diagnóstico e correção das amostras usadas nos KPIs;
+- diagnóstico: status de envio dos relatórios e correção das amostras usadas nos KPIs;
+- histórico de relatórios gerados, com versões e auditoria;
+- analytics e chat analítico (perguntas em português sobre horas, faturado e envio);
 - automação de leitura e envio de relatórios por e-mail via Microsoft Graph;
 - edição assistida e tradução via Anthropic.
 
@@ -20,7 +22,7 @@ O fluxo é organizado horizontalmente em etapas e oferece duas fontes:
 
 1. **Buscar no Projectile**
    - **Meu usuário:** usa exclusivamente o `employee_id`/nome da sessão autenticada.
-   - **Buscar cliente** (somente gerente): lista clientes com horas no período, permite escolher um cliente e selecionar múltiplos projetos.
+   - **Buscar cliente** (gerente ou coordenador): lista clientes com horas no período, permite escolher um cliente e selecionar múltiplos projetos.
    - Período de **mês único** ou **múltiplos meses**.
    - A seleção de ano vai de 2008 até o ano corrente, em ordem decrescente.
    - Organização consolidada ou separada:
@@ -52,7 +54,7 @@ A seção **Relatórios abertos** da sidebar permite manter vários trabalhos in
 
 ### Dashboard de horas
 
-O dashboard pessoal consulta apenas os dados do usuário autenticado e oferece os períodos:
+O dashboard consulta os dados do usuário autenticado. Gerente e coordenador têm um seletor pra ver o dashboard de qualquer colaborador de engenharia (CAD+CAE com apontamento recente) — o backend re-resolve o colaborador no Projectile e nunca confia no nome/filial vindos da tela. Períodos:
 
 - mês atual;
 - últimos 3 meses;
@@ -79,17 +81,16 @@ O painel também inclui:
 
 - evolução cronológica de trabalhado, faturado e delta;
 - pacotes não faturáveis;
-- situação de envio por projeto (`enviado`, `parcial`, `não enviado`, `fechado`);
-- marcação manual de envio;
-- registro permanente de clientes/projetos fechados;
-- leitura sob demanda dos e-mails de faturamento.
+- leitura sob demanda dos e-mails de faturamento (**Verificar enviados**).
 
 Quando o filtro por pessoa está ativo, faturado e performance ficam indisponíveis porque as amostras de faturamento existem no nível do projeto, não da pessoa.
 
 ### Diagnóstico de relatórios
 
-Também restrito a gerentes. Permite:
+Gerente e coordenador. O gerente vê todos os períodos; o coordenador, só os **últimos 12 meses e o ano passado** (o backend responde 403 pra outro período e só devolve amostras desses meses). O coordenador também não vê horas, faturado nem performance: a tela dele usa `/management/send-status`. Permite:
 
+- acompanhar a situação de envio por projeto e mês (`enviado`, `parcial`, `não enviado`, `fechado`), com marcação manual de envio;
+- manter o registro permanente de clientes/projetos fechados (popup **Fechados**);
 - consultar amostras automáticas e manuais;
 - corrigir projeto, competência, horas faturadas e dias úteis;
 - definir se a amostra cobre o projeto inteiro ou pacotes específicos;
@@ -111,6 +112,8 @@ Exemplos: "horas de cada colaborador por projeto no mês passado", "colaboradore
 
 Toda tabela tem ordenação por coluna, linha de total e botão **Baixar Excel**. O chat nunca executa consulta livre: a IA só escolhe entre medidas, dimensões e valores de um catálogo fixo, e todo número é calculado pelo backend — texto do Claude com número que não veio dos dados é descartado.
 
+Pergunta sem período usa os últimos 12 meses, com aviso. Ano fora da janela recebe uma resposta fixa, sem consulta. Faturado só existe nos meses em que chegaram relatórios de faturamento; nos outros, o chat avisa em vez de calcular performance. O Jev (via OpenRouter ou TypeSafe) classifica a pergunta; sem chave, ou sem confiança, o Claude classifica.
+
 ## Histórico de relatórios (reports_db)
 
 A cada `POST /generate` ou `POST /send-report`, a aplicação grava um snapshot imutável do relatório gerado (cabeçalho, grupos e atividades exatamente como recebidos), cria uma nova versão numerada do relatório correspondente e registra o resultado da geração — num segundo banco MySQL próprio, `reports_db`, totalmente separado do Projectile (roda como container Docker, ver [Começando](#começando)).
@@ -122,8 +125,8 @@ Pontos importantes:
 - Duas gerações consecutivas do mesmo relatório (mesmo `project_code` + escopo de pacote + competência) viram versões sucessivas do mesmo `report`, nunca registros duplicados — protegido contra corrida em geração concorrente.
 - O arquivo gerado é copiado pra `backend/data/report_artifacts/` (fora do Git), já que o caminho temporário original é apagado logo após o download.
 - A resposta de `/generate` inclui os headers `X-Report-Id`/`X-Report-Version-Id`/`X-Report-Version-Number` (ou `X-Report-Ids` no caso `.zip`) quando a persistência funcionou — são **aditivos**, nunca assuma que vão estar presentes.
-- Tela de histórico/versões (`HistoryPanel.tsx`, `GET /reports/*`) e trilha de auditoria formal (`audit_log`) já existem — visíveis a todo mundo, cada um só vendo os próprios relatórios (gerente vê todos).
-- `GET /analytics/summary` (só gerente) agrega horas por competência/grupo/projeto, tempo médio de geração e taxa de falha sobre os mesmos dados — tela `AnalyticsPanel.tsx`. Fica esparso até acumular meses de uso real.
+- Tela de histórico/versões (`HistoryPanel.tsx`, `GET /reports/*`), com uma barra de busca geral (número, projeto, competência e quem criou) que pesquisa enquanto você digita e trilha de auditoria formal (`audit_log`) já existem — visíveis a todo mundo, cada um só vendo os próprios relatórios (gerente vê todos).
+- `GET /analytics/summary` (só gerente) agrega horas por competência/grupo/projeto, tempo médio de geração e taxa de falha sobre os mesmos dados — tela `AnalyticsPanel.tsx`, com no máximo 8 linhas visíveis por bloco (o resto rola). Fica esparso até acumular meses de uso real.
 
 ## Autenticação e permissões
 
@@ -137,10 +140,11 @@ Pontos importantes:
   | Papel | Variável | Acesso |
   |---|---|---|
   | Gerente | `MANAGEMENT_PANEL_LOGINS` | tudo |
-  | Coordenador | `COORDINATOR_LOGINS` | Gerar relatório (inclusive busca por cliente/projeto), Dashboard de horas (as próprias ou de qualquer colaborador de engenharia), o próprio Histórico e Diagnóstico de relatórios |
+  | Coordenador | `COORDINATOR_LOGINS` | Gerar relatório (inclusive busca por cliente/projeto), Dashboard de horas (as próprias ou de qualquer colaborador de engenharia), o próprio Histórico e Diagnóstico de relatórios (últimos 12 meses e ano passado, sem horas/faturado/performance) |
   | Colaborador | — (qualquer outro login) | Gerar relatório (só as próprias horas), Dashboard de horas e o próprio Histórico |
 
-- O coordenador não vê os KPIs do Painel de Gerência nem pela API: `/management/kpis` e `/analytics/summary` respondem 403 pra ele, e o Diagnóstico usa `/management/send-status`, que não traz horas, faturamento nem performance.
+- O coordenador não vê os KPIs do Painel de Gerência nem pela API: `/management/kpis`, `/analytics/summary` e `/analytics/chat` respondem 403 pra ele, e o Diagnóstico usa `/management/send-status`, que não traz horas, faturamento nem performance.
+- A sidebar só esconde as telas; quem barra de verdade é o backend.
 - Mudou uma allowlist? Reinicie o backend.
 - `/translate-activities` exige login em `TRANSLATE_ALLOWED_LOGINS`.
 - Swagger, ReDoc e OpenAPI ficam desativados em todas as execuções.
@@ -175,7 +179,8 @@ Uploads são limitados a 25 MB e o conteúdo descomprimido do XLSX a 200 MB para
 | Configuração | pydantic-settings 2.7 (`backend/app/core/config.py`) |
 | Credenciais de banco | Windows Credential Manager via keyring 25.7.0 (Projectile e `reports_db`) |
 | Frontend | React 18, TypeScript 5.6, Vite 7.3.6, Zustand 4, immer 10 |
-| IA | Anthropic SDK 0.125 e truststore 0.10.4 |
+| IA | Anthropic SDK 0.125 e truststore 0.10.4; Jev (TypeSafe AI, via OpenRouter ou direto) no chat analítico, por HTTP com `requests` |
+| Pool do Projectile | DBUtils 3.1 (`PooledDB`) |
 | E-mail | Microsoft Graph e MSAL 1.31 |
 | Testes | pytest 8.3.4 e Vitest 4.1.11 |
 
@@ -186,7 +191,9 @@ Projectile MySQL (leitura)          reports_db (Docker, leitura+escrita)
    ├── autenticação e sessão              ├── snapshot do payload gerado
    ├── horas do usuário / dashboard       ├── versões do relatório
    ├── horas por cliente/projeto          ├── registro de geração
-   └── KPIs gerenciais                    └── artifact (.xlsx/.pdf copiado)
+   └── KPIs gerenciais                    ├── artifact (.xlsx/.pdf copiado)
+                                          ├── auditoria (audit_log)
+                                          └── Gerência/Diagnóstico (mgmt_*)
             │                                      │
             └──────────────┬───────────────────────┘
                             ▼
@@ -196,7 +203,8 @@ FastAPI (`backend/app/main.py`)
    ├── geração XLSX/PDF
    ├── persistência de histórico (fail-open)
    ├── automação Microsoft Graph
-   └── chat/tradução Anthropic
+   ├── chat/tradução Anthropic
+   └── chat analítico (Jev + consulta cruzada + Claude)
             │
             ▼
 React + Zustand
@@ -204,7 +212,10 @@ React + Zustand
    ├── Gerador/preview
    ├── Dashboard de horas
    ├── Painel de Gerência
-   └── Diagnóstico
+   ├── Diagnóstico
+   ├── Histórico de relatórios
+   ├── Analytics
+   └── Chat analítico
 ```
 
 Decisões importantes:
@@ -227,18 +238,23 @@ backend/
   app/
     main.py               # monta o FastAPI + middlewares + include_router; sem endpoint nenhum
     api/
-      dependencies.py      # require_session/require_manager/require_translate_access
+      dependencies.py      # require_session/require_manager/require_manager_or_coordinator/require_translate_access
       errors.py             # log_and_generic_error, mensagens genéricas
       shared.py             # resolve_month_range, build_parse_response
       routers/
         auth.py              # /auth/*
         parsing.py           # /parse, /parse-db, /parse-db-client (+ hardening de upload)
-        my_hours.py          # /my-hours
+        my_hours.py          # /my-hours, /my-hours/employees
         management.py        # /management/* (rota — não confundir com ../management.py, regra)
         generation.py        # /generate, /send-report
         history.py           # /reports/*, /artifacts/*/download
         chat.py               # /chat, /translate-activities
         analytics.py          # /analytics/summary (só gerente)
+        analytics_chat.py     # /analytics/chat, /analytics/chat/export (só gerente)
+    analytics/             # chat analítico: catálogo, consulta cruzada, travas, gráficos, Excel
+    integrations/
+      jev.py               # cliente HTTP do Jev (OpenRouter ou TypeSafe)
+    repositories/          # leituras do chat analítico (horas de engenharia, relatórios gerados)
     auth.py               # login Projectile, rate limit e sessões
     db_credentials.py     # leitura da senha no Windows Credential Manager (Projectile e reports_db)
     projectile_db.py      # consultas e agrupamento de dados do Projectile
@@ -246,7 +262,7 @@ backend/
     generator.py          # gerador XLSX por ZIP/XML e calendário de dias úteis
     pdf_generator.py      # gerador PDF e metadados do relatório
     hours_analytics.py    # métricas do dashboard pessoal
-    management.py         # KPIs, cache, amostras e persistência JSON (regra de negócio)
+    management.py         # KPIs, cache, amostras e fechados (regra de negócio; persistência em services/management_store.py)
     email_ingest.py       # Microsoft Graph, ingestão e envio de relatórios
     chatbot.py            # chamadas Anthropic
     chat_ops.py           # operações permitidas pelo chat (id estável)
@@ -261,26 +277,32 @@ backend/
       report_persistence.py # begin/finish_generation, fail-open
       report_queries.py     # leituras do histórico + agregações de analytics (não fail-open)
       management_store.py   # persistência de Gerência/Diagnóstico nas tabelas mgmt_* (não fail-open)
+      audit.py              # trilha de auditoria, fail-open
     tools/
       import_management_json.py  # importação única do antigo management_kpi.json
-      audit.py               # trilha de auditoria, fail-open
   templates/
     relatorio_final_template.xlsx
   tests/                  # suíte pytest
 frontend/
   public/                 # logos da aplicação/e-mail
   src/
-    App.tsx               # shell e troca das seis views
+    App.tsx               # shell e troca das sete views
     appView.ts            # nomes/tipo das views
     components/
       Sidebar.tsx
       FileUpload.tsx
       Preview/
       MyHoursDashboard.tsx
+      MyHours/             # partes do dashboard, inclusive EmployeePicker (seletor de colaborador)
       ManagementPanel.tsx
+      ManagementFilters.tsx # filtros compartilhados entre Gerência e Diagnóstico
       DiagnosticsPanel.tsx
+      SendStatusCard.tsx   # "Relatórios enviados" do Diagnóstico
       HistoryPanel.tsx
       AnalyticsPanel.tsx
+      AnalyticsChatPanel.tsx
+      analytics/VisualizationRenderer.tsx  # gráficos e tabelas do chat analítico (SVG)
+      PageHeader.tsx
       GenerateFooter.tsx
       SendReportModal.tsx
     store/
@@ -292,6 +314,7 @@ frontend/
       useDiagnosticsStore.ts
       useHistoryStore.ts
       useAnalyticsStore.ts
+      useAnalyticsChatStore.ts
     styles/index.css
     utils/
   package.json
@@ -304,6 +327,7 @@ alembic.ini                # script_location = backend/alembic
 README.md
 CLAUDE.md
 GUIA_EVOLUCAO_GERADOR_PROJECTILE.md
+PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md
 ```
 
 ## Começando
@@ -315,7 +339,8 @@ GUIA_EVOLUCAO_GERADOR_PROJECTILE.md
 - Docker (pro container `reports-mysql` do histórico de relatórios)
 - Windows para usar o Credential Manager no ambiente real
 - acesso de rede ao MySQL do Projectile
-- chave Anthropic somente para chat/tradução
+- chave Anthropic somente para chat de edição, tradução e chat analítico
+- chave OpenRouter ou TypeSafe (opcional) para o Jev no chat analítico
 - credenciais Azure somente para leitura/envio de e-mail
 
 ### 1. Configuração
@@ -374,7 +399,7 @@ npm --prefix frontend run dev
 - FastAPI: `http://localhost:8011`
 - Vite: `http://localhost:5173`
 
-> O proxy atual do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate` e `/chat`. As telas que chamam `/management/*`, `/my-hours`, `/send-report` ou `/translate-activities` devem ser testadas pelo build servido pelo FastAPI ou após ampliar explicitamente o proxy em `frontend/vite.config.ts`.
+> O proxy atual do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts` e `/analytics`. As telas que chamam `/management/*`, `/my-hours`, `/send-report` ou `/translate-activities` devem ser testadas pelo build servido pelo FastAPI ou após ampliar explicitamente o proxy em `frontend/vite.config.ts`.
 
 ### 5. Produção local
 
@@ -395,6 +420,7 @@ Acesse `http://localhost:8011`.
 | `PROJECTILE_DB_NAME` | login e dados | `projectile` |
 | senha `projectile_mysql` no Credential Manager | login e dados | nunca vai no `.env` |
 | `PROJECTILE_SYS_CLIENT_ID` | performance das queries | `0`; sysClientId fixo desta instalação |
+| `PROJECTILE_DB_POOL_SIZE` | pool de conexões do Projectile | `5` |
 | `REPORTS_DB_HOST` | histórico de relatórios | `127.0.0.1` |
 | `REPORTS_DB_PORT` | histórico de relatórios | `3307` |
 | `REPORTS_DB_USER` | histórico de relatórios | `reports_app` |
@@ -408,9 +434,11 @@ Acesse `http://localhost:8011`.
 | `ANTHROPIC_API_KEY` | chat de edição, tradução e chat analítico | sem default |
 | `ANTHROPIC_MODEL` | chat de edição e tradução | `claude-sonnet-5` |
 | `OPENROUTER_API_KEY` | Jev pelo OpenRouter (`openrouter.ai/api/v1/systemone`) | sem default; tem prioridade sobre `TYPESAFE_API_KEY`. Sem nenhuma das duas, o Claude classifica |
-| `TYPESAFE_API_KEY` | Jev, classificador do chat analítico | sem default; sem ela o Claude classifica (1 chamada a mais por pergunta). Com ela, a pergunta e as listas de clientes/colaboradores vão pra TypeSafe AI |
+| `TYPESAFE_API_KEY` | Jev direto na TypeSafe (`api.typesafe.ai/v1/systemone`) | sem default; sem nenhuma chave o Claude classifica (1 chamada a mais por pergunta). Com chave, a pergunta e as listas de clientes/colaboradores/projetos vão pro OpenRouter e/ou pra TypeSafe AI |
 | `JEV_MODEL` | Jev | `jev-latest` |
+| `JEV_MIN_CONFIDENCE` / `JEV_MIN_CONFIDENCE_NONE` | confiança mínima do Jev | `0.60` / `0.40` ("nenhum"); calibrados contra o Jev real, não mude sem recalibrar |
 | `ANALYTICS_CHAT_MODEL` | Claude do chat analítico (sem thinking) | `claude-haiku-4-5-20251001`; o chat de edição continua em `ANTHROPIC_MODEL` |
+| `ANALYTICS_CHAT_MAX_MONTHS` / `ANALYTICS_CHAT_MAX_ROWS` / `ANALYTICS_CHAT_MAX_CLAUDE_PAYLOAD_BYTES` | limites do chat analítico | `12` (a janela do Painel) / `1000` / `20000` |
 | `AZURE_TENANT_ID` | automação de e-mail | sem default |
 | `AZURE_CLIENT_ID` | automação de e-mail | habilita o polling no startup |
 | `AZURE_CLIENT_SECRET` | automação de e-mail | sem default |
@@ -455,7 +483,7 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login`.
 |---|---|
 | `POST /parse` | lê um XLSX (`file`, `mode=single|multi`) |
 | `POST /parse-db` | busca o usuário logado por mês/período |
-| `POST /parse-db-client` | busca projetos selecionados; requer gerente |
+| `POST /parse-db-client` | busca projetos selecionados; requer gerente ou coordenador |
 | `GET /my-hours` | dashboard de horas (`current_month`, `last_3`, `last_6`, `last_12`); `employee_id` opcional pra gerente/coordenador ver alguém de engenharia (CAD+CAE) |
 | `GET /my-hours/employees` | lista do seletor de colaborador (engenharia com apontamento recente); requer gerente ou coordenador |
 | `POST /generate` | gera XLSX/PDF direto ou ZIP; persiste histórico em `reports_db` (fail-open) |
@@ -469,7 +497,7 @@ Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios
 
 | Método e rota | Função |
 |---|---|
-| `GET /reports` | lista relatórios (paginado, filtros `report_number`/`competence`/`status`/`created_by`) |
+| `GET /reports` | lista relatórios (paginado; `q` = busca geral por número, projeto, competência e quem criou — cada palavra precisa aparecer em alguma dessas colunas; filtros `report_number`/`competence`/`status`/`created_by`) |
 | `GET /reports/{id}` | detalhe do relatório + número da versão atual |
 | `GET /reports/{id}/versions[/{version_id}]` | versões do relatório, ou o snapshot completo de uma versão |
 | `GET /reports/{id}/generations` | tentativas de geração de arquivo (sucesso/falha, duração) |
@@ -477,22 +505,28 @@ Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios
 | `GET /reports/{id}/audit` | trilha de auditoria do relatório |
 | `GET /artifacts/{id}/download` | baixa um artifact; registra `artifact_downloaded` na auditoria |
 
-### Gerência e diagnóstico
+### Gerência, diagnóstico e analytics
 
-Todas exigem gerente.
+**Só gerente:**
 
 | Método e rota | Função |
 |---|---|
-| `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
-| `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consulta cruzada sobre um catálogo fixo (nunca SQL gerado por IA); Jev (TypeSafe AI) classifica e o Claude só planeja/explica |
-| `POST /analytics/chat/export` | tabela já exibida no chat → `.xlsx` (não consulta nada) |
-| `GET /management/clients-with-hours` | clientes ativos no mês/período |
-| `GET /management/client-projects` | projetos ativos de um cliente |
 | `GET /management/kpis` | KPIs e filtros gerenciais |
 | `POST /management/kpis/check-emails` | executa a ingestão de e-mails sob demanda |
 | `PUT /management/kpis/{month}` | atualiza entrada manual mensal legada |
+| `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
+| `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consulta cruzada sobre um catálogo fixo (nunca SQL gerado por IA); Jev classifica e o Claude só planeja/explica |
+| `POST /analytics/chat/export` | tabela já exibida no chat → `.xlsx` (não consulta nada) |
+
+**Gerente ou coordenador** (`test_coordinator_access.py` exige que toda rota nova desses routers esteja classificada numa das duas listas):
+
+| Método e rota | Função |
+|---|---|
+| `GET /management/send-status` | status de envio por projeto/mês e opções de filtro, sem números de KPI; coordenador só nos últimos 12 meses ou no ano passado |
+| `GET /management/clients-with-hours` | clientes ativos no mês/período |
+| `GET /management/client-projects` | projetos ativos de um cliente |
 | `GET /management/projects` | lista projetos para o diagnóstico |
-| `GET/POST /management/kpis/samples` | lista ou cria amostras |
+| `GET/POST /management/kpis/samples` | lista ou cria amostras (a lista do coordenador fica nos meses que ele pode ver) |
 | `PATCH/DELETE /management/kpis/samples/{sample_id}` | corrige ou exclui amostra |
 | `GET /management/projects/{project_id}/packages` | pacotes do projeto em um mês |
 | `GET /management/projects/{project_id}/all-packages` | histórico completo de pacotes |
@@ -530,7 +564,10 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 ## Troubleshooting
 
 - **Login ou dados não conectam:** confira variáveis `PROJECTILE_DB_*`, senha no Credential Manager e acesso à rede interna.
-- **403 em páginas gerenciais:** o login não está em `MANAGEMENT_PANEL_LOGINS`; reinicie o backend após alterar `.env`.
+- **403 em páginas gerenciais:** o login não está em `MANAGEMENT_PANEL_LOGINS` (ou em `COORDINATOR_LOGINS`, pro Diagnóstico); reinicie o backend após alterar `.env`.
+- **403 no Diagnóstico de um coordenador:** o período pedido está fora dos últimos 12 meses e do ano passado. A tela só oferece esses dois; o 403 aparece quando a chamada vai direto na API.
+- **Chat analítico lento na 1ª pergunta (~20 s):** é a carga das horas da janela de 12 meses; as seguintes usam o cache de 15 minutos.
+- **Chat analítico sempre com `classifier: claude`:** falta `OPENROUTER_API_KEY`/`TYPESAFE_API_KEY`, ou o Jev está fora do ar ou sem confiança. Funciona igual, com uma chamada a mais ao Claude.
 - **403 na tradução:** o login não está em `TRANSLATE_ALLOWED_LOGINS`.
 - **Chat/tradução 500:** `ANTHROPIC_API_KEY` ausente ou modelo inválido.
 - **E-mail 400/502:** confira variáveis Azure/Graph, permissões e Application Access Policy.
@@ -543,5 +580,7 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 - **`alembic upgrade head` falha com "tabela já existe":** o schema já tem tabelas de uma tentativa anterior sem `alembic_version` atualizada — confira `SELECT * FROM alembic_version` no `reports_db` antes de rodar de novo.
 
 ## Documentação adicional
+
+O arquivo [PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md](PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md) é o plano de origem do chat analítico; o estado implementado está na seção "Chat analítico" do `CLAUDE.md`.
 
 O arquivo [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) contém o plano arquitetural original de longo prazo — histórico, auditoria formal, refatoração do backend, pool de conexões do Projectile, hardening de upload, IDs estáveis no chat e analytics. Todas as fases descritas lá já foram implementadas (ver `CLAUDE.md` pro estado atual de cada módulo); o guia permanece como registro histórico das decisões tomadas, não como roadmap pendente.
