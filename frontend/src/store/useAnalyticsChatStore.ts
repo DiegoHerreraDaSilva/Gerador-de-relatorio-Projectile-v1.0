@@ -1,20 +1,35 @@
 import { create } from "zustand";
 import { useAuthStore } from "./useAuthStore";
 
+/** "Outros" (`tail`) = soma das séries que não couberam — cor própria */
+export type Series = { name: string; data: (number | null)[]; tail?: boolean };
 export type ChartVisualization = {
-  type: "bar" | "horizontal_bar" | "line";
+  type: "bar" | "horizontal_bar" | "line" | "donut";
   title: string;
   categories: string[];
-  series: { name: string; data: (number | null)[] }[];
+  series: Series[];
+  unit: string;
+  stacked?: boolean;
+};
+export type HeatmapVisualization = {
+  type: "heatmap";
+  title: string;
+  rows: string[];
+  columns: string[];
+  values: (number | null)[][];
   unit: string;
 };
 export type KpiVisualization = { type: "kpi"; title: string; value: number; unit: string };
-export type Visualization = ChartVisualization | KpiVisualization;
+export type Visualization = ChartVisualization | HeatmapVisualization | KpiVisualization;
 
 export type AnalyticsTable = {
   title: string;
   columns: string[];
+  /** "text" | "hours" | "percent" | "count" | "ms" — formata a célula e o Excel */
+  column_types?: string[];
   rows: (string | number | null)[][];
+  /** linha de total (tabela cruzada/ranking); ausente quando o top N cortou grupos */
+  totals?: (string | number | null)[] | null;
   truncated: boolean;
 };
 
@@ -22,6 +37,8 @@ type ChatContext = {
   conversation_id: string;
   last_intent: string | null;
   last_filters: Record<string, string | null> | null;
+  /** consulta cruzada anterior — opaca aqui; o backend revalida tudo */
+  last_spec?: Record<string, unknown> | null;
 };
 
 export type AnalyticsChatResponse = {

@@ -25,6 +25,7 @@ _MANAGER_ONLY = {
     ("PUT", "/management/kpis/{month}"),
     ("GET", "/analytics/summary"),
     ("POST", "/analytics/chat"),
+    ("POST", "/analytics/chat/export"),
 }
 
 

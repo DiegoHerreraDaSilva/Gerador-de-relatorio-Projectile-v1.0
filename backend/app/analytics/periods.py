@@ -123,16 +123,18 @@ def resolve_period(
         if last < first:  # "de agosto a fevereiro" — ordem invertida na frase
             first, last = last, first
         if first == last:
-            return Period(first, min(_month_end(first), today), month_label(month_key(first)))
+            return Period(first, _month_end(first), month_label(month_key(first)))
         label = f"{month_label(month_key(first))} a {month_label(month_key(last))}"
-        return Period(first, min(_month_end(last), today), label)
+        return Period(first, _month_end(last), label)
     key = relative or DEFAULT_RELATIVE
     if key not in RELATIVE_PERIODS:
         raise ValueError(f"Período desconhecido: {key}")
     _, span, offset = RELATIVE_PERIODS[key]
     last_first = add_months(current, -offset)
     first = add_months(last_first, -(span - 1))
-    end = min(_month_end(last_first), today)
+    # até o fim do mês, não até hoje: o Painel conta apontamento lançado com
+    # data futura no mês corrente (medido: 32 h em setembro/2026)
+    end = _month_end(last_first)
     if span == 1:
         label = month_label(month_key(first))
     else:

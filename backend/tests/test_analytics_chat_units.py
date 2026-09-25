@@ -114,9 +114,10 @@ def test_numero_dos_dados_passa_e_numero_inventado_nao():
 _TODAY = date(2026, 9, 24)
 
 
-def test_mes_especifico_vai_ate_hoje_no_mes_corrente():
+def test_mes_corrente_vai_ate_o_fim_do_mes_como_no_painel():
+    """O Painel conta apontamento com data futura no mês corrente."""
     period = periods.resolve_period("2026-09", None, _TODAY, 24)
-    assert (period.start, period.end, period.label) == (date(2026, 9, 1), _TODAY, "setembro/2026")
+    assert (period.start, period.end, period.label) == (date(2026, 9, 1), date(2026, 9, 30), "setembro/2026")
 
 
 def test_periodos_relativos():
@@ -230,3 +231,55 @@ def test_repository_conta_relatorio_uma_vez_mesmo_com_dois_formatos(reports_db_e
     assert by_month == [{"label": today.strftime("%Y-%m"), "value": 2}]
     hours = report_analytics_repository.report_hours_by_project(date(2026, 9, 1), date(2026, 9, 30), 10)
     assert hours == [{"label": "Projeto SE.CHAT.001", "value": 8.0}, {"label": "Projeto SE.CHAT.002", "value": 3.0}]
+
+
+# --- exportação .xlsx ---------------------------------------------------------
+
+
+def _export(client, **overrides):
+    payload = {
+        "title": "Horas por cliente — setembro/2026",
+        "columns": ["Cliente", "Horas", "% do total"],
+        "column_types": ["text", "hours", "percent"],
+        "rows": [["ACME", 10.0, 76.9], ["=HYPERLINK(\"http://x\")", 3.0, 23.1]],
+        "totals": ["Total", 13.0, 100.0],
+        **overrides,
+    }
+    return client.post("/analytics/chat/export", json=payload)
+
+
+def test_exporta_tabela_com_numeros_como_numeros_e_texto_sem_formula(monkeypatch):
+    import io
+
+    from openpyxl import load_workbook
+
+    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    app.dependency_overrides[require_session] = lambda: {"name": "G", "login": "gerente", "email": "g@x"}
+    try:
+        response = _export(TestClient(app))
+    finally:
+        app.dependency_overrides.pop(require_session, None)
+    assert response.status_code == 200
+    assert "horas-por-cliente-setembro-2026.xlsx" in response.headers["content-disposition"]
+    ws = load_workbook(io.BytesIO(response.content)).active
+    assert [c.value for c in ws[3]] == ["Cliente", "Horas", "% do total"]
+    assert [c.value for c in ws[4]] == ["ACME", 10.0, 76.9]
+    assert ws["B4"].number_format == '#,##0.00" h"'
+    assert ws["A5"].data_type == "s"  # nome que parece fórmula continua texto
+    assert [c.value for c in ws[6]] == ["Total", 13.0, 100.0]
+
+
+def test_exportacao_recusa_numero_invalido_e_colaborador(monkeypatch):
+    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    app.dependency_overrides[require_session] = lambda: {"name": "G", "login": "gerente", "email": "g@x"}
+    try:
+        client = TestClient(app)
+        assert client.post(
+            "/analytics/chat/export",
+            content='{"title": "t", "columns": ["a"], "rows": [[NaN]]}',
+            headers={"content-type": "application/json"},
+        ).status_code == 422
+        app.dependency_overrides[require_session] = lambda: {"name": "C", "login": "colab", "email": "c@x"}
+        assert _export(client).status_code == 403
+    finally:
+        app.dependency_overrides.pop(require_session, None)

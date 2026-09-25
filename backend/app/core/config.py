@@ -66,7 +66,9 @@ class Settings(BaseSettings):
     # do relatório). Haiku: as tarefas são curtas e a latência importa mais.
     analytics_chat_model: str = "claude-haiku-4-5-20251001"
     analytics_chat_max_rows: int = 1000
-    analytics_chat_max_months: int = 24
+    # janela do chat analítico = a do Painel de Gerência (12 meses) — mesmas
+    # datas, mesmo cache de horas; decisão do usuário em 2026-09-24
+    analytics_chat_max_months: int = 12
     # tamanho máximo (JSON) do resultado agregado mandado pro Claude
     analytics_chat_max_claude_payload_bytes: int = 20_000
 

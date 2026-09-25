@@ -21,7 +21,11 @@ _NONE = "none"
 _ROUTE_CRITERIA = {
     "simple_data": "Objective question answered by one number or one list about hours or reports (quantos, quantas, qual o total, liste, por cliente/projeto)",
     "simple_with_explanation": "Question about hours or reports that asks to explain, interpret or comment the numbers (explique, por que, o que significa, comente)",
-    "analysis": "Compares two months, or compares named clients/people with each other (compare, comparar, versus, x, cresceu, diminuiu, variação entre)",
+    "analysis": (
+        "Crosses or compares data: two breakdowns at once (por cliente e por mês, cada colaborador por projeto), "
+        "several named clients/projects/people, billed vs worked per project, thresholds (menos de 100 h), "
+        "top N rankings, comparing months or items (compare, versus, x, cresceu, diminuiu)"
+    ),
     "general": "General question about the app or a concept that needs no data (como funciona, o que é, ajuda)",
     "out_of_scope": "Unrelated to hours/reports, or asks to edit/delete data, run SQL, ignore permissions, or dump all raw records",
 }
@@ -40,6 +44,7 @@ class Classification:
     confidence: float | None = None
     jev_called: bool = False
     month_end: str | None = None
+    project: str | None = None
 
 
 def _questions(options: dict) -> dict:
@@ -68,11 +73,14 @@ def _questions(options: dict) -> dict:
             {**options["months"], _NONE: "No range of months mentioned"},
         ),
     }
-    for name, values in (("client", options["clients"]), ("employee", options["employees"])):
+    labels = {"client": "client/customer", "employee": "employee/person", "project": "project"}
+    for name, values in (
+        ("client", options["clients"]), ("employee", options["employees"]), ("project", options.get("projects", [])),
+    ):
         # lista grande demais pro Jev → pergunta sem esse filtro;
         # se a pessoa citar um, a confiança cai e o Claude assume.
         if 1 <= len(values) < jev.MAX_CHOICE_OPTIONS:
-            label = "client/customer" if name == "client" else "employee/person"
+            label = labels[name]
             questions[name] = jev.choice(
                 f"Which {label} does the message restrict the question to, if any?",
                 {**{value: value for value in values}, _NONE: f"No specific {label}"},
@@ -148,6 +156,7 @@ def _from_jev(
         follow_up=pick("follow_up") == "yes",
         classifier="jev",
         month_end=pick("month_end") if month else None,
+        project=pick("project"),
         confidence=round(lowest, 3),
     )
 
@@ -168,6 +177,7 @@ def _from_claude(usage, message: str, previous: dict | None, options: dict) -> C
         follow_up=bool(payload.get("follow_up")),
         classifier="claude",
         month_end=payload.get("month_end"),
+        project=payload.get("project"),
     )
 
 
@@ -187,6 +197,8 @@ def _validated(c: Classification, options: dict) -> Classification:
         c.client = None
     if c.employee not in options["employees"]:
         c.employee = None
+    if c.project not in options.get("projects", []):
+        c.project = None
     return c
 
 

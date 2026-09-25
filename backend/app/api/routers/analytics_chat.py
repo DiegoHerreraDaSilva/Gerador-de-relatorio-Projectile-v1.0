@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import asyncio
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from ...analytics import service
-from ...analytics.schemas import AnalyticsChatRequest
+from ...analytics import export, service
+from ...analytics.schemas import AnalyticsChatRequest, ExportRequest
 from ...db.reports_db import ReportsDbError
 from ...projectile_db import ProjectileDbError
 from ..dependencies import require_manager
@@ -27,3 +30,18 @@ async def analytics_chat_endpoint(payload: AnalyticsChatRequest, _user: dict = D
         raise log_and_generic_error(e, generic_message=GENERIC_DB_ERROR)
     except (SQLAlchemyError, ReportsDbError) as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
+
+
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.post("/analytics/chat/export")
+async def analytics_chat_export_endpoint(payload: ExportRequest, _user: dict = Depends(require_manager)):
+    """Tabela já exibida no chat → .xlsx. Não consulta banco nenhum."""
+    content = await asyncio.to_thread(export.build_xlsx, payload)
+    filename = export.filename_for(payload.title)
+    return Response(
+        content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"},
+    )

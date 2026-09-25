@@ -1,18 +1,22 @@
 """Orquestra uma mensagem do chat analítico:
 
     classificar (Jev se houver chave → Claude) → validar → rota
-      simple_data              → Query Engine → formatter          (0 Claude)
-      simple_with_explanation  → Query Engine → Claude explica     (1 Claude)
-      analysis                 → Claude planeja → Python calcula → Claude fecha
+      simple_data              → atalho da intent → consulta cruzada → texto fixo  (0 Claude)
+      simple_with_explanation  → idem → Claude explica o resultado já agregado        (1 Claude)
+      analysis                 → planner do Claude monta a consulta cruzada inteira
+                                 (query) ou a comparação de períodos → Python calcula
       general                  → Claude, sem dados
-      out_of_scope             → recusa fixa                       (0 Claude)
+      out_of_scope             → recusa fixa                                            (0 Claude)
 
-Texto do Claude com número que não veio dos dados é descartado (grounding)
-e vale o texto determinístico. Falha do Claude nunca derruba a resposta
-quando já há dado: cai no texto determinístico."""
+Relatórios gerados (reports_db) têm handler próprio (`query_engine.py`);
+horas, faturado e status de envio passam pela consulta cruzada
+(`crossquery.py`), com a mesma regra do Painel de Gerência/Diagnóstico.
+
+Texto do Claude com número que não veio dos dados é descartado e vale o
+texto determinístico (grounding). Falha do Claude nunca derruba uma
+resposta que já tem dado."""
 from __future__ import annotations
 
-import json
 import logging
 import time
 from datetime import date
@@ -22,11 +26,12 @@ from ulid import ULID
 from ..core.config import get_settings
 from ..projectile_db import ProjectileDbError
 from ..services.audit import record_event
-from . import analysis, claude_client, query_engine, router
+from . import analysis, claude_client, cross_output, crossquery, query_engine, router, signals
+from .facts import DataSources
 from .grounding import allowed_numbers, is_grounded
-from .intents import ANALYSES, INTENTS
+from .intents import INTENTS
 from .periods import RELATIVE_PERIODS, mentions_month, month_label, month_options, resolve_period, years_mentioned
-from .query_engine import Filters, HoursSource
+from .query_engine import Filters
 from .response_formatter import format_reply
 from .schemas import ChatContext
 from .semantic_model import SOURCES
@@ -35,63 +40,79 @@ from .visualization import MAX_VISUALIZATIONS, build_table, build_visualizations
 logger = logging.getLogger(__name__)
 
 OUT_OF_SCOPE_REPLY = (
-    "Só consigo responder perguntas sobre horas apontadas e relatórios gerados — por exemplo, "
-    "\"quantas horas por cliente em setembro?\" ou \"quantos relatórios foram gerados este mês?\". "
+    "Só consigo responder perguntas sobre horas apontadas, faturado, status de envio e relatórios gerados — por "
+    "exemplo, \"quantas horas por cliente em setembro?\" ou \"faturado x trabalhado por projeto em agosto\". "
     "Não altero dados nem executo consultas livres."
 )
 UNCLASSIFIED_REPLY = (
     "Não consegui entender a pergunta agora. Tente algo como \"total de horas em agosto\", "
-    "\"horas por colaborador nos últimos 3 meses\" ou \"compare agosto com setembro\"."
+    "\"horas de cada colaborador por projeto nos últimos 3 meses\" ou \"compare agosto com setembro\"."
 )
-NO_INTENT_REPLY = (
-    "Não identifiquei qual número você quer. Posso responder sobre: total de horas, horas por cliente, "
-    "projeto, colaborador, pacote ou mês; relatórios gerados, versões, tempo e falhas de geração."
+NO_ANALYSIS_REPLY = (
+    "Não consegui montar essa consulta agora. Tente, por exemplo, \"horas de cada colaborador por projeto em "
+    "agosto\", \"compare horas por cliente de agosto e setembro\" ou \"Mercedes x Lauer em julho\"."
 )
+NO_PERIOD_NOTE = "Como a pergunta não citou período, considerei os últimos 12 meses."
+
+_DATA_ROUTES = {"simple_data", "simple_with_explanation", "analysis"}
+SOURCE_BY_DATASET = {"hours": "projectile", "billing": "billing", "send_status": "send_status"}
 
 
-def _options(today: date, hours: HoursSource, max_months: int) -> tuple[dict, bool]:
+def _options(today: date, sources: DataSources, max_months: int) -> tuple[dict, bool]:
     """Opções que o classificador/Claude podem escolher. Se o Projectile estiver fora
     do ar, as perguntas sobre relatórios (reports_db) continuam funcionando."""
-    options = {"today": today.isoformat(), "months": month_options(today, max_months), "clients": [], "employees": []}
+    options = {
+        "today": today.isoformat(), "months": month_options(today, max_months),
+        "clients": [], "employees": [], "projects": [], "packages": [],
+    }
     try:
-        rows = hours.rows()
+        rows = sources.hours()
     except ProjectileDbError as e:
         logger.warning("Projectile indisponível pro chat analítico: %s", e)
         return options, False
-    options["clients"] = sorted({r.client for r in rows}, key=str.casefold)
-    options["employees"] = sorted({r.employee for r in rows}, key=str.casefold)
+    for key, attr in (("clients", "client"), ("employees", "employee"), ("projects", "project"), ("packages", "package")):
+        options[key] = sorted({getattr(r, attr) for r in rows}, key=str.casefold)
     return options, True
 
 
 def _previous(context: ChatContext | None, options: dict) -> dict | None:
-    if context is None or context.last_intent not in INTENTS:
+    if context is None:
+        return None
+    intent = context.last_intent if context.last_intent in INTENTS else None
+    spec = context.last_spec.model_dump() if context.last_spec else None
+    if intent is None and spec is None:
         return None
     f = context.last_filters
     return {
-        "intent": context.last_intent,
+        "intent": intent,
         "month": f.month if f and f.month in options["months"] else None,
         "month_end": f.month_end if f and f.month and f.month_end in options["months"] else None,
         "relative": f.relative if f and f.relative in RELATIVE_PERIODS else None,
         "client": f.client if f and f.client in options["clients"] else None,
         "employee": f.employee if f and f.employee in options["employees"] else None,
+        "project": f.project if f and f.project in options["projects"] else None,
+        "spec": spec,
     }
 
 
 def _apply_follow_up(c: router.Classification, previous: dict | None) -> router.Classification:
-    """"E em agosto?" — o que a mensagem nova não disse vem da anterior."""
+    """"E em agosto?" — o que a mensagem nova não disse vem da anterior. Se
+    a anterior foi um cruzamento (sem intent simples), o planner continua a
+    partir da consulta anterior (`previous["spec"]`)."""
     if not (c.follow_up and previous):
+        return c
+    if previous["intent"] is None and previous.get("spec"):
+        c.route = "analysis"
         return c
     c.intent = c.intent or previous["intent"]
     if not (c.month or c.relative):
         c.month, c.month_end, c.relative = previous["month"], previous["month_end"], previous["relative"]
     c.client = c.client or previous["client"]
     c.employee = c.employee or previous["employee"]
+    c.project = c.project or previous.get("project")
     if c.route in ("general", "out_of_scope", "unclassified") and c.intent:
         c.route = "simple_data"
     return c
-
-
-_DATA_ROUTES = {"simple_data", "simple_with_explanation", "analysis"}
 
 
 def _window_reply(years: list[str], options: dict) -> str:
@@ -109,11 +130,14 @@ def _apply_years(
     Vale quando a mensagem cita ano e NENHUM nome de mês — mesmo que o
     classificador tenha escolhido um mês: pra "horas em 2026" o Jev real
     escolhia janeiro/2026."""
-    if not years or c.relative or mentions_month(message):
+    if not years or mentions_month(message):
         return c, []
     months = sorted(m for m in options["months"] if years[0] <= m[:4] <= years[-1])
     if not months:
         return c, []
+    # ano escrito no texto é mais específico que o período relativo que o
+    # classificador escolheu (o Jev marcava "último ano" pra "no ano")
+    c.relative = None
     c.month, c.month_end = months[0], (months[-1] if months[-1] != months[0] else None)
     notes = []
     if months[0] != f"{years[0]}-01":
@@ -129,60 +153,62 @@ def _grounded_text(text: str | None, fallback: str, *payloads) -> tuple[str, boo
     return fallback, False
 
 
-_TOP_N = 3
+def _context_filters(spec: crossquery.QuerySpec) -> dict:
+    """Filtros de um valor só, no formato que o Jev/follow-up simples usa."""
+    def one(values):
+        return values[0] if len(values) == 1 else None
+
+    return {
+        "month": spec.month, "month_end": spec.month_end, "relative": spec.relative,
+        "client": one(spec.clients), "employee": one(spec.employees), "project": one(spec.projects),
+    }
 
 
-def _compact_for_claude(result: query_engine.QueryResult, max_bytes: int) -> dict:
-    """Resultado agregado + as contas que o Claude tentaria fazer de cabeça
-    ao interpretar (participação, acumulado, "os 3 maiores somam", "o resto").
-    Medido: sem isso ele somava percentuais (e errava — 81,5% onde o certo
-    era 95,5%), o grounding descartava o texto e valia o padrão."""
-    compact = result.compact()
-    if result.total and result.unit == "hours":
-        cumulative = 0.0
-        rows = []
-        for row in compact["rows"]:
-            cumulative += row["value"]
-            rows.append({
-                **row,
-                "share_percent": round(row["value"] / result.total * 100, 1),
-                "cumulative_share_percent": round(cumulative / result.total * 100, 1),
-            })
-        compact["rows"] = rows
-        # série mês a mês não tem "os 3 maiores" nem "o resto"
-        if result.dimension != "competence" and len(result.rows) > _TOP_N:
-            top = sum(row["value"] for row in result.rows[:_TOP_N])
-            rest = result.total - top
-            compact[f"top_{_TOP_N}"] = {
-                "hours": round(top, 2), "share_percent": round(top / result.total * 100, 1),
-            }
-            compact[f"others_after_top_{_TOP_N}"] = {
-                "count": len(result.rows) - _TOP_N,
-                "hours": round(rest, 2),
-                "share_percent": round(rest / result.total * 100, 1),
-            }
-    while len(json.dumps(compact, ensure_ascii=False).encode()) > max_bytes and len(compact["rows"]) > 5:
-        compact["rows"] = compact["rows"][: len(compact["rows"]) // 2]
-        compact["truncated"] = True
-    return compact
+def _cross_answer(raw: dict, message: str, today: date, sources: DataSources, settings, usage, options: dict,
+                  *, explain: bool, intent: str | None, notes: list[str] | None = None) -> dict:
+    spec, spec_notes = crossquery.build_spec(raw, options, today, settings.analytics_chat_max_months)
+    all_notes = list(notes or []) + spec_notes
+    if not (spec.month or spec.relative):
+        all_notes.append(NO_PERIOD_NOTE)
+    result = crossquery.execute(spec, sources, settings.analytics_chat_max_rows, all_notes)
+    reply = cross_output.format_reply(result)
+    explained = None
+    if explain:
+        compact = cross_output.compact_for_claude(result, settings.analytics_chat_max_claude_payload_bytes)
+        try:
+            text = claude_client.explain(usage, message, compact)
+        except Exception as e:
+            logger.warning("Explicação do Claude indisponível: %s", e)
+            text = None
+        reply, explained = _grounded_text(text, reply, compact)
+        if explained and result.notes:
+            reply = f"{reply} {' '.join(result.notes)}"
+    return {
+        "intent": intent,
+        "reply": reply,
+        "visualizations": cross_output.build_visualizations(result)[: cross_output.MAX_VISUALIZATIONS],
+        "tables": cross_output.build_tables(result),
+        "source": SOURCE_BY_DATASET[spec.dataset],
+        "period": spec.period,
+        "filters": _context_filters(spec),
+        "spec": spec,
+        "explained": explained,
+    }
 
 
-def _data_answer(c, message, today, hours, settings, usage, notes: list[str] | None = None) -> dict:
-    spec = INTENTS[c.intent]
-    notes = list(notes or [])
+def _reports_answer(c, message, today, settings, usage, notes: list[str]) -> dict:
+    """Relatórios gerados (reports_db) — handler fixo, sem recorte de cliente/pessoa."""
+    notes = list(notes)
     if not (c.month or c.relative):
-        notes.append("Como a pergunta não citou período, considerei os últimos 12 meses.")
-    client, employee = c.client, c.employee
-    if (client or employee) and not {"client", "employee"} & spec.filters:
-        notes.append("Esse número não tem recorte por cliente/colaborador — mostrei o total.")
-        client = employee = None
+        notes.append(NO_PERIOD_NOTE)
+    if c.client or c.employee or c.project:
+        notes.append("Esse número não tem recorte por cliente/projeto/colaborador — mostrei o total.")
     period = resolve_period(c.month, c.relative, today, settings.analytics_chat_max_months, c.month_end)
-    filters = Filters(period, client, employee)
-    result = query_engine.run(c.intent, filters, hours, settings.analytics_chat_max_rows)
+    result = query_engine.run(c.intent, Filters(period), None, settings.analytics_chat_max_rows)
     reply = format_reply(result)
     explained = None
     if c.route == "simple_with_explanation":
-        compact = _compact_for_claude(result, settings.analytics_chat_max_claude_payload_bytes)
+        compact = result.compact()
         try:
             text = claude_client.explain(usage, message, compact)
         except Exception as e:
@@ -197,95 +223,131 @@ def _data_answer(c, message, today, hours, settings, usage, notes: list[str] | N
         "reply": reply,
         "visualizations": build_visualizations(result)[:MAX_VISUALIZATIONS],
         "tables": [table] if table else [],
-        "source": spec.source,
-        "period": filters.period,
-        "filters": {"month": c.month, "month_end": c.month_end, "relative": c.relative, "client": client, "employee": employee},
+        "source": "reports_db",
+        "period": period,
+        "filters": {"month": c.month, "month_end": c.month_end, "relative": c.relative,
+                    "client": None, "employee": None, "project": None},
         "explained": explained,
     }
 
 
-def _compare_periods_answer(plan, message, options, today, hours, settings, usage) -> dict | None:
-    metric = plan.get("metric")
-    month_a, month_b = plan.get("period_a_month"), plan.get("period_b_month")
-    if (
-        metric not in INTENTS or INTENTS[metric].source != "projectile"
-        or month_a not in options["months"] or month_b not in options["months"]
-        or month_a == month_b  # "julho x julho" — comparação sem sentido, variação sempre zero
-    ):
-        logger.warning("Plano de compare_periods rejeitado: %s", plan)
+def _data_answer(c, message, today, sources, settings, usage, options, notes: list[str]) -> dict:
+    spec = INTENTS[c.intent]
+    if spec.source == "reports_db":
+        return _reports_answer(c, message, today, settings, usage, notes)
+    raw = {
+        **spec.preset,
+        "clients": [c.client] if c.client else [],
+        "employees": [c.employee] if c.employee else [],
+        "projects": [c.project] if c.project else [],
+        "month": c.month, "month_end": c.month_end, "relative_period": c.relative,
+    }
+    return _cross_answer(raw, message, today, sources, settings, usage, options,
+                         explain=c.route == "simple_with_explanation", intent=c.intent, notes=notes)
+
+
+_QUERY_KEYS = (
+    "measures", "group_by", "clients", "projects", "employees", "packages", "cost_centers", "statuses",
+    "billing_type", "month", "month_end", "relative_period", "top_n", "sort_by", "sort_order",
+    "threshold_measure", "threshold_op", "threshold_value",
+)
+_FILTER_KEYS = ("clients", "projects", "employees", "packages", "billing_type")
+
+
+def _compare_periods_answer(plan, message, options, today, sources, settings, usage) -> dict | None:
+    months = options["months"]
+    a_start, b_start = plan.get("period_a_month"), plan.get("period_b_month")
+    if a_start not in months or b_start not in months:
+        logger.warning("Plano de compare_periods rejeitado (mês): %s", plan)
         return None
-    client = plan.get("client") if plan.get("client") in options["clients"] else None
-    employee = plan.get("employee") if plan.get("employee") in options["employees"] else None
+    a_end = plan.get("period_a_month_end") if plan.get("period_a_month_end") in months else None
+    b_end = plan.get("period_b_month_end") if plan.get("period_b_month_end") in months else None
+    base = {key: plan.get(key) for key in _FILTER_KEYS}
+    base["measures"] = [plan.get("measure")]
+    base["group_by"] = [plan["group_by"]] if plan.get("group_by") else []
     max_months = settings.analytics_chat_max_months
-    filters_a = Filters(resolve_period(month_a, None, today, max_months), client, employee)
-    filters_b = Filters(resolve_period(month_b, None, today, max_months), client, employee)
-    result = analysis.compare_periods(metric, filters_a, filters_b, hours, settings.analytics_chat_max_rows)
-    return {
-        "result": result,
-        "intent": metric,
-        "period": filters_b.period,
-        "period_compared": filters_a.period,
-        "filters": {"month": month_b, "month_end": None, "relative": None, "client": client, "employee": employee},
-    }
-
-
-def _compare_items_answer(plan, message, options, today, hours, settings, usage) -> dict | None:
-    kind = plan.get("item_kind")
-    if kind not in analysis.ITEM_INTENTS:
-        logger.warning("Plano de compare_items rejeitado (item_kind): %s", plan)
-        return None
-    valid = options["clients"] if kind == "client" else options["employees"]
-    items = list(dict.fromkeys(item for item in plan.get("items") or [] if item in valid))[: analysis.MAX_ITEMS]
-    if len(items) < 2:
-        logger.warning("Plano de compare_items rejeitado (menos de 2 itens válidos): %s", plan)
-        return None
-    month = plan.get("month") if plan.get("month") in options["months"] else None
-    month_end = plan.get("month_end") if month and plan.get("month_end") in options["months"] else None
-    relative = plan.get("relative_period") if plan.get("relative_period") in RELATIVE_PERIODS else None
-    period = resolve_period(month, relative, today, settings.analytics_chat_max_months, month_end)
-    result = analysis.compare_items(kind, items, Filters(period), hours, settings.analytics_chat_max_rows)
-    return {
-        "result": result,
-        "intent": analysis.ITEM_INTENTS[kind],
-        "period": period,
-        "period_compared": None,
-        "filters": {"month": month, "month_end": month_end, "relative": relative, "client": None, "employee": None},
-    }
-
-
-_ANALYSIS_HANDLERS = {"compare_periods": _compare_periods_answer, "compare_items": _compare_items_answer}
-
-
-def _analysis_answer(c, message, previous, options, today, hours, settings, usage) -> dict | None:
     try:
-        plan = claude_client.plan_analysis(usage, message, previous, options)
-    except Exception as e:
-        logger.warning("Planner do Claude indisponível: %s", e)
+        spec_a, _ = crossquery.build_spec({**base, "month": a_start, "month_end": a_end}, options, today, max_months)
+        spec_b, notes = crossquery.build_spec({**base, "month": b_start, "month_end": b_end}, options, today, max_months)
+    except crossquery.InvalidQueryError:
+        logger.warning("Plano de compare_periods rejeitado (medida): %s", plan)
         return None
-    handler = _ANALYSIS_HANDLERS.get(plan.get("analysis"))
-    planned = handler(plan, message, options, today, hours, settings, usage) if handler else None
-    if planned is None:
+    if spec_a.period == spec_b.period:  # "julho x julho" — variação sempre zero
+        logger.warning("Plano de compare_periods rejeitado (mesmo período): %s", plan)
         return None
-    result = planned["result"]
+    if spec_a.period.start > spec_b.period.start:  # o planner inverteu a ordem
+        spec_a, spec_b = spec_b, spec_a
+    result = analysis.compare_periods(spec_a, spec_b, sources, settings.analytics_chat_max_rows)
     try:
         text = claude_client.finalize_analysis(usage, message, result["summary"])
     except Exception as e:
         logger.warning("Finalizer do Claude indisponível: %s", e)
         text = None
     reply, explained = _grounded_text(text, analysis.fallback_text(result), result["summary"])
+    if notes:
+        reply = f"{reply} {' '.join(notes)}"
     table = analysis.table(result)
     return {
-        "intent": planned["intent"],
-        "analysis": plan["analysis"],
+        "intent": None,
+        "analysis": "compare_periods",
         "reply": reply,
         "visualizations": analysis.visualizations(result)[:MAX_VISUALIZATIONS],
         "tables": [table] if table else [],
-        "source": "projectile",
-        "period": planned["period"],
-        "period_compared": planned["period_compared"],
-        "filters": planned["filters"],
+        "source": SOURCE_BY_DATASET[spec_b.dataset],
+        "period": spec_b.period,
+        "period_compared": spec_a.period,
+        "filters": _context_filters(spec_b),
+        "spec": spec_b,
         "explained": explained,
     }
+
+
+def _escalate_to_planner(c: router.Classification, message: str) -> router.Classification:
+    """Pergunta de dados que o atalho simples não cobre → planner:
+    - sem intent (o Jev/Claude viu que é sobre dados, mas nenhum atalho serve:
+      "em quais projetos o Lucca trabalhou", "quantos dias o Luciano apontou");
+    - com sinais de cruzamento que o atalho perderia (`signals.needs_planner`)."""
+    if c.route not in ("simple_data", "simple_with_explanation"):
+        return c
+    spec = INTENTS.get(c.intent) if c.intent else None
+    if spec is None or (spec.preset is not None and signals.needs_planner(message, spec.preset["group_by"])):
+        c.route = "analysis"
+    return c
+
+
+def _analysis_answer(c, message, previous, options, today, sources, settings, usage, notes,
+                     wants_explanation: bool = False, period_allowed: bool = True,
+                     year_period: tuple[str, str | None] | None = None) -> dict | None:
+    try:
+        plan = claude_client.plan_analysis(usage, message, previous, options)
+    except Exception as e:
+        logger.warning("Planner do Claude indisponível: %s", e)
+        return None
+    if not isinstance(plan, dict):
+        logger.warning("Plano rejeitado (formato): %r", plan)
+        return None
+    if plan.get("analysis") == "compare_periods":
+        return _compare_periods_answer(plan, message, options, today, sources, settings, usage)
+    if plan.get("analysis") != "query":
+        logger.warning("Plano rejeitado (análise desconhecida): %s", plan)
+        return None
+    raw = {key: plan.get(key) for key in _QUERY_KEYS}
+    if not period_allowed:  # pergunta sem período: o planner não inventa um
+        raw["month"] = raw["month_end"] = raw["relative_period"] = None
+    if year_period:
+        raw["month"], raw["month_end"], raw["relative_period"] = year_period[0], year_period[1], None
+    if not (raw.get("month") or raw.get("relative_period")) and (c.month or c.relative):
+        # o planner às vezes esquece o período que o Jev/Claude já tinha
+        # achado ("nos últimos 6 meses", "em 2026" → jan-set/2026)
+        raw["month"], raw["month_end"], raw["relative_period"] = c.month, c.month_end, c.relative
+    try:
+        answer = _cross_answer(raw, message, today, sources, settings, usage, options,
+                               explain=bool(plan.get("explain")) or wants_explanation, intent=None, notes=notes)
+    except crossquery.InvalidQueryError:
+        logger.warning("Plano de consulta rejeitado (sem medida válida): %s", plan)
+        return None
+    answer["analysis"] = "query"
+    return answer
 
 
 def handle(message: str, context: ChatContext | None, user: dict) -> dict:
@@ -294,24 +356,35 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
     today = date.today()
     usage = claude_client.ClaudeUsage()
     conversation_id = context.conversation_id if context and context.conversation_id else str(ULID())
-    hours = HoursSource(today, settings.analytics_chat_max_months)
+    sources = DataSources(today, settings.analytics_chat_max_months)
     status = "failed"
     c = None
     answer: dict = {}
     try:
-        options, _ = _options(today, hours, settings.analytics_chat_max_months)
+        options, _ = _options(today, sources, settings.analytics_chat_max_months)
         previous = _previous(context, options)
-        c = _apply_follow_up(
-            router.classify(
-                message, previous, options, settings.jev_min_confidence, usage, settings.jev_min_confidence_none,
-            ),
-            previous,
+        c = router.classify(
+            message, previous, options, settings.jev_min_confidence, usage, settings.jev_min_confidence_none,
         )
+        # o classificador marcava pergunta completa como continuação — a
+        # trava por texto só deixa passar o que tem cara de continuação
+        c.follow_up = c.follow_up and signals.looks_like_follow_up(message)
+        period_in_message = signals.mentions_period(message)
+        if not c.follow_up and not period_in_message:
+            # período só vem do texto (ou da pergunta anterior, se continuação):
+            # o Claude copiava o período da anterior numa pergunta nova
+            c.month = c.month_end = c.relative = None
+        c = _apply_follow_up(c, previous)
 
-        years = years_mentioned(message)
+        years = years_mentioned(message) or signals.year_phrases(message, today)
         window_years = {key[:4] for key in options["months"]}
         outside = [year for year in years if year not in window_years]
         c, year_notes = _apply_years(c, years, message, options)
+        # ano citado vale no planner também (senão "no ano" era jan-set/2026 no
+        # atalho e "últimos 12 meses" no planner)
+        year_period = (c.month, c.month_end) if years and c.month and not mentions_month(message) else None
+        wants_explanation = c.route == "simple_with_explanation"
+        c = _escalate_to_planner(c, message)
 
         if c.route in _DATA_ROUTES and outside:
             answer = {"reply": _window_reply(outside, options)}
@@ -326,17 +399,19 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
                 logger.warning("Resposta geral do Claude indisponível: %s", e)
                 answer = {"reply": UNCLASSIFIED_REPLY}
         elif c.route == "analysis":
-            answer = _analysis_answer(c, message, previous, options, today, hours, settings, usage) or {
-                "reply": "Não consegui montar essa comparação agora. Tente, por exemplo, \"compare horas por cliente de agosto e setembro\" "
-                "ou \"compare as horas da Mercedes e da Lauer em julho\"."
-            }
-        elif c.intent is None:
-            answer = {"reply": NO_INTENT_REPLY}
+            # a pergunta anterior só vai pro planner se esta CONTINUA aquela —
+            # senão ele herdava filtro dela numa pergunta nova (medido: "status
+            # de envio de agosto" saía filtrado pelo cliente da pergunta anterior)
+            answer = _analysis_answer(
+                c, message, previous if c.follow_up else None, options, today, sources, settings, usage,
+                year_notes, wants_explanation, period_in_message or c.follow_up, year_period,
+            ) or {"reply": NO_ANALYSIS_REPLY}
         else:
-            answer = _data_answer(c, message, today, hours, settings, usage, year_notes)
+            answer = _data_answer(c, message, today, sources, settings, usage, options, year_notes)
         status = "success"
     finally:
         latency_ms = int((time.monotonic() - started) * 1000)
+        spec = answer.get("spec")
         record_event(
             actor_id=user["login"], actor_name=user.get("name", ""), action="analytics_chat_query",
             entity_type="analytics_chat", entity_id=conversation_id, source="analytics_chat",
@@ -345,7 +420,9 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
                 "status": status,
                 "route": c.route if c else None,
                 "intent": answer.get("intent"),
+                "analysis": answer.get("analysis"),
                 "filters": answer.get("filters"),
+                "spec": spec.as_context() if spec else None,
                 "classifier": c.classifier if c else None,
                 "jev_called": c.jev_called if c else False,
                 "jev_confidence": c.confidence if c else None,
@@ -372,7 +449,7 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
     }
     if answer.get("period_compared"):
         metadata["compared_period_label"] = answer["period_compared"].label
-    filters = answer.get("filters")
+    spec = answer.get("spec")
     return {
         "conversation_id": conversation_id,
         "route": c.route,
@@ -384,6 +461,7 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
         "context": {
             "conversation_id": conversation_id,
             "last_intent": answer.get("intent") if answer.get("intent") in INTENTS else None,
-            "last_filters": filters,
+            "last_filters": answer.get("filters"),
+            "last_spec": spec.as_context() if spec else None,
         },
     }

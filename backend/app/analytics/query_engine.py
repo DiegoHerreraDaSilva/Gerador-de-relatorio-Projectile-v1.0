@@ -1,18 +1,15 @@
-"""Intent validada → handler conhecido → repository. Não existe caminho
-aqui pra executar SQL arbitrário: cada intent do catálogo tem uma função, e
-intent fora do catálogo levanta `UnknownIntentError` antes de tocar em banco.
-Toda soma/média/contagem acontece aqui ou no SQL do repository, nunca no
-modelo de IA."""
+"""Intents de RELATÓRIOS GERADOS (reports_db) → handler conhecido →
+repository. Não existe caminho aqui pra executar SQL arbitrário: cada
+intent tem uma função, e intent fora do catálogo levanta
+`UnknownIntentError` antes de tocar em banco. Horas, faturado e status de
+envio não passam mais por aqui: são consulta cruzada (`crossquery.py`)."""
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date
 
-from ..repositories import engineering_hours_repository, report_analytics_repository
-from ..repositories.engineering_hours_repository import HoursRow
+from ..repositories import report_analytics_repository
 from .intents import INTENTS
-from .periods import Period, add_months, month_key, month_label
+from .periods import Period, month_label
 
 
 class UnknownIntentError(ValueError):
@@ -51,69 +48,15 @@ class QueryResult:
         }
 
 
-class HoursSource:
-    """Carrega as horas de engenharia uma vez por requisição, na janela
-    fixa do chat (sempre a mesma → acerta o cache de 15 min do management)."""
-
-    def __init__(self, today: date, max_months: int):
-        current = date(today.year, today.month, 1)
-        self.window_start = add_months(current, -(max_months - 1))
-        self.window_end = today
-        self._rows: list[HoursRow] | None = None
-
-    def rows(self) -> list[HoursRow]:
-        if self._rows is None:
-            self._rows = engineering_hours_repository.load_rows(self.window_start, self.window_end)
-        return self._rows
-
-
-def _filtered(source: HoursSource, filters: Filters) -> list[HoursRow]:
-    period = filters.period
-    return [
-        r for r in source.rows()
-        if period.start <= r.day <= period.end
-        and (filters.client is None or r.client == filters.client)
-        and (filters.employee is None or r.employee == filters.employee)
-    ]
-
-
-def _grouped(rows: list[HoursRow], key, max_rows: int, *, chronological: bool = False) -> tuple[list[dict], bool]:
-    totals: dict[str, float] = defaultdict(float)
-    for r in rows:
-        totals[key(r)] += r.hours
-    items = [{"label": label, "value": round(value, 2)} for label, value in totals.items()]
-    if chronological:
-        items.sort(key=lambda item: item["label"])
-    else:
-        items.sort(key=lambda item: (-item["value"], item["label"]))
-    return items[:max_rows], len(items) > max_rows
-
-
-def run(intent: str, filters: Filters, hours: HoursSource, max_rows: int) -> QueryResult:
+def run(intent: str, filters: Filters, _unused=None, max_rows: int = 1000) -> QueryResult:
     spec = INTENTS.get(intent)
     if spec is None:
         raise UnknownIntentError(intent)
     result = QueryResult(intent=intent, source=spec.source, unit=spec.unit, dimension=spec.dimension, filters=filters)
     period = filters.period
 
-    if spec.source == "projectile":
-        rows = _filtered(hours, filters)
-        result.total = round(sum(r.hours for r in rows), 2)
-        grouping = {
-            "hours_by_client": lambda r: r.client,
-            "hours_by_project": lambda r: r.project,
-            "hours_by_employee": lambda r: r.employee,
-            "hours_by_package": lambda r: r.package,
-            "hours_by_competence": lambda r: month_key(date(r.day.year, r.day.month, 1)),
-        }
-        if intent in grouping:
-            result.rows, result.truncated = _grouped(
-                rows, grouping[intent], max_rows, chronological=intent == "hours_by_competence",
-            )
-            if intent == "hours_by_competence":
-                result.rows = [{**row, "label": month_label(row["label"])} for row in result.rows]
-        return result
-
+    if spec.source != "reports_db":
+        raise UnknownIntentError(f"{intent} é consulta cruzada, não intent de relatório")
     if intent == "report_count":
         result.total = report_analytics_repository.count_generated_reports(period.start, period.end)
     elif intent == "reports_by_month":

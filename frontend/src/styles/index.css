@@ -3552,10 +3552,97 @@
   .achat-table .kpi-table { width: 100%; }
   .achat-table .kpi-table th:first-child, .achat-table .kpi-table td:first-child { text-align: left; }
 
+  /* --- séries (consulta cruzada) ---
+     Paleta validada (contraste ≥ 3:1 sobre --surface-2 nos dois temas,
+     separação pra daltonismo). Cor segue a POSIÇÃO da série; "Outros" tem
+     cinza próprio — a paleta nunca cicla. */
+  .achat-page {
+    --achat-s0: #0fa8a4; --achat-s1: #d95926; --achat-s2: #4f8fe6;
+    --achat-s3: #cf5a95; --achat-s4: #9085e9; --achat-tail: #78838d;
+  }
+  :root[data-theme="light"] .achat-page {
+    --achat-s0: #00918c; --achat-s1: #c04d1f; --achat-s2: #2f6fd0;
+    --achat-s3: #b8437c; --achat-s4: #6c5fd0; --achat-tail: #6f7a83;
+  }
+  .achat-s0 { --achat-c: var(--achat-s0); }
+  .achat-s1 { --achat-c: var(--achat-s1); }
+  .achat-s2 { --achat-c: var(--achat-s2); }
+  .achat-s3 { --achat-c: var(--achat-s3); }
+  .achat-s4 { --achat-c: var(--achat-s4); }
+  .achat-s-tail { --achat-c: var(--achat-tail); }
+
+  .achat-legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.76rem; color: var(--text-muted); }
+  .achat-legend li { display: flex; align-items: center; gap: 6px; }
+  .achat-swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--achat-c, var(--accent)); }
+
+  /* barras: agrupadas (várias medidas) e empilhadas (duas dimensões) */
+  .achat-hbar-fill[class*="achat-s"] { background: var(--achat-c); }
+  .achat-hbar-fill[class*="achat-s"].is-negative { background: var(--bad); }
+  .achat-hbars.is-grouped { gap: 10px; }
+  .achat-hbar-group { display: flex; flex-direction: column; gap: 3px; }
+  .achat-hbar-track.is-thin { height: 7px; }
+  .achat-hbar-stack { position: absolute; inset: 0; display: flex; }
+  .achat-hbar-seg { height: 100%; background: var(--achat-c); }
+  .achat-hbar-seg + .achat-hbar-seg { box-shadow: inset 1px 0 0 var(--surface-2); }
+  .achat-vbar-track { gap: 3px; }
+  .achat-vbar-fill[class*="achat-s"] { background: var(--achat-c); }
+
+  /* linha multissérie: a série define a cor do traço e dos pontos */
+  .achat-line g[class*="achat-s"] .achat-line-path { stroke: var(--achat-c); stroke-width: 2; }
+  .achat-line g[class*="achat-s"] .achat-line-dot { fill: var(--achat-c); }
+
+  /* rosca */
+  .achat-donut { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  .achat-donut svg { flex: none; }
+  .achat-donut-track { fill: none; stroke: color-mix(in srgb, var(--text) 7%, transparent); stroke-width: 22; }
+  .achat-donut-arc { fill: none; stroke: var(--achat-c); stroke-width: 22; }
+  .achat-donut-total { fill: var(--text); font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .achat-donut-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 200px; flex: 1; font-size: 0.84rem; }
+  .achat-donut-legend li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; }
+  .achat-donut-name { color: var(--text); }
+  .achat-donut-value { font-variant-numeric: tabular-nums; color: var(--text); }
+  .achat-donut-value small { color: var(--text-muted); margin-left: 4px; }
+
+  /* mapa de calor (colaborador x mês etc.) — intensidade = valor */
+  .achat-heatmap-wrap { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .achat-heatmap { border-collapse: separate; border-spacing: 2px; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+  .achat-heatmap th { font-weight: 500; color: var(--text-muted); white-space: nowrap; padding: 3px 6px; }
+  .achat-heatmap tbody th { text-align: left; max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .achat-heatmap td { min-width: 52px; padding: 5px 6px; text-align: right; border-radius: 4px; color: var(--text); background: color-mix(in srgb, var(--text) 4%, transparent); }
+  .achat-heatmap td.is-strong { color: #fff; font-weight: 600; }
+  :root[data-theme="light"] .achat-heatmap td.is-strong { color: #fff; }
+
+  /* vários KPIs (resumo de faturado) */
+  .achat-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .achat-kpi-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); }
+  .achat-kpi-card-label { font-size: 0.76rem; color: var(--text-muted); }
+  .achat-kpi-card-value { font-size: 1.45rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .achat-kpi-card-value small { margin-left: 4px; font-size: 0.85rem; font-weight: 600; color: var(--accent-hi); }
+
+  /* tabela: barra com título + exportar, cabeçalho ordenável, total fixo */
+  .achat-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 0.78rem; color: var(--text-muted); }
+  .achat-table-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .achat-export {
+    flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+    border: 1px solid var(--border); border-radius: 8px; background: transparent;
+    color: var(--text); font-size: 0.78rem; font-weight: 600;
+  }
+  .achat-export:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); color: var(--accent-hi); }
+  .achat-export:disabled { opacity: .6; cursor: default; }
+  .achat-export:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+  .achat-table-wrap { max-height: 380px; }
+  .achat-table .kpi-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+  .achat-sort { all: unset; cursor: pointer; font: inherit; color: inherit; white-space: nowrap; }
+  .achat-sort:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; border-radius: 3px; }
+  .achat-table .kpi-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .achat-table .kpi-table tfoot td { position: sticky; bottom: 0; font-weight: 700; background: var(--surface); border-top: 1px solid var(--border); }
+
   @media (max-width: 760px) {
     .achat-shell { height: auto; min-height: calc(100dvh - 190px); }
     .achat-groups { grid-template-columns: 1fr; gap: 14px; }
     .achat-start-title { font-size: 1.2rem; }
     .achat-question { max-width: 90%; }
     .achat-hbar-row { grid-template-columns: minmax(80px, 38%) 1fr auto; gap: 8px; }
+    .achat-donut { justify-content: center; }
+    .achat-table-toolbar { flex-wrap: wrap; }
   }

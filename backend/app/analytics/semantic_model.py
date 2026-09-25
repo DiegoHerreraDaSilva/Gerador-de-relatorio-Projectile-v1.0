@@ -23,6 +23,8 @@ UNITS = {
 SOURCES = {
     "reports_db": "Histórico de relatórios gerados",
     "projectile": "Horas apontadas no Projectile (engenharia CAD+CAE)",
+    "billing": "Trabalhado (Projectile) x faturado (relatórios recebidos)",
+    "send_status": "Status de envio dos relatórios (mesma regra do Diagnóstico)",
 }
 
 

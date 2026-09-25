@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, MessagesSquare, RotateCcw } from "lucide-react";
 import { PageHeader } from "./PageHeader";
-import { AnalyticsTableView, VisualizationRenderer } from "./analytics/VisualizationRenderer";
-import { useAnalyticsChatStore, type AnalyticsChatResponse } from "../store/useAnalyticsChatStore";
+import { AnalyticsTableView, KpiGrid, VisualizationRenderer } from "./analytics/VisualizationRenderer";
+import { useAnalyticsChatStore, type AnalyticsChatResponse, type KpiVisualization } from "../store/useAnalyticsChatStore";
 
 const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
@@ -16,17 +16,25 @@ function suggestionGroups(today: Date) {
       title: "Horas",
       items: [
         "Quantas horas tivemos por cliente este mês?",
-        "Quem mais apontou horas nos últimos 3 meses?",
-        "Horas por mês nos últimos 12 meses",
+        "Horas de cada colaborador por projeto no mês passado",
+        "Horas por cliente mês a mês nos últimos 6 meses",
       ],
     },
     {
-      title: "Relatórios",
-      items: ["Quantos relatórios foram gerados este mês?", "Quantas gerações falharam nos últimos 3 meses?"],
+      title: "Cruzamentos",
+      items: [
+        "Colaboradores com menos de 100 h no mês passado",
+        "Quanto das horas foi não faturável por colaborador?",
+        `Compare as horas por projeto de ${previous} e ${current}`,
+      ],
     },
     {
-      title: "Comparações",
-      items: [`Compare as horas por cliente de ${previous} e ${current}`],
+      title: "Faturado e envio",
+      items: [
+        "Faturado x trabalhado por projeto no mês passado",
+        "Performance por mês nos últimos 6 meses",
+        "Quais projetos não tiveram relatório enviado no mês passado?",
+      ],
     },
   ];
 }
@@ -35,18 +43,22 @@ const CLASSIFIER_LABEL: Record<string, string> = { jev: "Jev", claude: "Claude" 
 
 function Answer({ response }: { response: AnalyticsChatResponse }) {
   const meta = response.metadata;
-  const period = meta.compared_period_label ? `${meta.compared_period_label} até ${meta.period_label}` : meta.period_label;
-  const kpi = response.visualizations.find((v) => v.type === "kpi");
+  // comparação de períodos: "agosto x setembro" ("até" pareceria um intervalo)
+  const period = meta.compared_period_label ? `${meta.compared_period_label} x ${meta.period_label}` : meta.period_label;
+  const kpis = response.visualizations.filter((v): v is KpiVisualization => v.type === "kpi");
   const charts = response.visualizations.filter((v) => v.type !== "kpi");
+  const single = kpis.length === 1 ? kpis[0] : null;
   return (
     <article className="achat-answer">
-      {kpi && <VisualizationRenderer visualization={kpi} />}
-      <p className={kpi ? "achat-reply achat-reply--secondary" : "achat-reply"}>{response.reply}</p>
+      {single && <VisualizationRenderer visualization={single} />}
+      {kpis.length > 1 && <KpiGrid items={kpis} />}
+      <p className={single ? "achat-reply achat-reply--secondary" : "achat-reply"}>{response.reply}</p>
       {charts.map((v, i) => (
         <VisualizationRenderer key={i} visualization={v} />
       ))}
       {response.tables.map((t, i) => (
-        <AnalyticsTableView key={i} table={t} />
+        // tabela aberta quando ela É a resposta: sem gráfico, ou curta
+        <AnalyticsTableView key={i} table={t} defaultOpen={charts.length === 0 || t.rows.length <= 8} />
       ))}
       {(meta.source_label || period) && (
         <dl className="achat-meta">

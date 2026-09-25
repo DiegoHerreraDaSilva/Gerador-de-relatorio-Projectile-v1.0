@@ -11,11 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import management
-from backend.app.analytics import claude_client, query_engine, service
+from backend.app.analytics import claude_client, crossquery, query_engine, service
 from backend.app.api.dependencies import require_session
 from backend.app.integrations import jev
 from backend.app.main import app
 from backend.app.repositories import engineering_hours_repository, report_analytics_repository
+from backend.app.services import management_store
 
 _MANAGER = {"name": "Gerente", "login": "gerente", "email": "g@x"}
 _COORDINATOR = {"name": "Coordenador", "login": "coord", "email": "c@x"}
@@ -76,13 +77,25 @@ def chat(monkeypatch):
     for name in ("interpret", "plan_analysis", "explain", "finalize_analysis", "general_answer"):
         monkeypatch.setattr(claude_client, name, fake_claude(name))
 
-    real_run = query_engine.run
+    real_run, real_execute = query_engine.run, crossquery.execute
 
     def counting_run(*args, **kwargs):
         state["calls"]["engine"] += 1
         return real_run(*args, **kwargs)
 
+    def counting_execute(*args, **kwargs):
+        state["calls"]["engine"] += 1
+        return real_execute(*args, **kwargs)
+
     monkeypatch.setattr(query_engine, "run", counting_run)
+    monkeypatch.setattr(crossquery, "execute", counting_execute)
+    # faturado (amostras de relatório) e status de envio — padrão vazio
+    state["mgmt_doc"] = {"project_kpi_samples": [], "manual_entries": {}}
+    state["send_status"] = []
+    monkeypatch.setattr(management_store, "load_document", lambda: state["mgmt_doc"])
+    monkeypatch.setattr(
+        management, "compute_monthly_kpis", lambda months, **kw: {"project_send_status": state["send_status"]},
+    )
     yield state
     app.dependency_overrides.pop(require_session, None)
 
@@ -123,7 +136,8 @@ def test_horas_por_cliente_agrega_e_monta_grafico_e_tabela(chat):
 
     body = _ask("horas por cliente em setembro").json()
 
-    assert body["tables"][0]["rows"] == [["ACME", 10.0], ["Beta", 3.0]]
+    assert body["tables"][0]["rows"] == [["ACME", 10.0, 76.9], ["Beta", 3.0, 23.1]]
+    assert body["tables"][0]["totals"] == ["Total", 13.0, 100.0]
     viz = body["visualizations"][0]
     assert viz["type"] == "horizontal_bar"
     assert viz["categories"] == ["ACME", "Beta"]
@@ -287,8 +301,10 @@ def test_conversation_id_se_mantem(chat):
 
 def _plan(**overrides):
     return {
-        "analysis": "compare_periods", "metric": "hours_by_client",
-        "period_a_month": "2026-08", "period_b_month": "2026-09", "client": None, "employee": None,
+        "analysis": "compare_periods", "measure": "hours", "group_by": "client",
+        "clients": [], "projects": [], "employees": [], "packages": [], "billing_type": None,
+        "period_a_month": "2026-08", "period_a_month_end": None,
+        "period_b_month": "2026-09", "period_b_month_end": None,
         **overrides,
     }
 
@@ -318,12 +334,20 @@ def test_finalizer_nao_pode_inventar_numero(chat):
     assert body["metadata"]["claude_text_used"] is False
 
 
-def test_plano_com_metrica_fora_da_whitelist_e_rejeitado(chat):
+def test_plano_com_medida_fora_da_whitelist_e_rejeitado(chat):
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _plan(metric="report_count")
+    chat["claude"]["plan_analysis"] = _plan(measure="report_count")
     body = _ask("compare agosto com setembro").json()
-    assert "Não consegui montar essa comparação" in body["reply"]
+    assert "Não consegui montar essa consulta" in body["reply"]
     assert chat["calls"]["engine"] == 0
+
+
+def test_planner_inverteu_os_periodos_e_o_backend_corrige(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _plan(period_a_month="2026-09", period_b_month="2026-08")
+    chat["claude"]["finalize_analysis"] = RuntimeError("fora do ar")
+    body = _ask("compare setembro e agosto").json()
+    assert body["reply"].startswith("De agosto/2026 para setembro/2026")
 
 
 # --- acesso e auditoria -----------------------------------------------------
@@ -369,7 +393,7 @@ def test_intervalo_de_meses_pelo_jev_e_follow_up_mantem_o_intervalo(chat):
     chat["cls"] = _cls("simple_data", "hours_by_client", follow_up=("yes", 0.95))
     body = _ask("e por cliente?", context=first["context"]).json()
     assert body["metadata"]["period_label"] == "agosto/2026 a setembro/2026"
-    assert body["tables"][0]["rows"] == [["ACME", 15.0], ["Beta", 3.0]]
+    assert body["tables"][0]["rows"] == [["ACME", 15.0, 83.3], ["Beta", 3.0, 16.7]]
 
 
 def test_fim_de_intervalo_sem_inicio_e_descartado(chat):
@@ -424,57 +448,65 @@ def test_pergunta_anterior_nao_vai_junto_com_a_mensagem(chat):
 # --- comparar clientes/colaboradores entre si -----------------------------
 
 
-def _items_plan(**overrides):
-    return {
-        "analysis": "compare_items", "metric": "hours_by_client", "period_a_month": None, "period_b_month": None,
-        "client": None, "employee": None, "item_kind": "client", "items": ["ACME", "Beta"],
-        "month": "2026-09", "month_end": None, "relative_period": None, **overrides,
+def _query(**overrides):
+    plan = {
+        "analysis": "query", "measures": ["hours"], "group_by": ["client"],
+        "clients": [], "projects": [], "employees": [], "packages": [], "cost_centers": [], "statuses": [],
+        "billing_type": None, "month": "2026-09", "month_end": None, "relative_period": None, "top_n": None,
+        "sort_by": None, "sort_order": None, "threshold_measure": None, "threshold_op": None,
+        "threshold_value": None, "explain": False,
     }
+    return {**plan, **overrides}
 
 
 def test_compara_clientes_entre_si_no_mesmo_mes(chat):
-    """"compare a ACME e a Beta em setembro" — antes virava setembro x setembro, variação 0."""
+    """"compare a ACME e a Beta em setembro" — consulta cruzada com os dois no filtro."""
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _items_plan()
-    chat["claude"]["finalize_analysis"] = RuntimeError("fora do ar")
+    chat["claude"]["plan_analysis"] = _query(clients=["ACME", "Beta"])
 
     body = _ask("compare as horas da ACME e da Beta em setembro").json()
 
-    assert body["reply"] == "Em setembro/2026: ACME 10 h, Beta 3 h. ACME teve 7 h a mais que Beta."
+    assert body["reply"] == "Em setembro/2026, clientes ACME e Beta: ACME 10 h, Beta 3 h. ACME teve 7 h a mais que Beta."
     assert body["visualizations"][0]["categories"] == ["ACME", "Beta"]
     assert body["visualizations"][0]["series"][0]["data"] == [10.0, 3.0]
     assert body["tables"][0]["rows"] == [["ACME", 10.0, 76.9], ["Beta", 3.0, 23.1]]
     assert body["metadata"]["period_label"] == "setembro/2026"
     assert "compared_period_label" not in body["metadata"]
+    assert chat["calls"]["claude"] == ["plan_analysis"]  # sem explicação pedida, texto sem IA
 
 
 def test_compara_colaboradores_em_intervalo(chat):
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _items_plan(
-        item_kind="employee", items=["Bruno Lima", "Ana Souza"], month="2026-08", month_end="2026-09",
+    chat["claude"]["plan_analysis"] = _query(
+        group_by=["employee"], employees=["Bruno Lima", "Ana Souza"], month="2026-08", month_end="2026-09",
     )
-    chat["claude"]["finalize_analysis"] = RuntimeError("fora do ar")
-
     body = _ask("compare Ana e Bruno de agosto a setembro").json()
-
     assert body["tables"][0]["rows"][0][:2] == ["Ana Souza", 13.0]
     assert body["metadata"]["period_label"] == "agosto/2026 a setembro/2026"
 
 
+def test_item_que_nao_existe_vira_aviso_e_o_resto_responde(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(clients=["ACME", "Inventado Ltda."])
+    body = _ask("compare ACME e Inventado em setembro").json()
+    assert body["tables"][0]["rows"] == [["ACME", 10.0, 100.0]]
+    assert "Não encontrei Inventado Ltda." in body["reply"]
+
+
 @pytest.mark.parametrize("plan", [
     _plan(period_a_month="2026-09", period_b_month="2026-09"),       # mesmo mês dos dois lados
-    _items_plan(items=["ACME", "Inventado Ltda."]),                 # só 1 item existe
-    _items_plan(item_kind=None),
+    _query(measures=["drop table"]),                                 # medida que não existe
+    {"analysis": "executa_sql", "sql": "DROP TABLE reports"},        # análise que não existe
 ])
-def test_plano_de_comparacao_sem_sentido_e_rejeitado(chat, plan):
+def test_plano_sem_sentido_e_rejeitado(chat, plan):
     chat["cls"] = _cls("analysis")
     chat["claude"]["plan_analysis"] = plan
     body = _ask("compare").json()
-    assert "Não consegui montar essa comparação" in body["reply"]
+    assert "Não consegui montar essa consulta" in body["reply"]
     assert chat["calls"]["engine"] == 0
 
 
-# --- anos e janela de 24 meses ------------------------------------------------
+# --- anos e janela de 12 meses ------------------------------------------------
 
 
 def test_ano_fora_da_janela_avisa_em_vez_de_trocar_o_periodo(chat):
@@ -483,22 +515,22 @@ def test_ano_fora_da_janela_avisa_em_vez_de_trocar_o_periodo(chat):
     chat["cls"] = _cls("simple_data", "hours_by_client")
     body = _ask("quantas horas teve em 2008 por cliente").json()
     assert body["reply"] == (
-        "Só tenho dados dos últimos 24 meses (outubro/2024 a setembro/2026), então não consigo responder sobre 2008."
+        "Só tenho dados dos últimos 12 meses (outubro/2025 a setembro/2026), então não consigo responder sobre 2008."
     )
     assert body["visualizations"] == [] and chat["calls"]["engine"] == 0
 
 
 def test_ano_dentro_da_janela_vira_o_ano_inteiro(chat):
     chat["cls"] = _cls("simple_data", "total_hours")
-    body = _ask("quantas horas em 2025?").json()
-    assert body["metadata"]["period_label"] == "janeiro/2025 a dezembro/2025"
+    body = _ask("quantas horas em 2026?").json()
+    assert body["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
 
 
 def test_ano_cortado_pela_janela_avisa_de_onde_comecam_os_dados(chat):
     chat["cls"] = _cls("simple_data", "total_hours")
-    body = _ask("quantas horas em 2024?").json()
-    assert body["metadata"]["period_label"] == "outubro/2024 a dezembro/2024"
-    assert "Só há dados a partir de outubro/2024." in body["reply"]
+    body = _ask("quantas horas em 2025?").json()
+    assert body["metadata"]["period_label"] == "outubro/2025 a dezembro/2025"
+    assert "Só há dados a partir de outubro/2025." in body["reply"]
 
 
 def test_pergunta_sem_periodo_diz_que_usou_12_meses(chat):
@@ -530,8 +562,8 @@ def test_explicacao_recebe_acumulado_e_resto_ja_calculados(chat, monkeypatch):
 
     body = _ask("o que isso significa?").json()
 
-    assert sent["top_3"] == {"hours": 95.0, "share_percent": 95.0}
-    assert sent["others_after_top_3"] == {"count": 1, "hours": 5.0, "share_percent": 5.0}
+    assert sent["top_3"] == {"value": 95.0, "share_percent": 95.0}
+    assert sent["others_after_top_3"] == {"count": 1, "value": 5.0, "share_percent": 5.0}
     assert [r["cumulative_share_percent"] for r in sent["rows"]] == [50.0, 80.0, 95.0, 100.0]
     assert body["metadata"]["claude_text_used"] is True
 
@@ -547,3 +579,178 @@ def test_ano_com_nome_de_mes_respeita_o_mes(chat):
     chat["cls"] = _cls("simple_data", "total_hours", "2026-03")
     body = _ask("horas em março de 2026").json()
     assert body["metadata"]["period_label"] == "março/2026"
+
+
+# --- consulta cruzada completa ---------------------------------------------------
+
+
+def test_cruzamento_colaborador_por_cliente_gera_empilhado_e_tabela_cruzada(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["client", "employee"], month=None, relative_period="last_3_months")
+
+    body = _ask("horas de cada colaborador por cliente nos últimos 3 meses").json()
+
+    viz = body["visualizations"][0]
+    assert viz["type"] == "horizontal_bar" and viz["stacked"] is True
+    assert viz["categories"] == ["ACME", "Beta"]
+    assert {s["name"]: s["data"] for s in viz["series"]} == {"Ana Souza": [13.0, 0.0], "Bruno Lima": [2.0, 3.0]}
+    table = body["tables"][0]
+    assert table["columns"] == ["Cliente", "Ana Souza", "Bruno Lima", "Total"]
+    assert table["rows"] == [["ACME", 13.0, 2.0, 15.0], ["Beta", 0.0, 3.0, 3.0]]
+    assert table["totals"] == ["Total", 13.0, 5.0, 18.0]
+    assert body["context"]["last_spec"]["group_by"] == ["client", "employee"]
+
+
+def test_corte_por_valor_lista_so_quem_passa(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"], threshold_measure="hours",
+                                             threshold_op="lt", threshold_value=6)
+    body = _ask("colaboradores com menos de 6 h em setembro").json()
+    # % do total continua sobre o total do período (13 h), não só de quem passou no corte
+    assert body["tables"][0]["rows"] == [["Bruno Lima", 5.0, 38.5]]
+    assert body["reply"] == "Com horas < 6 h: 1 colaborador em setembro/2026. Maiores: Bruno Lima (5 h)."
+
+
+def test_follow_up_de_cruzamento_volta_pro_planner_com_a_consulta_anterior(chat):
+    chat["cls"] = _cls("simple_data", "none", "2026-08", follow_up=("yes", 0.95))
+    chat["claude"]["plan_analysis"] = _query(group_by=["client", "employee"], month="2026-08")
+    context = {"last_spec": {"measures": ["hours"], "group_by": ["client", "employee"], "month": "2026-09"}}
+
+    body = _ask("e em agosto?", context=context).json()
+
+    assert body["route"] == "analysis"
+    assert chat["calls"]["claude"] == ["plan_analysis"]
+    assert body["metadata"]["period_label"] == "agosto/2026"
+
+
+def test_explicacao_pedida_no_planner_usa_o_claude(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(explain=True)
+    chat["claude"]["explain"] = "A ACME concentra 76,9% das horas de setembro (10 h)."
+    body = _ask("o que significam as horas por cliente em setembro?").json()
+    assert body["reply"] == chat["claude"]["explain"]
+    assert body["metadata"]["claude_text_used"] is True
+
+
+def test_jev_recebe_a_lista_de_projetos(chat):
+    chat["cls"] = _cls("simple_data", "total_hours", project=("Projeto Dois", 0.97))
+    body = _ask("horas do Projeto Dois").json()
+    assert set(chat["last_cls_questions"]["project"]["criteria"]) == {"Projeto Um", "Projeto Dois", "none"}
+    assert body["reply"].startswith("Foram apontadas 3 h de outubro/2025 a setembro/2026, projeto Projeto Dois.")
+
+
+# --- faturado e status de envio ---------------------------------------------------
+
+
+def _sample(project_id, month, hours, duplicate=False):
+    return {"project_id": project_id, "month": month, "billed_hours": hours, "is_duplicate": duplicate}
+
+
+def test_performance_por_projeto_pelo_atalho_do_jev(chat):
+    chat["mgmt_doc"]["project_kpi_samples"] = [_sample("P1", "2026-09", 9.0), _sample("P1", "2026-09", 9.0, True)]
+    chat["cls"] = _cls("simple_data", "performance_by_project", "2026-09")
+
+    body = _ask("performance por projeto em setembro").json()
+
+    assert body["metadata"]["source"] == "billing"
+    rows = {row[0]: row[1:] for row in body["tables"][0]["rows"]}
+    # duplicada não soma de novo; projeto sem relatório não vira -100%
+    assert rows["Projeto Um"][:4] == [10.0, 9.0, -1.0, -10.0]
+    assert rows["Projeto Dois"][:4] == [3.0, None, None, None]
+    assert "não têm faturado informado" in body["reply"]
+
+
+def test_faturado_nao_tem_recorte_por_colaborador(chat):
+    chat["cls"] = _cls("simple_data", "billing_summary", "2026-09", employee=("Ana Souza", 0.97))
+    body = _ask("faturado da Ana em setembro").json()
+    assert "não tem recorte por colaborador" in body["reply"]
+
+
+def test_status_de_envio_por_projeto(chat):
+    chat["send_status"] = [
+        {"project_id": "P1", "project_name": "Projeto Um", "client": "ACME", "month": "2026-09", "status": "sent"},
+        {"project_id": "P2", "project_name": "Projeto Dois", "client": "Beta", "month": "2026-09", "status": "none"},
+    ]
+    chat["cls"] = _cls("simple_data", "send_status_by_project", "2026-09")
+
+    body = _ask("quais projetos enviaram relatório em setembro?").json()
+
+    assert body["metadata"]["source"] == "send_status"
+    table = body["tables"][0]
+    assert table["columns"] == ["Projeto", "Enviado", "Não enviado", "Total"]
+    assert sorted(table["rows"]) == [["Projeto Dois", 0.0, 1.0, 1.0], ["Projeto Um", 1.0, 0.0, 1.0]]
+
+
+# --- escalonamento pro planner (calibração com perguntas reais) ---------------------------
+
+
+def test_atalho_do_jev_que_perderia_a_quebra_vai_pro_planner(chat):
+    """"pessoas EM CADA CLIENTE" — o Jev real escolhia só a contagem de pessoas."""
+    chat["cls"] = _cls("simple_data", "employee_count", "2026-09")
+    chat["claude"]["plan_analysis"] = _query(measures=["employees"], group_by=["client"])
+    body = _ask("quantas pessoas trabalharam em cada cliente em setembro?").json()
+    assert body["route"] == "analysis"
+    assert body["tables"][0]["rows"] == [["ACME", 2], ["Beta", 1]]
+
+
+def test_pergunta_de_dados_sem_atalho_vai_pro_planner(chat):
+    """"em quais projetos o Lucca trabalhou" — sem intent simples; antes caía em
+    "não identifiquei qual número você quer"."""
+    chat["cls"] = _cls("simple_data", "none", "2026-09")
+    chat["claude"]["plan_analysis"] = _query(group_by=["project"], employees=["Ana Souza"])
+    body = _ask("em quais projetos a Ana trabalhou em setembro?").json()
+    assert body["route"] == "analysis" and body["tables"][0]["rows"][0][0] == "Projeto Um"
+
+
+def test_planner_sem_periodo_usa_o_periodo_que_o_jev_achou(chat):
+    chat["cls"] = _cls("analysis", "none", "last_3_months")
+    chat["claude"]["plan_analysis"] = _query(month=None)
+    body = _ask("horas por cliente nos últimos 3 meses x algo").json()
+    assert body["metadata"]["period_label"] == "julho/2026 a setembro/2026"
+
+
+def test_pergunta_nova_nao_manda_a_anterior_pro_planner(chat):
+    seen = {}
+
+    def plan(usage, message, previous, options):
+        usage.calls += 1
+        seen["previous"] = previous
+        return _query()
+
+    import backend.app.analytics.claude_client as cc
+    chat["cls"] = _cls("analysis", follow_up=("no", 0.99))
+    context = {"last_intent": "hours_by_client", "last_filters": {"client": "Beta"}}
+    original = cc.plan_analysis
+    cc.plan_analysis = plan
+    try:
+        _ask("status de envio de setembro por projeto x cliente", context=context)
+    finally:
+        cc.plan_analysis = original
+    assert seen["previous"] is None
+
+
+def test_periodo_que_nao_esta_no_texto_e_ignorado(chat):
+    """O Claude copiava o período da pergunta anterior numa pergunta nova
+    sem período — sem período no texto, vale o padrão (com aviso)."""
+    chat["cls"] = None
+    chat["claude"]["interpret"] = {
+        "route": "simple_data", "intent": "hours_by_client", "month": None, "month_end": None,
+        "relative_period": "last_3_months", "client": None, "employee": None, "project": None, "follow_up": False,
+    }
+    body = _ask("horas por cliente", context={"last_intent": "total_hours", "last_filters": {"relative": "last_3_months"}}).json()
+    assert body["metadata"]["period_label"] == "outubro/2025 a setembro/2026"
+    assert "não citou período" in body["reply"]
+
+
+def test_no_ano_vira_o_ano_corrente(chat):
+    chat["cls"] = _cls("simple_data", "total_hours")
+    body = _ask("quantas horas tivemos no ano?").json()
+    assert body["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
+
+
+def test_ano_citado_vale_tambem_no_planner(chat):
+    # o Jev real marcou "último ano" (last_12_months) pra "no ano"
+    chat["cls"] = _cls("analysis", "none", "last_12_months")
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"], month=None, relative_period="last_12_months", top_n=10)
+    body = _ask("ranking dos 10 colaboradores com mais horas no ano").json()
+    assert body["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"

@@ -98,6 +98,19 @@ Também restrito a gerentes. Permite:
 - consultar mensagens ignoradas pela automação;
 - cadastrar manualmente uma amostra.
 
+### Chat analítico
+
+Só gerentes. Perguntas em português sobre os **últimos 12 meses** (a mesma janela do Painel de Gerência), respondidas com texto, gráfico e tabela, sempre com a fonte e o período usados. Cruza:
+
+- **horas apontadas** (engenharia CAD+CAE) por cliente, projeto, colaborador, pacote, mês, centro de custo e faturável/não faturável — com contagem de pessoas, projetos e dias com apontamento, média por colaborador e % não faturável;
+- **faturado x trabalhado** e performance por cliente, projeto e mês (mesma regra do Painel; não existe faturado por colaborador);
+- **status de envio** dos relatórios por cliente, projeto e mês (mesma regra do Diagnóstico);
+- **relatórios gerados** (histórico do `reports_db`).
+
+Exemplos: "horas de cada colaborador por projeto no mês passado", "colaboradores com menos de 100 h em agosto", "top 5 projetos da Mercedes em 2026", "faturado x trabalhado por projeto em agosto", "quais projetos não tiveram relatório enviado em agosto?", "compare as horas por projeto de julho e agosto", "e em julho?" (continua a pergunta anterior).
+
+Toda tabela tem ordenação por coluna, linha de total e botão **Baixar Excel**. O chat nunca executa consulta livre: a IA só escolhe entre medidas, dimensões e valores de um catálogo fixo, e todo número é calculado pelo backend — texto do Claude com número que não veio dos dados é descartado.
+
 ## Histórico de relatórios (reports_db)
 
 A cada `POST /generate` ou `POST /send-report`, a aplicação grava um snapshot imutável do relatório gerado (cabeçalho, grupos e atividades exatamente como recebidos), cria uma nova versão numerada do relatório correspondente e registra o resultado da geração — num segundo banco MySQL próprio, `reports_db`, totalmente separado do Projectile (roda como container Docker, ver [Começando](#começando)).
@@ -393,7 +406,7 @@ Acesse `http://localhost:8011`.
 | `COORDINATOR_LOGINS` | acesso de coordenador | lista CSV; sem fallback (vazia = nenhum coordenador) |
 | `TRANSLATE_ALLOWED_LOGINS` | tradução | lista CSV; fallback `dherrera` |
 | `ANTHROPIC_API_KEY` | chat de edição, tradução e chat analítico | sem default |
-| `ANTHROPIC_MODEL` | chat de edição, tradução e chat analítico | `claude-sonnet-5` |
+| `ANTHROPIC_MODEL` | chat de edição e tradução | `claude-sonnet-5` |
 | `OPENROUTER_API_KEY` | Jev pelo OpenRouter (`openrouter.ai/api/v1/systemone`) | sem default; tem prioridade sobre `TYPESAFE_API_KEY`. Sem nenhuma das duas, o Claude classifica |
 | `TYPESAFE_API_KEY` | Jev, classificador do chat analítico | sem default; sem ela o Claude classifica (1 chamada a mais por pergunta). Com ela, a pergunta e as listas de clientes/colaboradores vão pra TypeSafe AI |
 | `JEV_MODEL` | Jev | `jev-latest` |
@@ -471,7 +484,8 @@ Todas exigem gerente.
 | Método e rota | Função |
 |---|---|
 | `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
-| `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consultas fixas (nunca SQL gerado por IA); Jev (TypeSafe AI) classifica e o Claude só explica/planeja |
+| `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consulta cruzada sobre um catálogo fixo (nunca SQL gerado por IA); Jev (TypeSafe AI) classifica e o Claude só planeja/explica |
+| `POST /analytics/chat/export` | tabela já exibida no chat → `.xlsx` (não consulta nada) |
 | `GET /management/clients-with-hours` | clientes ativos no mês/período |
 | `GET /management/client-projects` | projetos ativos de um cliente |
 | `GET /management/kpis` | KPIs e filtros gerenciais |
