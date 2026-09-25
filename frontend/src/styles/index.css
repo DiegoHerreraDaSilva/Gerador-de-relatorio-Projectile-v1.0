@@ -3323,16 +3323,31 @@
   .history-panel > .page-header,
   .analytics-panel > .page-header { margin-bottom: 22px; }
 
-  .history-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
-  .history-filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
-  .history-filter-field label {
-    font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;
+  /* busca geral: um campo só, ícone à esquerda e "limpar" à direita, dentro
+     do card. O foco acende a borda do campo inteiro (não só o <input>). */
+  .history-search { position: relative; display: flex; align-items: center; padding: 12px 14px; }
+  .history-search-icon { position: absolute; left: 28px; color: var(--text-muted); pointer-events: none; }
+  .history-search input {
+    flex: 1; min-width: 0;
+    padding: 10px 40px 10px 40px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font: inherit;
   }
-  .history-filter-field input {
-    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
-    background: var(--surface-2); color: var(--text);
+  .history-search input::placeholder { color: var(--text-muted); }
+  .history-search input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--ring);
   }
-  .history-filter-field input:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
+  .history-search:focus-within .history-search-icon { color: var(--accent-hi); }
+  .history-search-clear {
+    position: absolute; right: 22px;
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px; padding: 0; min-height: 0;
+    border: none; border-radius: 7px; background: transparent; color: var(--text-muted);
+    cursor: pointer;
+  }
+  .history-search-clear:hover { background: var(--surface); color: var(--text); }
+  .history-search-clear:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
 
   .history-table-wrap .kpi-table { width: 100%; }
   .history-table-wrap .kpi-table th,

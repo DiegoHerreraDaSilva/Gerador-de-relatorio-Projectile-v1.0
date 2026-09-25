@@ -29,13 +29,15 @@ def _client_for(user: dict, monkeypatch) -> TestClient:
     return TestClient(app)
 
 
-def _generate_payload(report_number: str) -> dict:
+def _generate_payload(
+    report_number: str, project_name: str = "Projeto Histórico", month_label: str = "Julho/2026",
+) -> dict:
     return {
         "packages": [
             {
                 "header": {
-                    "project_code": report_number, "project_name": "Projeto Histórico",
-                    "location_date": "São Paulo, 01/01/2026", "month_label": "Julho/2026",
+                    "project_code": report_number, "project_name": project_name,
+                    "location_date": "São Paulo, 01/01/2026", "month_label": month_label,
                     "signer1_name": "Fulano", "signer1_company": "Schwaben Engineering",
                     "signer2_name": "Beltrano", "signer2_company": "Cliente Teste",
                 },
@@ -143,3 +145,37 @@ def test_gerente_ve_relatorio_de_outra_pessoa(reports_db_engine, monkeypatch):
     with manager_client:
         response = manager_client.get(f"/reports/{report_id}")
         assert response.status_code == 200
+
+
+def test_busca_geral_por_numero_projeto_competencia_e_criado_por(reports_db_engine, monkeypatch):
+    client = _client_for(_OWNER, monkeypatch)
+    with client:
+        client.post("/generate", json=_generate_payload("SE.BUSCA.001", "Mercedes Accelo", "Março/2026"))
+        client.post("/generate", json=_generate_payload("SE.BUSCA.002", "Lauer Fundição", "Abril/2026"))
+
+        def numbers(q: str) -> list[str]:
+            response = client.get("/reports", params={"q": q, "page_size": 100})
+            assert response.status_code == 200
+            return sorted(r["report_number"] for r in response.json()["items"] if r["report_number"].startswith("SE.BUSCA"))
+
+        assert numbers("se.busca.002") == ["SE.BUSCA.002"]          # número, sem diferenciar maiúscula
+        assert numbers("accelo") == ["SE.BUSCA.001"]               # projeto
+        assert numbers("Abril/2026") == ["SE.BUSCA.002"]           # competência
+        assert numbers("Diego Herrera") == ["SE.BUSCA.001", "SE.BUSCA.002"]  # criado por (nome)
+        assert numbers("dherrera") == ["SE.BUSCA.001", "SE.BUSCA.002"]       # criado por (login)
+        assert numbers("março mercedes") == ["SE.BUSCA.001"]       # cada palavra em alguma coluna
+        assert numbers("março lauer") == []
+        assert numbers("100%") == []                               # % é literal, não curinga
+
+
+def test_busca_de_nao_gerente_fica_nos_proprios_relatorios(reports_db_engine, monkeypatch):
+    owner_client = _client_for(_OWNER, monkeypatch)
+    with owner_client:
+        owner_client.post("/generate", json=_generate_payload("SE.BUSCA.PRIVADO.001"))
+    app.dependency_overrides.pop(require_session, None)
+
+    other_client = _client_for(_OTHER_NON_MANAGER, monkeypatch)
+    with other_client:
+        response = other_client.get("/reports", params={"q": "SE.BUSCA.PRIVADO.001"})
+        assert response.status_code == 200
+        assert response.json()["items"] == []

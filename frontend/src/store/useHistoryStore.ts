@@ -96,7 +96,13 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
-export type HistoryFilters = { reportNumber: string; competence: string; status: string };
+/** `search` = busca geral (Número, Projeto, Competência e Criado por),
+ * feita no backend (`GET /reports?q=`) porque a lista é paginada lá. */
+export type HistoryFilters = { search: string; status: string };
+
+// só a resposta da busca mais recente vale: digitando rápido, uma busca
+// antiga que volte depois da nova não pode sobrescrever o resultado
+let latestReportsRequest = 0;
 
 interface HistoryState {
   reports: ReportSummary[];
@@ -139,7 +145,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   loading: false,
   error: "",
 
-  filters: { reportNumber: "", competence: "", status: "" },
+  filters: { search: "", status: "" },
   setFilter: (key, value) => set((s) => ({ filters: { ...s.filters, [key]: value } })),
 
   selectedReportId: null,
@@ -158,18 +164,20 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   loadReports: async (page) => {
     const targetPage = page ?? get().page;
     set({ loading: true, error: "" });
-    const { reportNumber, competence, status } = get().filters;
+    const { search, status } = get().filters;
     const params = new URLSearchParams({ page: String(targetPage), page_size: String(get().pageSize) });
-    if (reportNumber.trim()) params.set("report_number", reportNumber.trim());
-    if (competence.trim()) params.set("competence", competence.trim());
+    if (search.trim()) params.set("q", search.trim());
     if (status) params.set("status", status);
+    const request = ++latestReportsRequest;
     try {
       const data = await fetchJson<Paginated<ReportSummary>>(`/reports?${params.toString()}`);
+      if (request !== latestReportsRequest) return;
       set({ reports: data.items, page: data.page, total: data.total });
     } catch {
+      if (request !== latestReportsRequest) return;
       set({ error: "Não consegui carregar o histórico de relatórios. Tenta de novo em instantes." });
     } finally {
-      set({ loading: false });
+      if (request === latestReportsRequest) set({ loading: false });
     }
   },
 

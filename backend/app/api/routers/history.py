@@ -51,8 +51,12 @@ async def list_reports_endpoint(
     competence: str | None = None,
     status: str | None = None,
     created_by: str | None = None,
+    q: str | None = Query(None, max_length=200),
     _user: dict = Depends(require_session),
 ):
+    """`q` = busca geral por Número, Projeto, Competência e Criado por. Pra
+    quem não é gerente ela roda DENTRO dos próprios relatórios — nunca amplia
+    o recorte de `created_by`."""
     is_mgr = _user["login"].lower() in management.MANAGEMENT_PANEL_LOGINS
     # nunca aceita created_by de quem não é gerente — mesma regra de
     # /parse-db (não confiar em identidade vinda do cliente pra consultar
@@ -61,7 +65,7 @@ async def list_reports_endpoint(
     try:
         return report_queries.list_reports(
             page=page, page_size=page_size, report_number=report_number,
-            competence=competence, status=status, created_by=effective_created_by,
+            competence=competence, status=status, created_by=effective_created_by, search=q,
         )
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)

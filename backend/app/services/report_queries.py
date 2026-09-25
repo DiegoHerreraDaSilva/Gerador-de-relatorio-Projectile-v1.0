@@ -8,7 +8,7 @@ exceção sobe pra quem chama decidir o HTTP status (ver `main.py`,
 `_log_and_generic_error`)."""
 from __future__ import annotations
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, or_, select
 
 from ..db.reports_db import get_engine
 from ..db.reports_schema import (
@@ -22,6 +22,33 @@ from ..db.reports_schema import (
 )
 
 MAX_PAGE_SIZE = 100
+# teto da busca geral: termos demais só viram uma consulta cara sem ganho
+MAX_SEARCH_TERMS = 8
+
+# colunas que a busca geral do Histórico cobre — as mesmas que a tabela
+# mostra: Número, Projeto, Competência (com o escopo/pacote, que aparece
+# junto dela) e Criado por (nome e login)
+_SEARCH_COLUMNS = (
+    reports.c.report_number,
+    reports.c.project_name_snapshot,
+    reports.c.competence_label,
+    reports.c.scope,
+    reports.c.created_by_name_snapshot,
+    reports.c.created_by,
+)
+
+
+def _search_condition(search: str):
+    """Cada palavra precisa aparecer em ALGUMA das colunas ("julho mercedes"
+    acha o relatório de julho do projeto Mercedes). `%`/`_` digitados são
+    literais (`autoescape`), e a comparação ignora maiúsculas."""
+    terms = search.split()[:MAX_SEARCH_TERMS]
+    if not terms:
+        return None
+    return and_(*(
+        or_(*(func.lower(column).contains(term.lower(), autoescape=True) for column in _SEARCH_COLUMNS))
+        for term in terms
+    ))
 
 
 def _paginate(conn, base_query, order_by, page: int, page_size: int) -> tuple[list[dict], int]:
@@ -36,8 +63,11 @@ def list_reports(
     *, page: int, page_size: int,
     report_number: str | None = None, competence: str | None = None,
     status: str | None = None, created_by: str | None = None,
+    search: str | None = None,
 ) -> dict:
     conditions = []
+    if search and (condition := _search_condition(search)) is not None:
+        conditions.append(condition)
     if report_number:
         conditions.append(reports.c.report_number.ilike(f"%{report_number}%"))
     if competence:

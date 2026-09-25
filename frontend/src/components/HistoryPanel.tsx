@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Download, History, X } from "lucide-react";
+import { Download, History, Search, X } from "lucide-react";
 import { PageHeader } from "./PageHeader";
 import { useHistoryStore } from "../store/useHistoryStore";
 import {
@@ -50,6 +50,20 @@ export function HistoryPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // busca enquanto digita, 300 ms depois da última tecla; a 1ª renderização
+  // não busca de novo (o efeito acima já carregou a lista)
+  const searchMounted = useRef(false);
+  useEffect(() => {
+    if (!searchMounted.current) {
+      searchMounted.current = true;
+      return;
+    }
+    const timer = window.setTimeout(() => loadReports(1), 300);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search]);
+  const searchTerm = filters.search.trim();
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -61,35 +75,37 @@ export function HistoryPanel() {
       />
 
       <form
-        className="card history-filters"
+        className="card history-search"
+        role="search"
         onSubmit={(e) => {
           e.preventDefault();
           loadReports(1);
         }}
       >
-        <div className="history-filter-field">
-          <label htmlFor="history-filter-number">Número do relatório</label>
-          <input
-            id="history-filter-number"
-            type="text"
-            autoComplete="off"
-            value={filters.reportNumber}
-            onChange={(e) => setFilter("reportNumber", e.target.value)}
-            placeholder="SE.01.002"
-          />
-        </div>
-        <div className="history-filter-field">
-          <label htmlFor="history-filter-competence">Competência</label>
-          <input
-            id="history-filter-competence"
-            type="text"
-            autoComplete="off"
-            value={filters.competence}
-            onChange={(e) => setFilter("competence", e.target.value)}
-            placeholder="Julho/2026"
-          />
-        </div>
-        <button type="submit" className="primary">Filtrar</button>
+        <Search size={17} strokeWidth={2} className="history-search-icon" aria-hidden="true" />
+        <input
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Buscar relatórios por número, projeto, competência ou quem criou"
+          placeholder="Buscar por número, projeto, competência ou quem criou"
+          value={filters.search}
+          onChange={(e) => setFilter("search", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && filters.search) setFilter("search", "");
+          }}
+        />
+        {filters.search && (
+          <button
+            type="button"
+            className="history-search-clear"
+            aria-label="Limpar busca"
+            title="Limpar busca"
+            onClick={() => setFilter("search", "")}
+          >
+            <X size={15} strokeWidth={2} />
+          </button>
+        )}
       </form>
 
       {error && (
@@ -100,7 +116,11 @@ export function HistoryPanel() {
 
       <div className="card history-table-wrap">
         {loading && <p className="muted">Carregando...</p>}
-        {!loading && reports.length === 0 && <p className="muted">Nenhum relatório encontrado.</p>}
+        {!loading && reports.length === 0 && (
+          <p className="muted">
+            {searchTerm ? `Nenhum relatório encontrado para "${searchTerm}".` : "Nenhum relatório encontrado."}
+          </p>
+        )}
         {!loading && reports.length > 0 && (
           <table className="kpi-table history-table">
             <thead>
