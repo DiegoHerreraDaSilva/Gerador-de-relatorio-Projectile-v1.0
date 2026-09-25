@@ -326,7 +326,6 @@ docker-compose.yml         # container reports-mysql
 alembic.ini                # script_location = backend/alembic
 README.md
 CLAUDE.md
-PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md
 ```
 
 ## Começando
@@ -577,7 +576,3 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 - **Painel de Gerência/Diagnóstico responde 502:** esses dados vivem no `reports_db` e, diferente do histórico, não têm fail-open — confira se o container `reports-mysql` está de pé (`docker compose ps`) e a senha no keyring `reports_mysql`.
 - **Importação do JSON de gerência recusa com "já tem dados de gerência sem registro de importação":** o backend novo subiu antes da importação e o polling de e-mail recriou as amostras a partir dos e-mails — **sem** as correções manuais feitas no Diagnóstico, que só o JSON tem. Rode `python -m backend.app.tools.import_management_json --replace-existing`: o JSON prevalece e o que estava no banco fica guardado em `mgmt_meta`.
 - **`alembic upgrade head` falha com "tabela já existe":** o schema já tem tabelas de uma tentativa anterior sem `alembic_version` atualizada — confira `SELECT * FROM alembic_version` no `reports_db` antes de rodar de novo.
-
-## Documentação adicional
-
-O arquivo [PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md](PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md) é o plano de origem do chat analítico; o estado implementado está na seção "Chat analítico" do `CLAUDE.md`.
