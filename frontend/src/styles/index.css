@@ -177,8 +177,9 @@
   @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 
   .sidebar-head { display: flex; align-items: flex-start; gap: 10px; padding: 4px 2px 14px; }
-  .sidebar-brand { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin-right: auto; }
-  .sidebar-logo { display: block; width: min(190px, 100%); height: auto; max-height: 54px; object-fit: contain; object-position: left center; flex: none; }
+  /* logo e nome do app centralizados no espaço ao lado do botão de recolher */
+  .sidebar-brand { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; text-align: center; }
+  .sidebar-logo { display: block; width: min(190px, 100%); height: auto; max-height: 54px; object-fit: contain; object-position: center; flex: none; }
   .sidebar-logo-mark {
     display: inline-flex; align-items: center; justify-content: center;
     width: 38px; height: 38px; flex: none;
@@ -189,7 +190,7 @@
     font-family: var(--font-mono);
     font-size: 1rem; font-weight: 800;
   }
-  .sidebar-app-name { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar-app-name { max-width: 100%; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sidebar-collapse-btn, .sidebar-drawer-close {
     flex: none;
     display: inline-flex; align-items: center; justify-content: center;
