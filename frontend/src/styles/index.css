@@ -3565,16 +3565,37 @@
   .achat-hbar-fill.is-negative { background: var(--bad); }
   .achat-hbar-value { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
 
-  .achat-vbars { display: flex; align-items: flex-end; gap: 18px; height: 200px; }
-  .achat-vbar-col { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-  .achat-vbar-track { flex: 1; width: min(100%, 64px); display: flex; align-items: flex-end; }
-  .achat-vbar-fill { width: 100%; border-radius: 6px 6px 2px 2px; background: var(--accent); }
-  .achat-vbar-fill.is-negative { background: var(--bad); }
-  .achat-vbar-value { font-size: 0.8rem; color: var(--text); font-variant-numeric: tabular-nums; }
-  .achat-vbar-label { font-size: 0.78rem; color: var(--text-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* barras verticais: eixo Y à esquerda (marcas posicionadas pela mesma
+     fração do domínio que a barra usa — por isso grade e barra batem), grade
+     atrás, base no zero (negativo desce) e rótulos das categorias embaixo */
+  .achat-vchart { display: flex; gap: 8px; }
+  .achat-vaxis { position: relative; flex: 0 0 auto; min-width: 32px; height: 180px; margin-top: 22px; }
+  .achat-vaxis-tick {
+    position: absolute; right: 0; transform: translateY(50%);
+    font-size: 11px; line-height: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .achat-vaxis-unit { position: absolute; right: 0; top: -20px; font-size: 11px; color: var(--text-muted); }
+  .achat-vbody { flex: 1; min-width: 0; }
+  .achat-vplot { position: relative; height: 180px; margin-top: 22px; }
+  .achat-vplot.has-negative { margin-bottom: 20px; }
+  .achat-vgrid { position: absolute; left: 0; right: 0; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); }
+  .achat-vgrid.is-zero { border-top: 1px solid var(--border); }
+  .achat-vbars { position: absolute; inset: 0; display: flex; gap: 18px; padding: 0 8px; }
+  .achat-vbar-col { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; gap: 3px; }
+  .achat-vbar-slot { position: relative; flex: 1 1 0; max-width: 64px; height: 100%; }
+  .achat-vbar-fill { position: absolute; left: 0; right: 0; border-radius: 6px 6px 2px 2px; background: var(--accent); }
+  .achat-vbar-fill.is-negative { border-radius: 2px 2px 6px 6px; background: var(--bad); }
+  .achat-vbar-value {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    font-size: 0.78rem; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .achat-vlabels { display: flex; gap: 18px; padding: 6px 8px 0; }
+  .achat-vbar-label { flex: 1 1 0; min-width: 0; text-align: center; font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .achat-line { width: 100%; height: auto; display: block; }
   .achat-line-axis { stroke: var(--border); stroke-width: 1; }
+  .achat-line-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
+  .achat-line-tick { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
   .achat-line-path { fill: none; stroke: var(--accent-hi); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
   .achat-line-dot { fill: var(--accent-hi); stroke: var(--surface-2); stroke-width: 2; }
   .achat-line-label { fill: var(--text-muted); font-size: 11px; }
@@ -3625,7 +3646,6 @@
   .achat-hbar-stack { position: absolute; inset: 0; display: flex; }
   .achat-hbar-seg { height: 100%; background: var(--achat-c); }
   .achat-hbar-seg + .achat-hbar-seg { box-shadow: inset 1px 0 0 var(--surface-2); }
-  .achat-vbar-track { gap: 3px; }
   .achat-vbar-fill[class*="achat-s"] { background: var(--achat-c); }
 
   /* linha multissérie: a série define a cor do traço e dos pontos */

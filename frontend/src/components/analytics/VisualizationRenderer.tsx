@@ -124,30 +124,95 @@ function HorizontalBars({ v }: { v: ChartVisualization }) {
   );
 }
 
+// --- eixo Y --------------------------------------------------------------------
+
+/** Marcas "redondas" do eixo Y (passo 1, 2, 2,5 ou 5 × 10ⁿ) cobrindo
+ * [min, max] — o zero sempre entra, pra altura da barra/linha não enganar.
+ * `integer` (contagens: pessoas, projetos, dias) não gera marca quebrada. */
+export function niceTicks(min: number, max: number, integer = false, target = 4): number[] {
+  let lo = Math.min(min, 0);
+  let hi = Math.max(max, 0);
+  if (lo === hi) hi = lo + 1; // tudo zero: eixo 0..1 em vez de dividir por zero
+  const raw = (hi - lo) / target;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const normalized = raw / magnitude;
+  let step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
+  if (integer) step = Math.max(1, Math.round(step));
+  lo = Math.floor(lo / step) * step;
+  hi = Math.ceil(hi / step) * step;
+  const ticks: number[] = [];
+  for (let value = lo; value <= hi + step / 2; value += step) ticks.push(Number(value.toFixed(10)));
+  return ticks;
+}
+
+/** rótulo curto de marca: "1.500", "2,5", "-10" (a unidade aparece uma vez, no topo do eixo) */
+const tickLabel = (value: number) => value.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
+function domainOf(v: ChartVisualization, values: number[]) {
+  const ticks = niceTicks(Math.min(...values, 0), Math.max(...values, 0), v.unit === "");
+  const min = ticks[0];
+  const max = ticks[ticks.length - 1];
+  // posição de 0 (base) a 1 (topo) de um valor dentro do domínio
+  const at = (value: number) => (value - min) / (max - min || 1);
+  return { ticks, at };
+}
+
 function VerticalBars({ v }: { v: ChartVisualization }) {
-  const max = Math.max(...v.series.flatMap((s) => s.data.map((d) => Math.abs(d ?? 0))), 0) || 1;
+  const values = v.series.flatMap((s) => s.data.filter((d): d is number => d !== null && d !== undefined));
+  const { ticks, at } = domainOf(v, values);
+  const zero = at(0);
+  const hasNegative = values.some((d) => d < 0);
+  const multi = v.series.length > 1;
+  const pct = (fraction: number) => `${fraction * 100}%`;
   return (
     <>
-      <div className="achat-vbars" role="img" aria-label={`${v.title}. ${summary(v)}`}>
-        {v.categories.map((category, i) => (
-          <div className="achat-vbar-col" key={category}>
-            <span className="achat-vbar-value">{v.series.map((s) => fmt(s.data[i], v.unit)).join(" · ")}</span>
-            <span className="achat-vbar-track">
-              {v.series.map((s, si) => {
-                const value = s.data[i] ?? 0;
-                return (
-                  <span
-                    key={s.name}
-                    className={`achat-vbar-fill ${v.series.length > 1 ? seriesClass(s, si) : ""} ${value < 0 ? "is-negative" : ""}`}
-                    style={{ height: `${Math.max((Math.abs(value) / max) * 100, value === 0 ? 0 : 2)}%` }}
-                    title={`${s.name}: ${fmt(s.data[i], v.unit)}`}
-                  />
-                );
-              })}
-            </span>
-            <span className="achat-vbar-label" title={category}>{category}</span>
+      <div className="achat-vchart" role="img" aria-label={`${v.title}. ${summary(v)}`}>
+        <div className="achat-vaxis" aria-hidden="true">
+          {v.unit && <span className="achat-vaxis-unit">{v.unit}</span>}
+          {ticks.map((t) => (
+            <span key={t} className="achat-vaxis-tick" style={{ bottom: pct(at(t)) }}>{tickLabel(t)}</span>
+          ))}
+        </div>
+        <div className="achat-vbody">
+          <div className={`achat-vplot ${hasNegative ? "has-negative" : ""}`}>
+            {ticks.map((t) => (
+              <span key={t} className={`achat-vgrid ${t === 0 ? "is-zero" : ""}`} style={{ bottom: pct(at(t)) }} />
+            ))}
+            <div className="achat-vbars">
+              {v.categories.map((category, i) => (
+                <div className="achat-vbar-col" key={category}>
+                  {v.series.map((s, si) => {
+                    const value = s.data[i];
+                    if (value === null || value === undefined) return <span className="achat-vbar-slot" key={s.name} />;
+                    const negative = value < 0;
+                    const size = Math.abs(at(value) - zero);
+                    return (
+                      <span className="achat-vbar-slot" key={s.name} title={`${s.name} — ${category}: ${fmt(value, v.unit)}`}>
+                        <span
+                          className={`achat-vbar-fill ${multi ? seriesClass(s, si) : ""} ${negative ? "is-negative" : ""}`}
+                          style={negative
+                            ? { top: pct(1 - zero), height: pct(size) }
+                            : { bottom: pct(zero), height: `max(${pct(size)}, ${value === 0 ? 0 : 2}px)` }}
+                        />
+                        <span
+                          className="achat-vbar-value"
+                          style={negative ? { top: `calc(${pct(1 - zero + size)} + 3px)` } : { bottom: `calc(${pct(zero + size)} + 3px)` }}
+                        >
+                          {fmt(value, v.unit)}
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
-        ))}
+          <div className="achat-vlabels">
+            {v.categories.map((category) => (
+              <span className="achat-vbar-label" key={category} title={category}>{category}</span>
+            ))}
+          </div>
+        </div>
       </div>
       <Legend series={v.series} />
     </>
@@ -158,7 +223,8 @@ function VerticalBars({ v }: { v: ChartVisualization }) {
 
 const W = 640;
 const H = 220;
-const PAD = { top: 28, right: 16, bottom: 34, left: 16 };
+// esquerda larga o bastante pros rótulos do eixo Y ("12.500")
+const PAD = { top: 28, right: 16, bottom: 34, left: 52 };
 
 /** "setembro/2025" → "set/25" no eixo; o nome inteiro fica no tooltip do ponto. */
 export function axisLabel(category: string): string {
@@ -169,13 +235,11 @@ export function axisLabel(category: string): string {
 function Line({ v }: { v: ChartVisualization }) {
   const count = v.categories.length;
   const all = v.series.flatMap((s) => s.data.filter((d): d is number => d !== null && d !== undefined));
-  const max = Math.max(...all, 0);
-  const min = Math.min(...all, 0);
-  const span = max - min || 1;
+  const { ticks, at } = domainOf(v, all);
   const x = (i: number) => PAD.left + (count === 1 ? 0.5 : i / (count - 1)) * (W - PAD.left - PAD.right);
-  const y = (value: number) => PAD.top + (1 - (value - min) / span) * (H - PAD.top - PAD.bottom);
+  const y = (value: number) => PAD.top + (1 - at(value)) * (H - PAD.top - PAD.bottom);
   // rótulo de mês a cada N pontos pra não encavalar; valor em cima do ponto
-  // só com uma série e até 14 pontos (acima disso, só no tooltip)
+  // só com uma série e até 14 pontos (acima disso, o eixo Y e o tooltip)
   const every = Math.ceil(count / 12);
   const single = v.series.length === 1;
   const showValues = single && count <= 14;
@@ -183,7 +247,22 @@ function Line({ v }: { v: ChartVisualization }) {
   return (
     <>
       <svg className="achat-line" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${v.title}. ${summary(v)}`}>
-        <line className="achat-line-axis" x1={PAD.left} x2={W - PAD.right} y1={y(0)} y2={y(0)} />
+        {ticks.map((t) => (
+          <g key={t}>
+            <line
+              className={t === 0 ? "achat-line-axis" : "achat-line-grid"}
+              x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)}
+            />
+            <text className="achat-line-tick" x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle">
+              {tickLabel(t)}
+            </text>
+          </g>
+        ))}
+        {v.unit && (
+          <text className="achat-line-tick achat-line-unit" x={PAD.left - 8} y={PAD.top - 14} textAnchor="end">
+            {v.unit}
+          </text>
+        )}
         {v.series.map((s, si) => {
           // período sem valor fica fora da linha — não inventa zero no meio
           const segments: string[][] = [[]];

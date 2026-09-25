@@ -46,6 +46,28 @@ describe("VisualizationRenderer", () => {
     expect((html.match(/<polyline/g) ?? []).length).toBe(1);
   });
 
+  it("linha tem eixo Y com marcas redondas, grade e unidade", () => {
+    const html = render({
+      type: "line", title: "Horas por mês", unit: "h", categories: ["julho/2026", "agosto/2026"],
+      series: [{ name: "A", data: [120, 387.4] }, { name: "B", data: [80, 200] }],
+    });
+    for (const tick of [">0<", ">100<", ">200<", ">300<", ">400<"]) expect(html).toContain(tick);
+    expect(html).toContain("achat-line-grid");
+    expect(html).toContain("achat-line-unit");
+  });
+
+  it("barras verticais com eixo Y e negativo descendo do zero", () => {
+    const html = render({
+      type: "bar", title: "Performance — julho x agosto", unit: "%", categories: ["julho/2026", "agosto/2026"],
+      series: [{ name: "Performance", data: [-11.5, 8] }],
+    });
+    expect(html).toContain("achat-vaxis-tick");
+    expect(html).toContain("achat-vgrid is-zero");
+    expect(html).toContain("has-negative");
+    expect(html).toMatch(/achat-vbar-fill\s+is-negative" style="top:/);
+    expect(html).toContain("-11,5%");
+  });
+
   it("rosca com participação e fatia de 100%", () => {
     const html = render({
       type: "donut", title: "Horas por tipo", unit: "h", categories: ["Faturável", "Não faturável"],

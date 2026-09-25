@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisLabel, formatCell, sortRows } from "../analytics/VisualizationRenderer";
+import { axisLabel, formatCell, niceTicks, sortRows } from "../analytics/VisualizationRenderer";
 
 describe("axisLabel", () => {
   it("abrevia mês/ano do eixo do gráfico de linha", () => {
@@ -44,5 +44,34 @@ describe("sortRows", () => {
     expect(sortRows(rows, { column: 0, descending: false }).map((r) => r[0])).toEqual(["ACME", "Árvore", "Beta"]);
     expect(rows[0][0]).toBe("Beta");
     expect(sortRows(rows, null)).toBe(rows);
+  });
+});
+
+describe("niceTicks", () => {
+  it("marcas redondas cobrindo do zero ao máximo", () => {
+    expect(niceTicks(0, 387.4)).toEqual([0, 100, 200, 300, 400]);
+    expect(niceTicks(120, 3083)).toEqual([0, 1000, 2000, 3000, 4000]);
+  });
+
+  it("valores só positivos ainda começam no zero", () => {
+    expect(niceTicks(380, 420)[0]).toBe(0);
+  });
+
+  it("negativo e positivo: o zero é uma das marcas", () => {
+    const ticks = niceTicks(-11.5, 8);
+    expect(ticks).toContain(0);
+    expect(ticks[0]).toBeLessThanOrEqual(-11.5);
+    expect(ticks[ticks.length - 1]).toBeGreaterThanOrEqual(8);
+  });
+
+  it("contagem não gera marca quebrada; tudo zero não divide por zero", () => {
+    expect(niceTicks(0, 3, true).every(Number.isInteger)).toBe(true);
+    const allZero = niceTicks(0, 0);
+    expect(allZero[0]).toBe(0);
+    expect(allZero[allZero.length - 1]).toBe(1);
+  });
+
+  it("passo fracionário sem erro de ponto flutuante", () => {
+    expect(niceTicks(0, 0.9)).toEqual([0, 0.25, 0.5, 0.75, 1]);
   });
 });
