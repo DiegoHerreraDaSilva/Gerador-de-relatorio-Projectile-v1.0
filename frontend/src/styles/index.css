@@ -88,6 +88,26 @@
       radial-gradient(48rem 28rem at 92% 4%, var(--bg-glow-b), transparent 72%);
   }
 
+  /* barra de rolagem padrão de TODA área rolável (página, sidebar, modais,
+     tabelas, dropdowns) — fina, trilho transparente e polegar na cor da
+     borda, acendendo no teal ao passar o mouse. Quem já define a própria
+     barra (`scrollbar-color` ou `::-webkit-scrollbar` com seletor de classe)
+     continua valendo por cima desta. Firefox não tem os pseudo-elementos
+     `::-webkit-scrollbar`, então recebe o equivalente padrão. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  }
+
   /* ============================================================
      App shell — sidebar lateral (Sidebar.tsx, substitui o antigo
      .app-header horizontal) + área de conteúdo principal. .app-shell quebra
@@ -3297,6 +3317,12 @@
      os modais genéricos e .btn-secondary já existentes; só o necessário
      pra essa tela é novo aqui.
      ============================================================ */
+  /* o fio do .page-header não tem espaço embaixo (outras telas usam `gap`
+     de flex no contêiner); aqui os cards vêm em fluxo normal, com a mesma
+     margem de 22px que já separa um card do outro */
+  .history-panel > .page-header,
+  .analytics-panel > .page-header { margin-bottom: 22px; }
+
   .history-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
   .history-filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
   .history-filter-field label {

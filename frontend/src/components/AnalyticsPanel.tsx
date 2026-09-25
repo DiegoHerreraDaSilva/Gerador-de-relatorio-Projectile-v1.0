@@ -17,6 +17,50 @@ function formatMs(ms: number | null): string {
   return ms >= 1000 ? `${(ms / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}s` : `${Math.round(ms)}ms`;
 }
 
+/** Um bloco do Analytics: tabela de no máximo 8 linhas visíveis — com mais,
+ * rola dentro do bloco (`.analytics-scroll-8`) e o cabeçalho fica fixo. */
+function AnalyticsSection({
+  title,
+  columns,
+  rows,
+}: {
+  title: string;
+  columns: string[];
+  rows: { key: string; cells: (string | number)[] }[];
+}) {
+  return (
+    <section className="card analytics-section">
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <p className="muted">Sem dados ainda.</p>
+      ) : (
+        <div className="analytics-scroll-8">
+          <table className="kpi-table">
+            <thead>
+              <tr>
+                {columns.map((column) => (
+                  <th key={column}>{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  {row.cells.map((cell, i) => (
+                    <td key={columns[i]} title={i === 0 ? String(cell) : undefined}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Tela de métricas agregadas sobre `reports_db` (Fase 9 do
  * GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) — só gerente (ver `managerOnly` em
  * `Sidebar.tsx`, reforçado no backend por `require_manager`). Fica esparsa
@@ -86,153 +130,48 @@ export function AnalyticsPanel() {
           </div>
 
           <div className="analytics-grid">
-            <section className="card analytics-section">
-              <h3>Horas por competência</h3>
-              {summary.hours_by_competence.length === 0 ? (
-                <p className="muted">Sem dados ainda.</p>
-              ) : (
-                <table className="kpi-table">
-                  <thead>
-                    <tr>
-                      <th>Competência</th>
-                      <th>Horas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.hours_by_competence.map((row) => (
-                      <tr key={row.competence_label}>
-                        <td>{row.competence_label}</td>
-                        <td>{formatHours(row.hours)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </section>
-
-            <section className="card analytics-section">
-              <h3>Horas por grupo</h3>
-              {summary.hours_by_group.length === 0 ? (
-                <p className="muted">Sem dados ainda.</p>
-              ) : (
-                <div className="analytics-scroll-8">
-                  <table className="kpi-table">
-                    <thead>
-                      <tr>
-                        <th>Grupo</th>
-                        <th>Horas</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summary.hours_by_group.map((row) => (
-                        <tr key={row.group_name}>
-                          <td>{row.group_name}</td>
-                          <td>{formatHours(row.hours)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="card analytics-section">
-              <h3>Horas por projeto</h3>
-              {summary.hours_by_project.length === 0 ? (
-                <p className="muted">Sem dados ainda.</p>
-              ) : (
-                <table className="kpi-table">
-                  <thead>
-                    <tr>
-                      <th>Projeto</th>
-                      <th>Horas</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.hours_by_project.map((row) => (
-                      <tr key={row.project_name}>
-                        <td title={row.project_name}>{row.project_name}</td>
-                        <td>{formatHours(row.hours)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </section>
-
-            <section className="card analytics-section">
-              <h3>Relatórios gerados por mês</h3>
-              {summary.reports_over_time.length === 0 ? (
-                <p className="muted">Sem dados ainda.</p>
-              ) : (
-                <table className="kpi-table">
-                  <thead>
-                    <tr>
-                      <th>Mês</th>
-                      <th>Relatórios</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.reports_over_time.map((row) => (
-                      <tr key={row.period}>
-                        <td>{row.period}</td>
-                        <td>{row.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </section>
-
-            <section className="card analytics-section">
-              <h3>Responsáveis</h3>
-              {summary.top_creators.length === 0 ? (
-                <p className="muted">Sem dados ainda.</p>
-              ) : (
-                <table className="kpi-table">
-                  <thead>
-                    <tr>
-                      <th>Nome</th>
-                      <th>Relatórios</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.top_creators.map((row) => (
-                      <tr key={row.login}>
-                        <td>{row.name || row.login}</td>
-                        <td>{row.reports}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </section>
-
-            <section className="card analytics-section">
-              <h3>Geração por formato</h3>
-              {summary.generation.by_format.length === 0 ? (
-                <p className="muted">Sem dados ainda.</p>
-              ) : (
-                <table className="kpi-table">
-                  <thead>
-                    <tr>
-                      <th>Formato</th>
-                      <th>Sucessos</th>
-                      <th>Tempo médio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.generation.by_format.map((row) => (
-                      <tr key={row.format}>
-                        <td>{row.format.toUpperCase()}</td>
-                        <td>{row.count}</td>
-                        <td>{formatMs(row.avg_duration_ms)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </section>
+            <AnalyticsSection
+              title="Horas por competência"
+              columns={["Competência", "Horas"]}
+              rows={summary.hours_by_competence.map((row) => ({
+                key: row.competence_label,
+                cells: [row.competence_label, formatHours(row.hours)],
+              }))}
+            />
+            <AnalyticsSection
+              title="Horas por grupo"
+              columns={["Grupo", "Horas"]}
+              rows={summary.hours_by_group.map((row) => ({
+                key: row.group_name,
+                cells: [row.group_name, formatHours(row.hours)],
+              }))}
+            />
+            <AnalyticsSection
+              title="Horas por projeto"
+              columns={["Projeto", "Horas"]}
+              rows={summary.hours_by_project.map((row) => ({
+                key: row.project_name,
+                cells: [row.project_name, formatHours(row.hours)],
+              }))}
+            />
+            <AnalyticsSection
+              title="Relatórios gerados por mês"
+              columns={["Mês", "Relatórios"]}
+              rows={summary.reports_over_time.map((row) => ({ key: row.period, cells: [row.period, row.count] }))}
+            />
+            <AnalyticsSection
+              title="Responsáveis"
+              columns={["Nome", "Relatórios"]}
+              rows={summary.top_creators.map((row) => ({ key: row.login, cells: [row.name || row.login, row.reports] }))}
+            />
+            <AnalyticsSection
+              title="Geração por formato"
+              columns={["Formato", "Sucessos", "Tempo médio"]}
+              rows={summary.generation.by_format.map((row) => ({
+                key: row.format,
+                cells: [row.format.toUpperCase(), row.count, formatMs(row.avg_duration_ms)],
+              }))}
+            />
           </div>
         </>
       )}
