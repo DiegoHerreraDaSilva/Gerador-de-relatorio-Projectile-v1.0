@@ -95,7 +95,9 @@ def _series_with_others(result: CrossResult, row_index: int, col_values: list[st
         value = cells.get(key)
         return (value or 0.0) if additive else value
 
-    shown = row_values[:MAX_SERIES] if len(row_values) > MAX_SERIES + 1 else row_values
+    # nunca mais que MAX_SERIES com cor própria: a paleta tem 5 cores + a de
+    # "Outros", e a 6ª série repetia a cor da 1ª (mesmo se o resto for 1 só)
+    shown = row_values[:MAX_SERIES]
     series = [{"name": value, "data": [cell(value, c) for c in col_values]} for value in shown]
     rest = [value for value in row_values if value not in shown]
     if rest and additive:

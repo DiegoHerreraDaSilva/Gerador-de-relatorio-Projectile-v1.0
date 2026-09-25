@@ -201,6 +201,21 @@ def _with_project_family(raw: dict, message: str, options: dict) -> tuple[dict, 
     return {**raw, "projects": kept, "project_match": phrases}, []
 
 
+def _without_unasked_project_split(raw: dict, message: str) -> dict:
+    """"horas nos projetos Legislation Package - Encapsulamento, mês a mês":
+    já filtra por nome de projeto e não pede "por projeto" — o planner às
+    vezes quebrava por projeto também, e como o Projectile abre um projeto
+    por mês, virava 6 linhas com um pico cada. Comparação ("A x B") e "por
+    projeto"/"cada projeto" continuam quebrando."""
+    group_by = raw.get("group_by") or []
+    if (
+        raw.get("project_match") and "project" in group_by
+        and "project" not in signals.asked_dimensions(message) and not signals.is_versus(message)
+    ):
+        return {**raw, "group_by": [d for d in group_by if d != "project"]}
+    return raw
+
+
 def _with_cost_center(raw: dict, message: str) -> dict:
     """Pergunta que cita só CAD ou só CAE, ou pede "só faturáveis", filtra
     por isso se quem montou a consulta esqueceu (e não está agrupando por
@@ -219,7 +234,7 @@ def _with_cost_center(raw: dict, message: str) -> dict:
 def _cross_answer(raw: dict, message: str, today: date, sources: DataSources, settings, usage, options: dict,
                   *, explain: bool, intent: str | None, notes: list[str] | None = None) -> dict:
     raw, family_notes = _with_project_family(raw, message, options)
-    raw = _with_cost_center(raw, message)
+    raw = _without_unasked_project_split(_with_cost_center(raw, message), message)
     spec, spec_notes = crossquery.build_spec(raw, options, today, settings.analytics_chat_max_months)
     all_notes = list(notes or []) + family_notes + spec_notes
     if not (spec.month or spec.relative):

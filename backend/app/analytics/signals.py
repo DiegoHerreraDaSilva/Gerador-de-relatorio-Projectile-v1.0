@@ -40,6 +40,11 @@ def asked_dimensions(message: str) -> set[str]:
     return dims
 
 
+def is_versus(message: str) -> bool:
+    """"A x B", "A vs B", "A versus B" — comparação entre itens."""
+    return bool(_VERSUS.search(_plain(message)))
+
+
 def needs_planner(message: str, preset_group_by: list[str]) -> bool:
     """True se a mensagem pede quebra, corte, top N, comparação ou filtro que
     o atalho (`preset_group_by`) não cobre."""

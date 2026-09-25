@@ -38,7 +38,8 @@ function summary(v: ChartVisualization): string {
     .join("; ");
 }
 
-const seriesClass = (s: Series, i: number) => (s.tail ? "achat-s-tail" : `achat-s${i % 5}`);
+// 5 cores + "Outros"; além disso vai pro cinza de "Outros" — a paleta nunca cicla
+const seriesClass = (s: Series, i: number) => (s.tail || i >= 5 ? "achat-s-tail" : `achat-s${i}`);
 
 function Legend({ series }: { series: Series[] }) {
   if (series.length < 2) return null;

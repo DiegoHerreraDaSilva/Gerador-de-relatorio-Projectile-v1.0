@@ -113,3 +113,15 @@ describe("AnalyticsTableView", () => {
     expect(html).toContain("open=\"\"");
   });
 });
+
+describe("paleta de séries", () => {
+  it("nunca repete cor: da 6ª série em diante vai pro cinza de Outros", () => {
+    const html = render({
+      type: "line", title: "Horas", unit: "h", categories: ["julho/2026", "agosto/2026"],
+      series: Array.from({ length: 7 }, (_, i) => ({ name: `P${i}`, data: [i, i + 1] })),
+    });
+    for (let i = 0; i < 5; i++) expect(html).toContain(`achat-s${i}`);
+    expect(html).not.toContain("achat-s5");
+    expect((html.match(/achat-s-tail/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});

@@ -877,3 +877,42 @@ def test_filtro_invalido_do_planner_conta_como_esquecido(chat):
     body = _ask("horas CAD por colaborador em setembro, só faturáveis").json()
     assert body["context"]["last_spec"]["billing_type"] == "billable"
     assert body["context"]["last_spec"]["cost_centers"] == ["CAD"]
+
+
+_ENCAPS_ROWS = [
+    {"data": date(2026, m, 10), "horas": 10.0 * m, "pacote": "Pacote A", "project_id": f"C{m}", "person": "Ana Souza"}
+    for m in range(4, 10)
+]
+_ENCAPS_DETAILS = {f"C{m}": {"name": f"Legislation Package - Encapsulamento {m:02d}.2026", "client": "Mercedes"}
+                   for m in range(4, 10)}
+
+
+@pytest.mark.parametrize("message, expected_group_by", [
+    # filtra por nome e não pede "por projeto": só mês (o planner às vezes quebrava por projeto)
+    ("horas nos projetos Legislation Package - Encapsulamento, mês a mês nos últimos 6 meses", ["month"]),
+    ("horas por projeto e mês do Legislation Package - Encapsulamento nos últimos 6 meses", ["project", "month"]),
+])
+def test_quebra_por_projeto_so_quando_pedida(chat, monkeypatch, message, expected_group_by):
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ENCAPS_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ENCAPS_DETAILS)
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(
+        group_by=["project", "month"], month=None, relative_period="last_6_months",
+        projects=["Legislation Package - Encapsulamento 05.2026"],
+    )
+    body = _ask(message).json()
+    assert body["context"]["last_spec"]["group_by"] == expected_group_by
+    assert body["context"]["last_spec"]["project_match"] == ["Legislation Package Encapsulamento"]
+
+
+def test_seis_series_viram_cinco_mais_outros(chat, monkeypatch):
+    """Com 6 projetos, a 6ª série repetia a cor da 1ª — agora vai pra "Outros"."""
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ENCAPS_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ENCAPS_DETAILS)
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["project", "month"], month=None, relative_period="last_6_months")
+    body = _ask("horas por projeto e mês nos últimos 6 meses").json()
+    line = next(v for v in body["visualizations"] if v["type"] == "line")
+    assert len(line["series"]) == 6
+    assert [s.get("tail", False) for s in line["series"]] == [False] * 5 + [True]
+    assert line["series"][-1]["name"] == "Outros"
