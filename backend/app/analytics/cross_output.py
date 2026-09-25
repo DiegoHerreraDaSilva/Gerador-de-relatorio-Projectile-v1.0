@@ -327,7 +327,9 @@ def scope_phrase(result: CrossResult) -> str:
         if key == "billing_type":
             parts.append("só horas faturáveis" if values[0] == "Faturável" else "só horas não faturáveis")
         else:
-            parts.append(f"{singular if len(values) == 1 else plural} {_join(values)}")
+            # "com “Estribo” no nome (4)" já são vários projetos
+            many = len(values) > 1 or (key == "projects" and bool(result.spec.project_match))
+            parts.append(f"{plural if many else singular} {_join(values)}")
     return ", ".join(parts)
 
 

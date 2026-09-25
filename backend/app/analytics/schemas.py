@@ -33,6 +33,7 @@ class ChatSpec(BaseModel):
     group_by: list[_Key] = Field(default_factory=list, max_length=2)
     clients: list[_Name] = Field(default_factory=list, max_length=20)
     projects: list[_Name] = Field(default_factory=list, max_length=20)
+    project_match: list[_Name] = Field(default_factory=list, max_length=5)
     employees: list[_Name] = Field(default_factory=list, max_length=20)
     packages: list[_Name] = Field(default_factory=list, max_length=20)
     cost_centers: list[_Key] = Field(default_factory=list, max_length=2)

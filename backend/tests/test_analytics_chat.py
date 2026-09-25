@@ -754,3 +754,126 @@ def test_ano_citado_vale_tambem_no_planner(chat):
     chat["claude"]["plan_analysis"] = _query(group_by=["employee"], month=None, relative_period="last_12_months", top_n=10)
     body = _ask("ranking dos 10 colaboradores com mais horas no ano").json()
     assert body["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
+
+
+# --- caso real: "Estribo" é um projeto por mês no Projectile ------------------------
+
+_ESTRIBO_ROWS = [
+    {"data": date(2026, 6, 10), "horas": 143.2, "pacote": "Pacote A", "project_id": "E6", "person": "Ana Souza"},
+    {"data": date(2026, 7, 10), "horas": 13.5, "pacote": "Pacote A", "project_id": "E7", "person": "Ana Souza"},
+    {"data": date(2026, 8, 10), "horas": 210.1, "pacote": "Pacote A", "project_id": "E8", "person": "Ana Souza"},
+    {"data": date(2026, 9, 10), "horas": 305.0, "pacote": "Pacote A", "project_id": "E9", "person": "Ana Souza"},
+    {"data": date(2026, 9, 11), "horas": 7.0, "pacote": "Pacote A", "project_id": "P1", "person": "Ana Souza"},
+]
+_ESTRIBO_DETAILS = {
+    "E6": {"name": "Legislation Package - Estribo", "client": "Mercedes"},
+    "E7": {"name": "Legislation Package - Estribo 07.2026", "client": "Mercedes"},
+    "E8": {"name": "Legislation Package - Estribo 08.2026", "client": "Mercedes"},
+    "E9": {"name": "Legislation Package - Estribo 09.2026", "client": "Mercedes"},
+    "P1": {"name": "Projeto Um", "client": "ACME"},
+}
+
+
+def test_estribo_no_ano_mes_a_mes_soma_todos_os_projetos(chat, monkeypatch):
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ESTRIBO_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
+    chat["cls"] = _cls("analysis")
+    # o planner escolheu UM dos projetos e esqueceu o período, como no caso real
+    chat["claude"]["plan_analysis"] = _query(
+        group_by=["month"], projects=["Legislation Package - Estribo"], month=None,
+    )
+
+    body = _ask("quantas horas teve durante o ano no projeto estribo mes a mes").json()
+
+    assert body["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
+    rows = {row[0]: row[1] for row in body["tables"][0]["rows"]}
+    assert rows["junho/2026"] == 143.2
+    assert rows["julho/2026"] == 13.5
+    assert rows["agosto/2026"] == 210.1
+    assert rows["setembro/2026"] == 305.0          # o Projeto Um (7 h) não entra
+    assert "671,8 h" in body["reply"]
+    assert "projetos com “Estribo” no nome (4)" in body["reply"]
+
+
+def test_continuacao_herda_os_varios_projetos_da_pergunta_anterior(chat, monkeypatch):
+    """Caso real: "estribo" em agosto (atalho do Jev, 4 projetos) e depois "e
+    durante o ano?" — `last_filters` só guarda filtro de UM valor, e a
+    continuação respondia o time inteiro."""
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ESTRIBO_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
+    chat["cls"] = _cls("simple_data", "total_hours", "2026-08", project=("Legislation Package - Estribo 08.2026", 0.9))
+    first = _ask("quantas horas o projeto estribo teve em agosto/2026").json()
+    assert "projetos com “Estribo” no nome (4)" in first["reply"]
+
+    chat["cls"] = _cls("simple_data", "total_hours", follow_up=("yes", 0.9))
+    second = _ask("e durante o ano?", context=first["context"]).json()
+    assert second["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
+    assert "671,8 h" in second["reply"]            # os 4 Estribo, sem o Projeto Um
+
+    everyone = _ask("e no time todo?", context=second["context"]).json()
+    assert "678,8 h" in everyone["reply"]          # pediu o todo: sem recorte
+
+
+def test_continuacao_nao_fica_com_pedaco_do_recorte_que_o_planner_copiou(chat, monkeypatch):
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ESTRIBO_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
+    chat["cls"] = _cls("simple_data", "total_hours", "2026-08", project=("Legislation Package - Estribo 08.2026", 0.9))
+    first = _ask("quantas horas o projeto estribo teve em agosto/2026").json()
+
+    chat["cls"] = _cls("analysis", follow_up=("yes", 0.9))
+    # o planner copiou UM dos 4 projetos da anterior
+    chat["claude"]["plan_analysis"] = _query(group_by=[], projects=["Legislation Package - Estribo"], month=None)
+    second = _ask("e durante o ano?", context=first["context"]).json()
+    assert "671,8 h" in second["reply"]
+
+    # aqui a pergunta cita o projeto: vale a escolha, não o recorte anterior
+    chat["claude"]["plan_analysis"] = _query(
+        group_by=[], projects=["Legislation Package - Estribo 07.2026"], month=None)
+    third = _ask("e só o estribo 07.2026?", context=second["context"]).json()
+    assert "13,5 h" in third["reply"]
+
+
+
+def test_continuacao_nao_repete_projeto_que_ja_esta_na_frase(chat, monkeypatch):
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ESTRIBO_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
+    chat["cls"] = _cls("simple_data", "total_hours", "2026-08", project=("Legislation Package - Estribo 08.2026", 0.9))
+    first = _ask("quantas horas o projeto estribo teve em agosto/2026").json()
+    chat["cls"] = _cls("analysis", follow_up=("yes", 0.9))
+    chat["claude"]["plan_analysis"] = _query(group_by=[], projects=["Legislation Package - Estribo"], month=None)
+    second = _ask("e durante o ano?", context=first["context"]).json()
+    assert "Legislation Package - Estribo e" not in second["reply"]
+    assert "projetos com “Estribo” no nome (4)" in second["reply"]
+
+
+def test_pergunta_sem_projeto_escolhido_filtra_pelo_trecho_do_nome(chat, monkeypatch):
+    """Caso real: "horas legislation package" somava os 87 projetos."""
+    monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ESTRIBO_ROWS)
+    monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["project"], month=None)   # nenhum projeto escolhido
+    body = _ask("horas legislation package").json()
+    assert "671,8 h" in body["reply"]                   # os 4 Estribo; o Projeto Um (7 h) fica de fora
+    assert "projetos com “Legislation Package” no nome (4)" in body["reply"]
+
+
+def test_cad_sozinho_na_pergunta_filtra_o_centro_de_custo(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["month"], month=None)    # o planner esqueceu o CAD
+    body = _ask("horas CAD por mês").json()
+    assert body["context"]["last_spec"]["cost_centers"] == ["CAD"]
+
+
+def test_so_faturaveis_esquecido_pelo_planner_vira_filtro(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"])      # sem billing_type
+    body = _ask("horas por colaborador em setembro, só faturáveis").json()
+    assert body["context"]["last_spec"]["billing_type"] == "billable"
+
+
+def test_filtro_invalido_do_planner_conta_como_esquecido(chat):
+    chat["cls"] = _cls("analysis")
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"], billing_type="all", cost_centers=["CAD+CAE"])
+    body = _ask("horas CAD por colaborador em setembro, só faturáveis").json()
+    assert body["context"]["last_spec"]["billing_type"] == "billable"
+    assert body["context"]["last_spec"]["cost_centers"] == ["CAD"]

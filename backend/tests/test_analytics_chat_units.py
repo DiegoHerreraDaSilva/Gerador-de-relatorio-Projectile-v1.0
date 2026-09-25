@@ -283,3 +283,114 @@ def test_exportacao_recusa_numero_invalido_e_colaborador(monkeypatch):
         assert _export(client).status_code == 403
     finally:
         app.dependency_overrides.pop(require_session, None)
+
+
+# --- família de projetos e "durante o ano" (caso real: Estribo) --------------------
+
+_ESTRIBO = [
+    "Legislation Package - Estribo",
+    "Legislation Package - Estribo 07.2026",
+    "Legislation Package - Estribo 08.2026",
+    "Legislation Package - Estribo 09.2026",
+    "Legislation Package - Para-choque",
+    "Projeto Um",
+    "Projeto Dois",
+]
+
+
+def test_nome_parcial_vira_frase_do_nome_do_projeto():
+    from backend.app.analytics import signals
+
+    phrases, kept = signals.family_phrases(
+        "quantas horas teve no projeto estribo mes a mes", ["Legislation Package - Estribo 08.2026"], _ESTRIBO)
+    assert (phrases, kept) == (["Estribo"], [])
+    phrases, _ = signals.family_phrases(
+        "horas projeto legislation package", ["Legislation Package - Estribo"], _ESTRIBO)
+    assert phrases == ["Legislation Package"]          # os 5 "Legislation Package", sem teto
+    assert sum(signals.matches_phrase("Legislation Package", p) for p in _ESTRIBO) == 5
+
+
+def test_nome_especifico_nao_vira_frase():
+    from backend.app.analytics import signals
+
+    selected = ["Legislation Package - Estribo 08.2026"]
+    assert signals.family_phrases("horas do estribo 08.2026", selected, _ESTRIBO) == ([], selected)
+    # "projeto" não distingue nada: "Projeto Um" não puxa o "Projeto Dois"
+    assert signals.family_phrases("horas do projeto um", ["Projeto Um"], _ESTRIBO) == ([], ["Projeto Um"])
+    # continuação sem nenhuma palavra do nome não mexe
+    assert signals.family_phrases("e em julho?", selected, _ESTRIBO) == ([], selected)
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("horas legislation package", "Legislation Package"),   # grafia do nome do projeto       # 2 palavras seguidas no nome
+    ("horas do projeto estribo mes a mes", "Estribo"),          # 1 palavra depois de "projeto"
+    ("quanto o Legislation Package - Estribo teve", "Legislation Package Estribo"),
+    ("horas estribo em agosto", None),                          # 1 palavra solta: o planner decide
+    ("horas CAD por cliente", None),                            # centro de custo, não projeto
+    ("horas por cliente no último mês", None),                  # só vocabulário do chat
+    ("horas da ACME em setembro", None),                        # nome de cliente
+])
+def test_trecho_de_nome_de_projeto_na_pergunta(message, expected):
+    from backend.app.analytics import signals
+
+    projects = [*_ESTRIBO, "MBB_CAD_ACCELO - PP2030 09.2026", "ACME Portal"]
+    assert signals.detect_project_phrase(message, projects, ["ACME", "Ana Souza"]) == expected
+
+
+@pytest.mark.parametrize("message", [
+    "quantas horas teve durante o ano no projeto estribo",
+    "e durante o ano?",
+    "horas ao longo do ano por cliente",
+    "horas do ano todo",
+    "horas no ano inteiro",
+])
+def test_durante_o_ano_e_o_ano_corrente(message):
+    from backend.app.analytics import signals
+
+    assert signals.year_phrases(message, date(2026, 9, 25)) == ["2026"]
+
+
+def test_ultimo_ano_continua_sendo_12_meses():
+    from backend.app.analytics import signals
+
+    assert signals.year_phrases("horas durante o último ano", date(2026, 9, 25)) == []
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("e durante o ano?", True),
+    ("e em julho?", True),
+    ("e por colaborador?", True),
+    ("agora por cliente", True),
+    ("e quantas horas o Lucca apontou em agosto?", False),   # longa: decide o classificador
+    ("estribo em agosto", False),
+])
+def test_continuacao_obvia(message, expected):
+    from backend.app.analytics import signals
+
+    assert signals.obviously_follow_up(message) is expected
+
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("horas CAD por mês", "CAD"),
+    ("quanto o time de cae apontou", "CAE"),
+    ("horas CAD x CAE por mês", None),     # os dois = comparação, não filtro
+    ("horas por cliente", None),
+])
+def test_centro_de_custo_citado_sozinho(message, expected):
+    from backend.app.analytics import signals
+
+    assert signals.single_cost_center(message) == expected
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("horas da Mercedes por colaborador em julho, só faturáveis", "billable"),
+    ("somente as horas não faturáveis por pacote", "non_billable"),
+    ("apenas horas faturáveis", "billable"),
+    ("quanto das horas foi não faturável por colaborador?", None),   # é medida, não filtro
+    ("horas faturáveis x não faturáveis por mês", None),
+])
+def test_so_faturaveis_vira_filtro(message, expected):
+    from backend.app.analytics import signals
+
+    assert signals.only_billing_type(message) == expected

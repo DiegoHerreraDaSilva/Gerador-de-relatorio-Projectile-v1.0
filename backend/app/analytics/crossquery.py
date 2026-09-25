@@ -39,8 +39,11 @@ from .catalog import (
 from .facts import DataSources
 from .periods import RELATIVE_PERIODS, Period, add_months, month_key, month_label, resolve_period
 from .semantic_model import fmt_number
+from .signals import matches_phrase
 
 # filtro na consulta -> (dimensão, chave da lista de opções)
+MAX_PROJECT_PHRASES = 5
+
 _LIST_FILTERS = {
     "clients": ("client", "clients"),
     "projects": ("project", "projects"),
@@ -84,6 +87,10 @@ class QuerySpec:
     relative: str | None = None
     clients: list[str] = field(default_factory=list)
     projects: list[str] = field(default_factory=list)
+    # "nome contém": frases ("Estribo", "Legislation Package") e os projetos
+    # que casaram com elas nas opções — resolvidos em `build_spec`, sem teto
+    project_match: list[str] = field(default_factory=list)
+    matched_projects: list[str] = field(default_factory=list)
     employees: list[str] = field(default_factory=list)
     packages: list[str] = field(default_factory=list)
     cost_centers: list[str] = field(default_factory=list)
@@ -94,10 +101,18 @@ class QuerySpec:
     sort_order: str = "desc"
     threshold: Threshold | None = None
 
+    def project_set(self) -> set[str]:
+        """Projetos que entram na consulta: os escolhidos + os que casaram com as frases."""
+        return set(self.projects) | set(self.matched_projects)
+
     def filter_values(self) -> dict[str, list[str]]:
         """Filtros ativos, com rótulo legível — pra texto e metadados."""
+        by_phrase = [
+            f"com “{phrase}” no nome ({sum(1 for p in self.matched_projects if matches_phrase(phrase, p))})"
+            for phrase in self.project_match
+        ]
         active = {
-            "clients": self.clients, "projects": self.projects, "employees": self.employees,
+            "clients": self.clients, "projects": [*self.projects, *by_phrase], "employees": self.employees,
             "packages": self.packages, "cost_centers": self.cost_centers,
             "statuses": [STATUSES[s] for s in self.statuses],
         }
@@ -112,6 +127,7 @@ class QuerySpec:
             "measures": list(self.measures),
             "group_by": list(self.group_by),
             "clients": list(self.clients), "projects": list(self.projects),
+            "project_match": list(self.project_match),
             "employees": list(self.employees), "packages": list(self.packages),
             "cost_centers": list(self.cost_centers), "statuses": list(self.statuses),
             "billing_type": self.billing_type,
@@ -172,6 +188,17 @@ def build_spec(raw: dict, options: dict, today, max_months: int) -> tuple[QueryS
             notes.append(f"{source} não tem recorte por {DIMENSIONS[dim].label.lower()} — ignorei esse filtro.")
             valid = []
         lists[key] = valid
+    project_match: list[str] = []
+    matched: list[str] = []
+    for phrase in _unique_strings(raw.get("project_match"))[:MAX_PROJECT_PHRASES]:
+        found = [p for p in options.get("projects", []) if matches_phrase(phrase, p)]
+        if not found:
+            notes.append(f"Não encontrei projeto com “{phrase}” no nome entre os projetos com horas no período disponível.")
+        elif "project" not in allowed:
+            notes.append(f"{source} não tem recorte por projeto — ignorei esse filtro.")
+        else:
+            project_match.append(phrase)
+            matched += [p for p in found if p not in matched]
     cost_centers = [c for c in _unique_strings(raw.get("cost_centers")) if c in COST_CENTERS] if "cost_center" in allowed else []
     statuses = [s for s in _unique_strings(raw.get("statuses")) if s in STATUSES] if "status" in allowed else []
     billing_type = raw.get("billing_type") if raw.get("billing_type") in BILLING_TYPES and "billing_type" in allowed else None
@@ -199,6 +226,7 @@ def build_spec(raw: dict, options: dict, today, max_months: int) -> tuple[QueryS
     spec = QuerySpec(
         dataset=dataset, measures=measures, group_by=group_by, period=period,
         month=month, month_end=month_end, relative=relative,
+        project_match=project_match, matched_projects=matched,
         cost_centers=cost_centers, statuses=statuses, billing_type=billing_type,
         top_n=top_n, sort_by=sort_by, sort_order=sort_order, threshold=threshold, **lists,
     )
@@ -355,7 +383,8 @@ class _StatusAcc:
 
 def _hours_items(spec: QuerySpec, sources: DataSources):
     period = spec.period
-    clients, projects, employees, packages = (set(v) for v in (spec.clients, spec.projects, spec.employees, spec.packages))
+    clients, employees, packages = (set(v) for v in (spec.clients, spec.employees, spec.packages))
+    projects = spec.project_set()
     cost_centers = set(spec.cost_centers)
     for r in sources.hours():
         if not period.start <= r.day <= period.end:
@@ -382,7 +411,7 @@ def _billing_cells(spec: QuerySpec, sources: DataSources, notes: list[str]):
     """Células (mês) no total do time, ou (projeto, mês) com recorte de
     cliente/projeto — ver docstring do módulo."""
     months = set(period_months(spec.period))
-    clients, projects = set(spec.clients), set(spec.projects)
+    clients, projects = set(spec.clients), spec.project_set()
     team_level = not ({"client", "project"} & set(spec.group_by)) and not clients and not projects
     period = spec.period
 
@@ -452,7 +481,7 @@ def _billing_cells(spec: QuerySpec, sources: DataSources, notes: list[str]):
 
 def _status_items(spec: QuerySpec, sources: DataSources):
     months = set(period_months(spec.period))
-    clients, projects, statuses = set(spec.clients), set(spec.projects), set(spec.statuses)
+    clients, projects, statuses = set(spec.clients), spec.project_set(), set(spec.statuses)
     for row in sources.send_status():
         if row.month not in months:
             continue

@@ -27,6 +27,7 @@ from ..core.config import get_settings
 from ..projectile_db import ProjectileDbError
 from ..services.audit import record_event
 from . import analysis, claude_client, cross_output, crossquery, query_engine, router, signals
+from .catalog import BILLING_TYPES, COST_CENTERS
 from .facts import DataSources
 from .grounding import allowed_numbers, is_grounded
 from .intents import INTENTS
@@ -95,12 +96,23 @@ def _previous(context: ChatContext | None, options: dict) -> dict | None:
     }
 
 
-def _apply_follow_up(c: router.Classification, previous: dict | None) -> router.Classification:
+_INHERITED_FILTERS = ("clients", "projects", "project_match", "employees", "packages")
+
+
+def _apply_follow_up(c: router.Classification, previous: dict | None, message: str = "") -> router.Classification:
     """"E em agosto?" — o que a mensagem nova não disse vem da anterior. Se
     a anterior foi um cruzamento (sem intent simples), o planner continua a
-    partir da consulta anterior (`previous["spec"]`)."""
+    partir da consulta anterior (`previous["spec"]`).
+
+    Filtros de VÁRIOS valores da consulta anterior (4 projetos "Estribo", 2
+    clientes) também são herdados, em `c.inherited`: `last_filters` só guarda
+    filtro de um valor, e sem isso "e durante o ano?" perdia o recorte e
+    respondia o time inteiro. Não herda se a pergunta pede o todo."""
     if not (c.follow_up and previous):
         return c
+    spec = previous.get("spec") or {}
+    if not signals.asks_everyone(message):
+        c.inherited = {key: list(spec[key]) for key in _INHERITED_FILTERS if spec.get(key)}
     if previous["intent"] is None and previous.get("spec"):
         c.route = "analysis"
         return c
@@ -164,10 +176,52 @@ def _context_filters(spec: crossquery.QuerySpec) -> dict:
     }
 
 
+def _with_project_family(raw: dict, message: str, options: dict) -> tuple[dict, list[str]]:
+    """Nome de projeto pela metade → filtro "nome contém" (`project_match`):
+    - projeto escolhido pelo Jev/planner cujo nome, no trecho que a pergunta
+      citou, é compartilhado por outros ("estribo" → os 4 Estribo);
+    - nenhum projeto escolhido, mas a pergunta tem um trecho de nome de
+      projeto ("horas legislation package") — antes, somava os 87 projetos.
+    Com aviso de quantos projetos entraram."""
+    if raw.get("project_match"):
+        # projeto que já está dentro de uma frase herdada não aparece duas vezes
+        kept = [p for p in raw.get("projects") or []
+                if not any(signals.matches_phrase(ph, p) for ph in raw["project_match"])]
+        return {**raw, "projects": kept}, []
+    selected = [p for p in (raw.get("projects") or []) if p in options["projects"]]
+    if selected:
+        phrases, kept = signals.family_phrases(message, selected, options["projects"])
+    else:
+        phrase = signals.detect_project_phrase(
+            message, options["projects"], [*options["clients"], *options["employees"]])
+        phrases, kept = ([phrase] if phrase else []), []
+    if not phrases:
+        return raw, []
+    # sem aviso à parte: o recorte da resposta já diz "projetos com “Estribo” no nome (4)"
+    return {**raw, "projects": kept, "project_match": phrases}, []
+
+
+def _with_cost_center(raw: dict, message: str) -> dict:
+    """Pergunta que cita só CAD ou só CAE, ou pede "só faturáveis", filtra
+    por isso se quem montou a consulta esqueceu (e não está agrupando por
+    essa mesma dimensão)."""
+    center = signals.single_cost_center(message)
+    # "vazio" = nenhum valor VÁLIDO: o planner às vezes devolve "all"/"none"
+    valid_centers = [c for c in raw.get("cost_centers") or [] if c in COST_CENTERS]
+    if center and not valid_centers and "cost_center" not in (raw.get("group_by") or []):
+        raw = {**raw, "cost_centers": [center]}
+    billing = signals.only_billing_type(message)
+    if billing and raw.get("billing_type") not in BILLING_TYPES and "billing_type" not in (raw.get("group_by") or []):
+        raw = {**raw, "billing_type": billing}
+    return raw
+
+
 def _cross_answer(raw: dict, message: str, today: date, sources: DataSources, settings, usage, options: dict,
                   *, explain: bool, intent: str | None, notes: list[str] | None = None) -> dict:
+    raw, family_notes = _with_project_family(raw, message, options)
+    raw = _with_cost_center(raw, message)
     spec, spec_notes = crossquery.build_spec(raw, options, today, settings.analytics_chat_max_months)
-    all_notes = list(notes or []) + spec_notes
+    all_notes = list(notes or []) + family_notes + spec_notes
     if not (spec.month or spec.relative):
         all_notes.append(NO_PERIOD_NOTE)
     result = crossquery.execute(spec, sources, settings.analytics_chat_max_rows, all_notes)
@@ -231,6 +285,24 @@ def _reports_answer(c, message, today, settings, usage, notes: list[str]) -> dic
     }
 
 
+def _inherit(raw: dict, c: router.Classification, message: str) -> None:
+    """Filtro que a pergunta nova não trouxe vem da anterior (`c.inherited`).
+    Também vale quando quem montou a consulta pegou só UM PEDAÇO do recorte
+    anterior sem a pergunta citar nenhum desses nomes (o planner copiava 1
+    dos 4 projetos "Estribo" em "e durante o ano?"). Se a pergunta cita o
+    nome ("e só o estribo 07.2026?"), vale o que ela escolheu."""
+    words = signals.name_tokens(message)
+    named_project = any(words & signals.name_tokens(p) for p in raw.get("projects") or [])
+    for key, values in c.inherited.items():
+        if key == "project_match" and named_project:
+            continue  # "e só o estribo 07.2026?" — a pergunta escolheu o projeto
+        chosen = raw.get(key) or []
+        named = any(words & signals.name_tokens(value) for value in chosen)
+        if not chosen or (set(chosen) < set(values) and not named):
+            raw[key] = values
+
+
+
 def _data_answer(c, message, today, sources, settings, usage, options, notes: list[str]) -> dict:
     spec = INTENTS[c.intent]
     if spec.source == "reports_db":
@@ -242,16 +314,17 @@ def _data_answer(c, message, today, sources, settings, usage, options, notes: li
         "projects": [c.project] if c.project else [],
         "month": c.month, "month_end": c.month_end, "relative_period": c.relative,
     }
+    _inherit(raw, c, message)
     return _cross_answer(raw, message, today, sources, settings, usage, options,
                          explain=c.route == "simple_with_explanation", intent=c.intent, notes=notes)
 
 
 _QUERY_KEYS = (
-    "measures", "group_by", "clients", "projects", "employees", "packages", "cost_centers", "statuses",
+    "measures", "group_by", "clients", "projects", "project_match", "employees", "packages", "cost_centers", "statuses",
     "billing_type", "month", "month_end", "relative_period", "top_n", "sort_by", "sort_order",
     "threshold_measure", "threshold_op", "threshold_value",
 )
-_FILTER_KEYS = ("clients", "projects", "employees", "packages", "billing_type")
+_FILTER_KEYS = ("clients", "projects", "project_match", "employees", "packages", "billing_type")
 
 
 def _compare_periods_answer(plan, message, options, today, sources, settings, usage) -> dict | None:
@@ -262,7 +335,7 @@ def _compare_periods_answer(plan, message, options, today, sources, settings, us
         return None
     a_end = plan.get("period_a_month_end") if plan.get("period_a_month_end") in months else None
     b_end = plan.get("period_b_month_end") if plan.get("period_b_month_end") in months else None
-    base = {key: plan.get(key) for key in _FILTER_KEYS}
+    base, family_notes = _with_project_family({key: plan.get(key) for key in _FILTER_KEYS}, message, options)
     base["measures"] = [plan.get("measure")]
     base["group_by"] = [plan["group_by"]] if plan.get("group_by") else []
     max_months = settings.analytics_chat_max_months
@@ -284,6 +357,7 @@ def _compare_periods_answer(plan, message, options, today, sources, settings, us
         logger.warning("Finalizer do Claude indisponível: %s", e)
         text = None
     reply, explained = _grounded_text(text, analysis.fallback_text(result), result["summary"])
+    notes = family_notes + notes
     if notes:
         reply = f"{reply} {' '.join(notes)}"
     table = analysis.table(result)
@@ -332,6 +406,7 @@ def _analysis_answer(c, message, previous, options, today, sources, settings, us
         logger.warning("Plano rejeitado (análise desconhecida): %s", plan)
         return None
     raw = {key: plan.get(key) for key in _QUERY_KEYS}
+    _inherit(raw, c, message)  # o planner às vezes esquece o recorte da pergunta anterior
     if not period_allowed:  # pergunta sem período: o planner não inventa um
         raw["month"] = raw["month_end"] = raw["relative_period"] = None
     if year_period:
@@ -369,12 +444,14 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
         # o classificador marcava pergunta completa como continuação — a
         # trava por texto só deixa passar o que tem cara de continuação
         c.follow_up = c.follow_up and signals.looks_like_follow_up(message)
+        if previous and signals.obviously_follow_up(message):
+            c.follow_up = True
         period_in_message = signals.mentions_period(message)
         if not c.follow_up and not period_in_message:
             # período só vem do texto (ou da pergunta anterior, se continuação):
             # o Claude copiava o período da anterior numa pergunta nova
             c.month = c.month_end = c.relative = None
-        c = _apply_follow_up(c, previous)
+        c = _apply_follow_up(c, previous, message)
 
         years = years_mentioned(message) or signals.year_phrases(message, today)
         window_years = {key[:4] for key in options["months"]}

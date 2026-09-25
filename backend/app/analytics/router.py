@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..integrations import jev
 from . import claude_client
@@ -45,6 +45,9 @@ class Classification:
     jev_called: bool = False
     month_end: str | None = None
     project: str | None = None
+    # continuação: filtros de VÁRIOS valores herdados da consulta anterior
+    # (`service._apply_follow_up`) — os de um valor só já vêm nos campos acima
+    inherited: dict = field(default_factory=dict)
 
 
 def _questions(options: dict) -> dict:
