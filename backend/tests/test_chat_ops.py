@@ -1,5 +1,5 @@
 """Cobertura de `chat_ops.apply_operations` — localização de alvo por `id`
-estável (Fase 8 do GUIA_EVOLUCAO_GERADOR_PROJECTILE.md), não por nome/
+estável, não por nome/
 descrição. Não havia teste nenhum pra este módulo antes desta mudança."""
 from __future__ import annotations
 

@@ -3312,8 +3312,7 @@
   }
 
   /* ============================================================
-     Histórico de relatórios (HistoryPanel.tsx) — Fase 2+3 do
-     GUIA_EVOLUCAO_GERADOR_PROJECTILE.md. Reaproveita .card, .kpi-table,
+     Histórico de relatórios (HistoryPanel.tsx). Reaproveita .card, .kpi-table,
      os modais genéricos e .btn-secondary já existentes; só o necessário
      pra essa tela é novo aqui.
      ============================================================ */
@@ -3397,8 +3396,7 @@
   .history-version-group ul { margin: 0; padding-left: 18px; }
 
   /* ============================================================
-     Analytics (AnalyticsPanel.tsx) — Fase 9 do
-     GUIA_EVOLUCAO_GERADOR_PROJECTILE.md. Reaproveita .card e .kpi-table;
+     Analytics (AnalyticsPanel.tsx). Reaproveita .card e .kpi-table;
      só o grid de totais e o grid de seções são novos aqui.
      ============================================================ */
   .analytics-totals {

@@ -1,5 +1,5 @@
 """Mensagens genéricas e helper de erro compartilhados entre routers —
-extraído de `main.py` na Fase 5 (GUIA_EVOLUCAO_GERADOR_PROJECTILE.md)."""
+extraído de `main.py`."""
 from __future__ import annotations
 
 import logging

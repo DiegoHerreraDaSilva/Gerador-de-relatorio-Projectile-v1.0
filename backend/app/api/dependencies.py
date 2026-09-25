@@ -1,5 +1,5 @@
-"""Dependências do FastAPI compartilhadas entre routers (Fase 5 do
-GUIA_EVOLUCAO_GERADOR_PROJECTILE.md — main.py deixa de concentrar tudo).
+"""Dependências do FastAPI compartilhadas entre routers (main.py não
+concentra mais as rotas).
 
 `MANAGEMENT_PANEL_LOGINS`/`TRANSLATE_ALLOWED_LOGINS` são referenciadas via
 `management.<nome>` (atributo do módulo, resolvido a cada chamada) em vez de

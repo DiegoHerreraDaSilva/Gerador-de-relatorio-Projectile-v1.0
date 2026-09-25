@@ -326,7 +326,6 @@ docker-compose.yml         # container reports-mysql
 alembic.ini                # script_location = backend/alembic
 README.md
 CLAUDE.md
-GUIA_EVOLUCAO_GERADOR_PROJECTILE.md
 PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md
 ```
 
@@ -582,5 +581,3 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 ## Documentação adicional
 
 O arquivo [PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md](PLANO_CHAT_ANALITICO_JEV_CLAUDE_v2.md) é o plano de origem do chat analítico; o estado implementado está na seção "Chat analítico" do `CLAUDE.md`.
-
-O arquivo [GUIA_EVOLUCAO_GERADOR_PROJECTILE.md](GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) contém o plano arquitetural original de longo prazo — histórico, auditoria formal, refatoração do backend, pool de conexões do Projectile, hardening de upload, IDs estáveis no chat e analytics. Todas as fases descritas lá já foram implementadas (ver `CLAUDE.md` pro estado atual de cada módulo); o guia permanece como registro histórico das decisões tomadas, não como roadmap pendente.

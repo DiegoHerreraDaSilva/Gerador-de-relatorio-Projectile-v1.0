@@ -1,5 +1,5 @@
 """Helpers usados por mais de um router — não cabem em nenhum router
-específico. Extraído de `main.py` na Fase 5."""
+específico. Extraído de `main.py`."""
 from __future__ import annotations
 
 import calendar

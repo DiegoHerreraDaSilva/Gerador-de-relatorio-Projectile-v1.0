@@ -12,8 +12,7 @@ import {
   formatGenerationStatus,
 } from "../utils/historyFormat";
 
-/** Tela de histórico de relatórios (`GET /reports/*`, Fase 2+4 do
- * GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) — lista relatórios já gerados,
+/** Tela de histórico de relatórios (`GET /reports/*`) — lista relatórios já gerados,
  * suas versões, arquivos e a trilha de auditoria. Autorização é feita no
  * backend (`_require_report_access`): quem não é gerente só vê os
  * próprios relatórios, então a lista já vem filtrada pelo servidor. */

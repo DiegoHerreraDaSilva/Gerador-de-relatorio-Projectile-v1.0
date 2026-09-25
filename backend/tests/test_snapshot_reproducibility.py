@@ -1,5 +1,4 @@
-"""Teste de reprodutibilidade do snapshot (GUIA_EVOLUCAO_GERADOR_PROJECTILE.md,
-seção 92): reconstruir `ReportHeader`/`GroupInput` a partir de um `data_json`
+"""Teste de reprodutibilidade do snapshot: reconstruir `ReportHeader`/`GroupInput` a partir de um `data_json`
 salvo precisa produzir o mesmo total de horas e continuar gerando um .xlsx
 válido — sem precisar de banco (o snapshot é só um dict em memória aqui)."""
 from __future__ import annotations

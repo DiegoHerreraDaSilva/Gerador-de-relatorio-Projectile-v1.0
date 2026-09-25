@@ -640,7 +640,7 @@ def compute_monthly_kpis(
         available_clients = fetch_clients_for_projects(sorted(available_project_ids), conn=conn)
         project_details = fetch_project_details(sorted(available_project_ids), conn=conn)
     finally:
-        # `open_connection()` empresta do pool (Fase 6) — devolver aqui
+        # `open_connection()` empresta do pool — devolver aqui
         # evita que cada chamada do painel de gerência prenda uma conexão
         # do pool pra sempre.
         conn.close()

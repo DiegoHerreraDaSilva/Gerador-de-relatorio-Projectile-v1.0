@@ -1,5 +1,5 @@
 """Rotas de chat de IA e tradução (`/chat`, `/translate-activities`) —
-extraído de `main.py` na Fase 5."""
+extraído de `main.py`."""
 from __future__ import annotations
 
 from typing import Literal
@@ -16,8 +16,7 @@ router = APIRouter()
 
 class ChatActivity(BaseModel):
     # id estável (do frontend, `Activity.id`) — chat_ops.py localiza o alvo
-    # das operações por id, nunca por descrição (ver chat_ops.py, Fase 8 do
-    # GUIA_EVOLUCAO_GERADOR_PROJECTILE.md).
+    # das operações por id, nunca por descrição (ver chat_ops.py).
     id: str
     description: str
     hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)

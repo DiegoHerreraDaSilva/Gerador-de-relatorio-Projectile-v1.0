@@ -1,5 +1,4 @@
-"""Rota de analytics agregado sobre `reports_db` (Fase 9 do
-GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) — só gerente, mesmo princípio de
+"""Rota de analytics agregado sobre `reports_db` — só gerente, mesmo princípio de
 `/management/*`: são métricas operacionais (quem gera mais relatório, taxa
 de falha de geração), não dado pessoal de horas.
 

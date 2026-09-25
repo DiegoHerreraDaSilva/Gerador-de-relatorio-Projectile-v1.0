@@ -1,5 +1,5 @@
 """Rotas de geração e envio de relatório (`/generate`, `/send-report`) —
-extraído de `main.py` na Fase 5."""
+extraído de `main.py`."""
 from __future__ import annotations
 
 import os

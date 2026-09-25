@@ -1,5 +1,5 @@
 """Rotas de importação de horas (`/parse`, `/parse-db`, `/parse-db-client`)
-— extraído de `main.py` na Fase 5."""
+— extraído de `main.py`."""
 from __future__ import annotations
 
 import os
@@ -27,8 +27,7 @@ _UPLOAD_CHUNK_BYTES = 1024 * 1024  # 1 MB
 async def _stream_upload_to_tempfile(file: UploadFile, max_bytes: int) -> str:
     """Grava o upload em disco em chunks de 1 MB, abortando assim que o
     total ultrapassa `max_bytes` — nunca materializa o arquivo inteiro em
-    memória só pra descobrir depois que ele era grande demais (guia
-    GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 12). Quem chama é responsável
+    memória só pra descobrir depois que ele era grande demais. Quem chama é responsável
     por apagar o arquivo temporário devolvido."""
     suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
     total = 0

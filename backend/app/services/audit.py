@@ -1,5 +1,5 @@
 """Trilha de auditoria em `reports_db` — quem fez o quê, quando, em qual
-entidade (guia GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 27).
+entidade.
 
 Mesma disciplina fail-open de `report_persistence.py`: registrar auditoria
 NUNCA pode derrubar a operação de negócio sendo auditada — uma falha aqui é

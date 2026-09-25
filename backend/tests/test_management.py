@@ -69,7 +69,7 @@ def _row(project_id, pacote, hours, day=1, person=None):
 
 
 class _FakeConn:
-    """Stub de conexão pro pool (Fase 6): `compute_monthly_kpis` chama
+    """Stub de conexão pro pool: `compute_monthly_kpis` chama
     `.close()` num `finally` pra devolver a conexão emprestada — precisa de
     algo com esse método, não `None`."""
 

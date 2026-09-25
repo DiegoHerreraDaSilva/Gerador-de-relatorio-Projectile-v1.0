@@ -1,5 +1,5 @@
 """Rotas de histórico de relatórios (`GET /reports/*`,
-`GET /artifacts/{id}/download`) — extraído de `main.py` na Fase 5."""
+`GET /artifacts/{id}/download`) — extraído de `main.py`."""
 from __future__ import annotations
 
 import os

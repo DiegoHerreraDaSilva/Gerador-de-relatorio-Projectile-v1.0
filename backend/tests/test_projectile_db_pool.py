@@ -1,11 +1,10 @@
-"""Testes do pool de conexões do Projectile (Fase 6 do
-GUIA_EVOLUCAO_GERADOR_PROJECTILE.md). Usam um stub de conexão em vez do
+"""Testes do pool de conexões do Projectile. Usam um stub de conexão em vez do
 MySQL real — o objetivo aqui é travar a MECÂNICA de empréstimo/devolução
 (`_borrowed_connection`), não repetir cobertura de query (isso já está em
 test_projectile_db_group_hours.py). Validação end-to-end contra um MySQL de
 verdade (reuso de conexão, fila sob concorrência, reconexão após queda) foi
 feita manualmente contra o container `reports-mysql` antes deste commit —
-ver notas do commit da Fase 6."""
+ver as notas do commit que criou o pool."""
 from __future__ import annotations
 
 import threading

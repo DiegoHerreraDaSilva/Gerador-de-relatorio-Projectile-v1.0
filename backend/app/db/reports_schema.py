@@ -184,7 +184,7 @@ report_artifacts = Table(
     mysql_collate="utf8mb4_unicode_ci",
 )
 
-# Fase 5 do roadmap (auditoria) — trilha de "quem fez o quê, quando, em qual
+# Auditoria — trilha de "quem fez o quê, quando, em qual
 # entidade". Escrita sempre fail-open (mesmo padrão de report_persistence),
 # nunca pode derrubar a operação de negócio que está sendo auditada.
 audit_log = Table(

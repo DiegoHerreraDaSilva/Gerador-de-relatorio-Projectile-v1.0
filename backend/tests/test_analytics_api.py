@@ -1,4 +1,4 @@
-"""Testes de integração de `GET /analytics/summary` (Fase 9) — precisa do
+"""Testes de integração de `GET /analytics/summary` — precisa do
 reports-mysql real (ver conftest.py:reports_db_engine), mesmo padrão de
 test_history_api.py."""
 from __future__ import annotations

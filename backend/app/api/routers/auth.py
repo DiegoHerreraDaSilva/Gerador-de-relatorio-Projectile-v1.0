@@ -1,4 +1,4 @@
-"""Rotas de autenticação (`/auth/*`) — extraído de `main.py` na Fase 5."""
+"""Rotas de autenticação (`/auth/*`) — extraído de `main.py`."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response

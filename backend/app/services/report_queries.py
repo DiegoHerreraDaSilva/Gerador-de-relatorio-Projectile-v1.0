@@ -290,7 +290,7 @@ def _top_creators(conn, limit: int = 10) -> list[dict]:
 
 
 def get_analytics_summary() -> dict:
-    """Resumo agregado pro painel de Analytics (Fase 9 do roadmap) — só
+    """Resumo agregado pro painel de Analytics — só
     gerente (ver `require_manager` em `api/routers/analytics.py`). Fica
     esparso/vazio até acumular meses de uso real; cada seção devolve lista
     vazia (não erro) quando não há dado, e o frontend trata isso como

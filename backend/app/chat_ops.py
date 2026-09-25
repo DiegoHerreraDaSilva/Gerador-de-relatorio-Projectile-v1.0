@@ -8,8 +8,8 @@ geração de tokens de saída que domina o tempo de resposta. O trade-off é que
 aplicação da mudança fica mais complexa: em vez de "substitui tudo", precisa
 localizar cada alvo (pacote/grupo/atividade) e validar que ele existe.
 
-Grupos e atividades são localizados por `id` estável (não por nome/descrição
-— guia GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 25). Antes desta mudança, a
+Grupos e atividades são localizados por `id` estável (não por
+nome/descrição). Antes desta mudança, a
 IA precisava reproduzir nome/descrição CARACTERE POR CARACTERE pra localizar
 o alvo, e nomes duplicados eram um erro explícito porque não dava pra saber
 qual dos dois grupos era o pretendido — um `id` opaco elimina as duas

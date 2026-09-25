@@ -1,7 +1,6 @@
 """App FastAPI — monta middlewares, inclui os routers de cada domínio (ver
 `api/routers/`) e serve o build do frontend. As rotas em si vivem em
-`api/routers/*.py` desde a Fase 5 do GUIA_EVOLUCAO_GERADOR_PROJECTILE.md;
-este arquivo não deve voltar a acumular endpoints — ver CLAUDE.md "Adicionar
+`api/routers/*.py`; este arquivo não deve voltar a acumular endpoints — ver CLAUDE.md "Adicionar
 rota API"."""
 import asyncio
 import logging

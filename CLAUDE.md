@@ -1,6 +1,6 @@
 # Project Instructions — Automação de Relatório de Horas
 
-Este arquivo descreve o estado implementado do repositório e as regras para agentes que forem alterá-lo. O `GUIA_EVOLUCAO_GERADOR_PROJECTILE.md` é um plano de evolução futura; não trate suas propostas como funcionalidades já existentes.
+Este arquivo descreve o estado implementado do repositório e as regras para agentes que forem alterá-lo.
 
 ## Visão geral
 
@@ -17,8 +17,7 @@ Aplicação interna full stack para:
 9. consultar o histórico de relatórios gerados (versões, arquivos, auditoria);
 10. analisar horas, faturado e envio em linguagem natural (Analytics e Chat analítico).
 
-O MySQL do Projectile é somente lido. Desde a Fundação/Slice 1 do
-`GUIA_EVOLUCAO_GERADOR_PROJECTILE.md`, existe um SEGUNDO banco próprio,
+O MySQL do Projectile é somente lido. Existe um SEGUNDO banco próprio,
 `reports_db` (MySQL em container Docker, acessado via SQLAlchemy Core +
 Alembic), que persiste histórico/versionamento de cada geração de relatório
 — ver seção "Persistência de relatórios (reports_db)". Os dados do Painel
@@ -65,7 +64,7 @@ gerencial". As guias do frontend continuam em `localStorage`.
 
 - `useReportStore.ts` é a fonte de verdade da guia ativa.
 - Pacotes, grupos e atividades são identificados por `id`, nunca por índice persistente.
-- **Chat de IA usa `id` estável de grupo/atividade** (Fase 8) — `ChatGroup`/`ChatActivity` (`api/routers/chat.py`) exigem `id`; `chat_ops.py` localiza o alvo das operações por `groupId`/`activityId`, nunca por nome/descrição. `add_group`/`add_activity` geram `id` novo no backend (`uuid4()`), que o frontend só precisa aceitar (`applyChatState` casa por `id`, não mais por nome+índice).
+- **Chat de IA usa `id` estável de grupo/atividade** — `ChatGroup`/`ChatActivity` (`api/routers/chat.py`) exigem `id`; `chat_ops.py` localiza o alvo das operações por `groupId`/`activityId`, nunca por nome/descrição. `add_group`/`add_activity` geram `id` novo no backend (`uuid4()`), que o frontend só precisa aceitar (`applyChatState` casa por `id`, não mais por nome+índice).
 - `enableMapSet()` é obrigatório porque o estado contém `Set`.
 - A pilha de undo é global à guia durante a sessão, mas não vai para o `localStorage`.
 - `useReportTabsStore.ts` serializa cada guia, faz autosave com debounce e restaura no boot.
@@ -113,7 +112,7 @@ gerencial". As guias do frontend continuam em `localStorage`.
 - Artifacts ficam em `backend/data/report_artifacts/<report_id>/<generation_id>.<fmt>`
   (cópia própria, fora de `tempfile.gettempdir()` — o caminho original é
   apagado segundos após o download).
-- **Analytics** (`GET /analytics/summary`, Fase 9) agrega horas/tempo de
+- **Analytics** (`GET /analytics/summary`) agrega horas/tempo de
   geração/taxa de falha só sobre a VERSÃO ATUAL de cada relatório
   (`report_versions.id = reports.current_version_id`) — nunca soma
   versões substituídas junto com a vigente. Sem fail-open (mesmo
@@ -206,7 +205,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `main.py` | monta o `FastAPI`, middlewares, `include_router` de cada domínio e static mount — **não tem endpoint nenhum desde a Fase 5**, ver "API — routers" abaixo |
+| `main.py` | monta o `FastAPI`, middlewares, `include_router` de cada domínio e static mount — **não tem endpoint nenhum**, ver "API — routers" abaixo |
 | `auth.py` | login Projectile, rate limit e sessões em memória |
 | `db_credentials.py` | leitura da senha no Windows Credential Manager/keyring |
 | `projectile_db.py` | pool de conexões (`DBUtils.PooledDB`), queries e agrupamento |
@@ -232,7 +231,7 @@ Não reintroduza o antigo `Header.tsx` nem o stepper vertical; ambos foram subst
 | `tools/import_management_json.py` | importação única do antigo `management_kpi.json` (`python -m backend.app.tools.import_management_json [--replace-existing]`) |
 | `services/report_queries.py` | leituras pro histórico (`GET /reports/*`) e agregações do Analytics (`get_analytics_summary`, `GET /analytics/summary`) — **não** é fail-open: falha vira 502 (a única função do endpoint é ler) |
 
-### API — routers (Fase 5)
+### API — routers
 
 `main.py` só monta o app; toda rota vive em `api/routers/*.py`, uma por domínio:
 
@@ -321,9 +320,9 @@ Não altere nomes/casing sem migração coordenada.
 - `/management/send-status`: mesmos filtros de `/management/kpis`; devolve só `months` (`[{month}]`), `project_send_status` e as opções de filtro (`available_*`, `project_codes`, `project_clients`). Gerente ou coordenador.
 - `/auth/login` e `/auth/me`: `{name, login, email, is_manager, is_coordinator, is_translate_allowed}`.
 - `/management/kpis/samples`: CRUD de amostras; PATCH usa `exclude_unset` para distinguir `pacote_scope` ausente de `None`.
-- `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db` (Fase 2+4). Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. `GET /reports?q=` é a busca geral da tela (`report_queries._search_condition`): cada palavra precisa aparecer em alguma de Número, Projeto, Competência/escopo ou Criado por (nome/login), sem diferenciar maiúscula e com `%`/`_` literais; pra quem não é gerente roda dentro dos próprios relatórios. É no backend porque a lista é paginada; a tela busca 300 ms depois da última tecla e descarta resposta de busca antiga (`latestReportsRequest`). Download registra `artifact_downloaded` em `audit_log`.
+- `GET /reports`, `/reports/{id}`, `/reports/{id}/versions[/{version_id}]`, `/reports/{id}/generations`, `/reports/{id}/artifacts`, `/reports/{id}/audit`, `GET /artifacts/{id}/download`: histórico de `reports_db`. Autorização: quem criou o relatório ou gerente (`_require_report_access`, mesmo princípio de `/parse-db`/`/my-hours` — nunca expõe dado de uma pessoa pra outra sem ser gerente). Paginação `page`/`page_size` (máx. 100) em `{items, page, page_size, total}`. `GET /reports?q=` é a busca geral da tela (`report_queries._search_condition`): cada palavra precisa aparecer em alguma de Número, Projeto, Competência/escopo ou Criado por (nome/login), sem diferenciar maiúscula e com `%`/`_` literais; pra quem não é gerente roda dentro dos próprios relatórios. É no backend porque a lista é paginada; a tela busca 300 ms depois da última tecla e descarta resposta de busca antiga (`latestReportsRequest`). Download registra `artifact_downloaded` em `audit_log`.
 - `POST /analytics/chat` (só gerente): `{message, context?}` → `{conversation_id, route, intent, reply, visualizations, tables: [{title, columns, column_types, rows, totals, truncated}], metadata: {source, source_label, period_*, classifier, claude_calls, claude_text_used, latency_ms}, context: {conversation_id, last_intent, last_filters, last_spec}}`. `POST /analytics/chat/export` (só gerente): `{title, columns, column_types?, rows, totals?}` → .xlsx.
-- `GET /analytics/summary` (Fase 9, só gerente): `{totals: {reports, versions, artifacts}, hours_by_competence, hours_by_group, hours_by_project, generation: {total, failed, failure_rate, avg_duration_ms, by_format}, reports_over_time, top_creators}` — sem paginação, resumo único; horas contam só a versão atual de cada relatório.
+- `GET /analytics/summary` (só gerente): `{totals: {reports, versions, artifacts}, hours_by_competence, hours_by_group, hours_by_project, generation: {total, failed, failure_rate, avg_duration_ms, by_format}, reports_over_time, top_creators}` — sem paginação, resumo único; horas contam só a versão atual de cada relatório.
 
 `Field(..., allow_inf_nan=False)` e `_sanitize_nonfinite` evitam `NaN`/`Infinity`. Preserve esse comportamento em novos campos numéricos.
 
@@ -428,7 +427,7 @@ Não atualize esses números sem executar as suítes. Falha `spawn EPERM` de Vit
 | Parser XLSX | `backend/app/parser.py` |
 | Queries Projectile | `backend/app/projectile_db.py` |
 | E-mail | `backend/app/email_ingest.py`, `SendReportModal.tsx`, `api/routers/management.py` (`/management/kpis/check-emails`) |
-| Chat/tradução (IDs estáveis desde a Fase 8) | `api/routers/chat.py`, `chatbot.py`, `chat_ops.py`, `translate_ops.py`, `Chat.tsx`, `useReportStore.applyChatState` |
+| Chat/tradução (IDs estáveis de grupo/atividade) | `api/routers/chat.py`, `chatbot.py`, `chat_ops.py`, `translate_ops.py`, `Chat.tsx`, `useReportStore.applyChatState` |
 | Proxy dev | `frontend/vite.config.ts` |
 | Documentação de uso | `README.md` |
 | Persistência de relatórios (histórico/versão) | `backend/app/services/report_persistence.py`, integração em `api/routers/generation.py` (`generate_endpoint`/`send_report_endpoint`) |

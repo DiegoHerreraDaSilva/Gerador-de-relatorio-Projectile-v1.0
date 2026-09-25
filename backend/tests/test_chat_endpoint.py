@@ -1,5 +1,5 @@
 """Integração de POST /chat com o novo contrato de `id` estável em grupo/
-atividade (Fase 8). Mocka `chatbot.call_chat` (mesmo padrão de
+atividade. Mocka `chatbot.call_chat` (mesmo padrão de
 test_chatbot.py) — aqui importa o contrato do endpoint, não a chamada real
 à Anthropic."""
 from __future__ import annotations
@@ -103,7 +103,7 @@ def test_chat_endpoint_operacao_invalida_vira_502(monkeypatch):
 
 
 def test_chat_endpoint_rejeita_grupo_sem_id_com_422():
-    """Regressão: `id` em ChatGroup/ChatActivity é obrigatório desde a Fase 8
+    """Regressão: `id` em ChatGroup/ChatActivity é obrigatório
     — um payload do formato antigo (sem id) precisa falhar cedo, na
     validação do Pydantic, não silenciosamente."""
     app.dependency_overrides[require_session] = _fake_user

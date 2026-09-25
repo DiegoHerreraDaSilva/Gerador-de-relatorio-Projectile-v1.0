@@ -108,7 +108,7 @@ def verify_projectile_login(login: str, password: str) -> dict:
     except Exception as e:
         raise ProjectileDbError(f"Falha ao consultar usuário no Projectile: {e}") from e
     finally:
-        # `open_connection()` empresta do pool (Fase 6) — devolver aqui é
+        # `open_connection()` empresta do pool — devolver aqui é
         # obrigatório, senão cada login consome uma conexão do pool pra
         # sempre até esgotá-lo.
         conn.close()

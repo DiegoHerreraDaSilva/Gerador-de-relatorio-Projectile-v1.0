@@ -1,5 +1,4 @@
-"""Hardening de upload do /parse (GUIA_EVOLUCAO_GERADOR_PROJECTILE.md,
-seção 12): tamanho rejeitado ANTES de materializar o arquivo inteiro em
+"""Hardening de upload do /parse: tamanho rejeitado ANTES de materializar o arquivo inteiro em
 memória, e limite de conteúdo descomprimido (zip bomb)."""
 from __future__ import annotations
 

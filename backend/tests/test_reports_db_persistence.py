@@ -104,8 +104,7 @@ def test_finish_generation_failure_nunca_deixa_started_pra_sempre(reports_db_eng
 
 
 def test_versoes_sucessivas_sao_imutaveis(reports_db_engine):
-    """Guia GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 93: criar v2 nunca
-    pode alterar os registros de v1."""
+    """Criar v2 nunca pode alterar os registros de v1."""
     handle_v1 = begin_generation(_pkg_data(hours=8.0), "xlsx", "dherrera", "Diego Herrera")
     with reports_db_engine.begin() as conn:
         v1_before = dict(
@@ -126,8 +125,7 @@ def test_versoes_sucessivas_sao_imutaveis(reports_db_engine):
 
 def test_concorrencia_nao_gera_version_number_duplicado(reports_db_engine):
     """10 chamadas simultâneas pro MESMO relatório — version_number precisa
-    ser {1..10} sem duplicata nem lacuna (guia GUIA_EVOLUCAO_GERADOR_PROJECTILE.md,
-    seções 94-95)."""
+    ser {1..10} sem duplicata nem lacuna."""
 
     def _generate(_i):
         return begin_generation(_pkg_data(report_number="SE.CONCORRENCIA.001"), "xlsx", "dherrera", "Diego Herrera")

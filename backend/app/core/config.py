@@ -4,7 +4,7 @@ Projectile que já existia hardcoded. As dezenas de outras variáveis de
 ambiente do projeto (`ANTHROPIC_*`, `AZURE_*`, `PROJECTILE_DB_*`, etc.)
 continuam lidas via `os.environ` direto no ponto de uso, como sempre foram —
 migrá-las todas pra cá é trabalho de uma refatoração maior, não desta
-mudança (ver GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, Fase 6)."""
+mudança."""
 from __future__ import annotations
 
 from functools import lru_cache

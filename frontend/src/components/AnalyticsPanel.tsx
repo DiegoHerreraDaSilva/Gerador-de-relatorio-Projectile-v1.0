@@ -61,8 +61,7 @@ function AnalyticsSection({
   );
 }
 
-/** Tela de métricas agregadas sobre `reports_db` (Fase 9 do
- * GUIA_EVOLUCAO_GERADOR_PROJECTILE.md) — só gerente (ver `managerOnly` em
+/** Tela de métricas agregadas sobre `reports_db` — só gerente (ver `managerOnly` em
  * `Sidebar.tsx`, reforçado no backend por `require_manager`). Fica esparsa
  * até acumular meses de uso real: cada seção trata lista vazia como estado
  * vazio explícito, nunca como erro. */

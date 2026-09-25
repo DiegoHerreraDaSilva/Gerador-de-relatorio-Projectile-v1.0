@@ -1,7 +1,6 @@
 # Banco MySQL PRÓPRIO de histórico de relatórios (reports_db) — separado do
-# MySQL do Projectile, que continua 100% externo e nunca é dockerizado (ver
-# GUIA_EVOLUCAO_GERADOR_PROJECTILE.md, seção 3.1: nunca misturar os dois
-# bancos). Porta 3307 no host pra não colidir com um MySQL local em 3306.
+# MySQL do Projectile, que continua 100% externo e nunca é dockerizado (os
+# dois bancos nunca se misturam). Porta 3307 no host pra não colidir com um MySQL local em 3306.
 #
 # Primeiro uso:
 #   docker compose up -d reports-mysql

@@ -1,5 +1,5 @@
 """Rotas do Painel de Gerência e Diagnóstico (`/management/*`) — extraído de
-`main.py` na Fase 5. Nome igual ao módulo `backend/app/management.py` (regra
+`main.py`. Nome igual ao módulo `backend/app/management.py` (regra
 de negócio/persistência JSON) de propósito — são camadas diferentes
 (`backend.app.api.routers.management` vs `backend.app.management`), mesmo
 domínio; sempre importe explicitamente com alias se os dois forem usados no

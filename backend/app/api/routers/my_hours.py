@@ -1,4 +1,4 @@
-"""Rota do dashboard pessoal (`/my-hours`) — extraído de `main.py` na Fase 5."""
+"""Rota do dashboard pessoal (`/my-hours`) — extraído de `main.py`."""
 from __future__ import annotations
 
 import html
