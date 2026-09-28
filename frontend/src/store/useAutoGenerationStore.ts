@@ -434,7 +434,7 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     if (!saved) throw new Error("O rascunho não foi salvo no servidor — resolva isso antes de aprovar.");
     const live = useReportStore.getState();
     const auto = autoTabFor(reportId)!.auto!;
-    const payload = buildGeneratePayload(live.packages, live.header, auto.formats, live.includePerformanceInExport);
+    const payload = buildGeneratePayload(live.packages, live.header, auto.formats);
     const res = await api<{ status: AutoStatus; warnings: string[] }>(`/auto-generation/reports/${reportId}/approve`, {
       method: "POST",
       body: JSON.stringify({ payload, draft_version: auto.draftVersion }),

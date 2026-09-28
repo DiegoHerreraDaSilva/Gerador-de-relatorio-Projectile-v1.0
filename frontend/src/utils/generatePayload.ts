@@ -18,7 +18,6 @@ export function buildGeneratePayload(
   packages: WorkPackage[],
   header: ReportHeader,
   formats: ReportFormatValue[],
-  includePerformance: boolean,
 ) {
   return {
     packages: packages.map((pkg) => ({
@@ -44,6 +43,7 @@ export function buildGeneratePayload(
       language: pkg.language,
     })),
     formats,
-    include_performance: includePerformance,
+    // relatório nunca mostra Bruto/Performance (o backend também ignora)
+    include_performance: false,
   };
 }

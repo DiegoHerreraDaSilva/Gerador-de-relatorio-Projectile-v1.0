@@ -153,7 +153,8 @@ def build_draft(
             "signer2_name": config.get("signer2_name", ""),
             "signer2_company": config.get("signer2_company", "Mercedes-Benz do Brasil"),
         },
-        "include_performance": bool(config.get("include_performance")),
+        # arquivo nunca mostra performance (`report_files.build_report_file`)
+        "include_performance": False,
         "formats": list(config.get("formats") or ["xlsx"]),
         "packages": _draft_packages(parsed, mode, project["name"]),
         "issues": parsed["issues"],

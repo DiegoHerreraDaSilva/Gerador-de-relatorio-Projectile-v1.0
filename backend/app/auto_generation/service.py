@@ -977,7 +977,7 @@ def _persist_approval_files(payload: GeneratePayload, actor: dict) -> list[str]:
             handle = guard.begin(persistence_pkg_data(pkg), fmt, actor.get("login", ""), actor.get("name", ""),
                                  created_from="auto_approval")
             try:
-                header = build_report_file(pkg, tmp_path, fmt, include_performance=payload.include_performance)
+                header = build_report_file(pkg, tmp_path, fmt)
             except NonFiniteValueError as e:
                 finish_generation_failure(handle, e)
                 raise ApprovalRejected([str(e)]) from e
@@ -1018,21 +1018,20 @@ def approved_files_many(report_ids: list[str]) -> list[tuple[str, bytes]]:
     return files
 
 
-def approved_files(report_id: str, include_performance: bool | None = None) -> list[tuple[str, bytes]]:
+def approved_files(report_id: str) -> list[tuple[str, bytes]]:
     """Arquivos do payload CONGELADO na aprovação (o que vai pro cliente)."""
     report = _load(report_id)
     frozen = report.get("approved_payload_json")
     if not frozen:
         raise WorkflowError("Relatório ainda não aprovado.")
     payload = GeneratePayload.model_validate(frozen)
-    performance = payload.include_performance if include_performance is None else include_performance
     files: list[tuple[str, bytes]] = []
     used: set[str] = set()
     for pkg in payload.packages:
         for fmt in payload.formats:
             tmp_path = os.path.join(tempfile.gettempdir(), f"auto_{uuid.uuid4().hex}.{fmt}")
             try:
-                header = build_report_file(pkg, tmp_path, fmt, include_performance=performance)
+                header = build_report_file(pkg, tmp_path, fmt)
                 name = dedupe_name(sanitized_file_name(pkg.file_name, header, fmt), used)
                 used.add(name)
                 with open(tmp_path, "rb") as f:

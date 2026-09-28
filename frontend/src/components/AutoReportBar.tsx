@@ -27,8 +27,6 @@ export function AutoReportBar() {
   const saveState = useAutoGenerationStore((s) => (auto ? s.saveState[auto.reportId] ?? "saved" : "saved"));
   const packages = useReportStore((s) => s.packages);
   const header = useReportStore((s) => s.header);
-  const includePerformance = useReportStore((s) => s.includePerformanceInExport);
-  const setIncludePerformance = useReportStore((s) => s.setIncludePerformanceInExport);
   const [messages, setMessages] = useState<Messages>(null);
   const [working, setWorking] = useState(false);
   const [note, setNote] = useState("");
@@ -144,10 +142,6 @@ export function AutoReportBar() {
       {!reviewer && editable && (
         <div className="auto-bar-actions">
           <FormatCheckboxes value={formats} onChange={setFormats} />
-          <label className="include-performance-checkbox">
-            <input type="checkbox" checked={includePerformance} onChange={(e) => setIncludePerformance(e.target.checked)} />
-            <span>Incluir performance</span>
-          </label>
           {status === "revisado" && auto.reviewerName && (
             <button type="button" className="btn-secondary" aria-expanded={showReturn} onClick={() => setShowReturn((v) => !v)} disabled={working}>
               <Undo2 size={14} strokeWidth={2} /> Devolver

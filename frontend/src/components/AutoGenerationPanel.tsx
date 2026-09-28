@@ -677,9 +677,6 @@ function NumberInput({ label, value, suggested, pattern, model, disabled, onComm
   );
 }
 
-type Tri = "" | "sim" | "nao";
-const toTri = (v: boolean | undefined): Tri => (v === undefined ? "" : v ? "sim" : "nao");
-const fromTri = (v: Tri): boolean | undefined => (v === "" ? undefined : v === "sim");
 
 /** Configuração individual do projeto — só o que difere do padrão geral
  * (campo vazio = usa o padrão). Guardada pela família: vale também nos
@@ -740,13 +737,6 @@ function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
             <option value="xlsx">XLSX</option>
             <option value="pdf">PDF</option>
             <option value="pdf+xlsx">XLSX + PDF</option>
-          </select>
-        </label>
-        <label>Incluir performance
-          <select value={toTri(form.include_performance)} onChange={(e) => set("include_performance", fromTri(e.target.value as Tri))}>
-            <option value="">Padrão ({inherited("include_performance") ? "sim" : "não"})</option>
-            <option value="sim">Sim</option>
-            <option value="nao">Não</option>
           </select>
         </label>
         <label>Assinante Schwaben
@@ -856,7 +846,7 @@ function AutoSettingsModal({ onClose }: { onClose: () => void }) {
                     <span className="auto-field-hint">Regra escrita à mão (expressão regular).</span>
                   </label>
                 )}
-                {/* mesmos cartões do rodapé de "Gerar relatório" (Excel/PDF + performance) */}
+                {/* mesmos cartões do rodapé de "Gerar relatório" (Excel/PDF) */}
                 <div className="auto-settings-files" role="group" aria-labelledby="auto-settings-files-label">
                   <span id="auto-settings-files-label" className="auto-settings-files-label">Arquivos</span>
                   <div className="auto-settings-files-row">
@@ -864,10 +854,6 @@ function AutoSettingsModal({ onClose }: { onClose: () => void }) {
                       value={new Set(formats as ReportFormat[])}
                       onChange={(next) => setField("formats", Array.from(next))}
                     />
-                    <label className="include-performance-checkbox">
-                      <input type="checkbox" checked={Boolean(form.include_performance)} onChange={(e) => setField("include_performance", e.target.checked)} />
-                      <span>Incluir performance</span>
-                    </label>
                   </div>
                 </div>
               </div>

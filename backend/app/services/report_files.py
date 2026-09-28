@@ -66,6 +66,7 @@ class GeneratePayload(BaseModel):
     # pdf_generator.generate_report_pdf), mesma informação que já aparece só
     # no preview (PreviewSheet.tsx). Não se aplica ao /send-report (envio por
     # e-mail) — fora do pedido original, sempre False lá.
+    # ignorado: arquivo nunca mostra performance (ver `build_report_file`)
     include_performance: bool = False
 
 
@@ -113,8 +114,14 @@ def build_report_file(
     pkg_payload: ReportPackagePayload,
     output_path: str,
     fmt: Literal["xlsx", "pdf"] = "xlsx",
-    include_performance: bool = False,
 ) -> ReportHeader:
+    """Todo XLSX/PDF que sai do sistema passa por aqui (`/generate`,
+    `/send-report`, aprovação e envio da geração automática) — e NUNCA com as
+    colunas de Bruto/Performance (decisão do usuário, 2026-09-28: relatório
+    gerado por qualquer meio não mostra performance). A performance continua
+    no CÁLCULO das horas (bruto × performance, igual a `calc.ts`); só a
+    exibição dela no arquivo é que não existe mais. `include_performance` dos
+    payloads é aceito por compatibilidade e ignorado."""
     header, groups = report_groups(pkg_payload)
     if fmt == "pdf":
         generate_report_pdf(
@@ -124,7 +131,7 @@ def build_report_file(
             chart_image_bar_b64=pkg_payload.chart_image_bar,
             chart_image_pie_b64=pkg_payload.chart_image_pie,
             pacote_scope=pkg_payload.pacote_scope,
-            include_performance=include_performance,
+            include_performance=False,
             language=pkg_payload.language,
         )
     else:
@@ -135,7 +142,7 @@ def build_report_file(
             chart_image_bar_b64=pkg_payload.chart_image_bar,
             chart_image_pie_b64=pkg_payload.chart_image_pie,
             pacote_scope=pkg_payload.pacote_scope,
-            include_performance=include_performance,
+            include_performance=False,
             language=pkg_payload.language,
         )
     return header

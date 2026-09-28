@@ -60,7 +60,7 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
             _persistence_pkg_data(payload.packages[0]), fmt, _user["login"], _user["name"]
         )
         try:
-            header = _build_report(payload.packages[0], output_path, fmt, payload.include_performance)
+            header = _build_report(payload.packages[0], output_path, fmt)
         except NonFiniteValueError as e:
             # Um valor individualmente válido (finito, >= 0) ainda pode virar
             # infinito ao ser somado com outro (ex: duas horas enormes que juntas
@@ -99,7 +99,7 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
                     tmp_path = os.path.join(OUTPUT_DIR, f"relatorio_{uuid.uuid4().hex}.{fmt}")
                     handle = guard.begin(_persistence_pkg_data(pkg_payload), fmt, _user["login"], _user["name"])
                     try:
-                        header = _build_report(pkg_payload, tmp_path, fmt, payload.include_performance)
+                        header = _build_report(pkg_payload, tmp_path, fmt)
                         download_name = _sanitized_file_name(pkg_payload.file_name, header, fmt)
                         final_name = _dedupe_name(download_name, used_arcnames)
                         used_arcnames.add(final_name)
