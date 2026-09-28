@@ -6,11 +6,16 @@ export function FormatCheckboxes({
   value,
   onChange,
   disabled = false,
+  available,
 }: {
   value: Set<ReportFormat>;
   onChange: (next: Set<ReportFormat>) => void;
   disabled?: boolean;
+  // formatos que existem pra escolher (ex.: só os aprovados); ausente = os dois
+  available?: Set<ReportFormat>;
 }) {
+  const off = (fmt: ReportFormat) => disabled || (available ? !available.has(fmt) : false);
+  const unavailableTitle = "Não foi aprovado neste formato";
   const toggle = (fmt: ReportFormat) => {
     if (value.has(fmt) && value.size === 1) return; // sempre pelo menos 1 formato marcado
     const next = new Set(value);
@@ -25,9 +30,9 @@ export function FormatCheckboxes({
         type="button"
         className={`format-checkbox excel ${value.has("xlsx") ? "checked" : ""}`}
         onClick={() => toggle("xlsx")}
-        disabled={disabled}
+        disabled={off("xlsx")}
         aria-pressed={value.has("xlsx")}
-        title="Excel (.xlsx)"
+        title={off("xlsx") && available ? unavailableTitle : "Excel (.xlsx)"}
       >
         <FileSpreadsheet size={20} strokeWidth={2} />
         <span>Excel</span>
@@ -36,9 +41,9 @@ export function FormatCheckboxes({
         type="button"
         className={`format-checkbox pdf ${value.has("pdf") ? "checked" : ""}`}
         onClick={() => toggle("pdf")}
-        disabled={disabled}
+        disabled={off("pdf")}
         aria-pressed={value.has("pdf")}
-        title="PDF"
+        title={off("pdf") && available ? unavailableTitle : "PDF"}
       >
         <FileBadge2 size={20} strokeWidth={2} />
         <span>PDF</span>

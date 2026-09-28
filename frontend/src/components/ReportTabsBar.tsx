@@ -64,7 +64,7 @@ export function ReportTabsBar({
               className={`report-tab report-tab-icon ${isActive ? "active" : ""}`}
               aria-label={`Abrir ${tab.label}`}
               aria-current={isActive ? "page" : undefined}
-              title={tab.label}
+              data-tip={tab.label}
               onClick={() => onOpenTab(tab.id)}
             >
               <Files size={17} strokeWidth={1.8} />

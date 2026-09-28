@@ -211,6 +211,22 @@ export function blankTabBundle(): string {
   return JSON.stringify(bundle, jsonReplacer);
 }
 
+/** Bundle de uma guia que já abre com um relatório pronto (sem o card de
+ * importação) — usado pela geração automática pra abrir um rascunho do
+ * servidor no editor de sempre. */
+export function reportTabBundle(
+  packages: WorkPackage[], header: ReportHeader, includePerformance: boolean, issues: RowIssue[] = [],
+): string {
+  const bundle = JSON.parse(blankTabBundle(), jsonReviver) as TabBundle;
+  bundle.packages = packages;
+  bundle.currentIssues = issues;
+  bundle.activePackageId = packages[0]?.id ?? null;
+  bundle.header = header;
+  bundle.showImportCard = false;
+  bundle.includePerformanceInExport = includePerformance;
+  return JSON.stringify(bundle, jsonReplacer);
+}
+
 export interface StoreState {
   packages: WorkPackage[];
   // controla o card "Importe a planilha de horas" (id="step1" em

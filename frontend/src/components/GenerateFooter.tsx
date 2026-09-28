@@ -3,17 +3,10 @@ import { Send } from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
 import { computeGrandTotalFor, findEmptyActivityDescriptionMessage } from "../utils/calc";
 import { fmtNum } from "../utils/fmt";
-import { computeDefaultFileName, computeDefaultFileNameFor } from "../utils/fileName";
-import { drawGroupsChart } from "../utils/chart";
+import { computeDefaultFileName } from "../utils/fileName";
+import { buildGeneratePayload } from "../utils/generatePayload";
 import { SendReportModal } from "./SendReportModal";
 import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
-import type { WorkPackage } from "../api/types";
-
-function chartPng(groups: WorkPackage["groups"], type: "bar" | "pie"): string {
-  const canvas = document.createElement("canvas");
-  drawGroupsChart(canvas, groups, type);
-  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
-}
 
 export function GenerateFooter() {
   const packages = useReportStore((s) => s.packages);
@@ -52,32 +45,7 @@ export function GenerateFooter() {
       return;
     }
 
-    const payload = {
-      packages: packages.map((pkg) => ({
-        header: {
-          project_code: pkg.projectCode,
-          project_name: pkg.projectName,
-          location_date: header.locationDate,
-          month_label: header.monthLabel,
-          signer1_name: header.signer1Name,
-          signer1_company: header.signer1Company,
-          signer2_name: header.signer2Name,
-          signer2_company: header.signer2Company,
-        },
-        groups: pkg.groups.map((g) => ({
-          name: g.name,
-          performance: g.performance,
-          activities: g.activities.map((a) => ({ description: a.description, hours: a.hours })),
-        })),
-        file_name: packages.length > 1 ? (pkg.fileNameEdited ? pkg.fileName : computeDefaultFileNameFor(pkg, header.monthLabel)) : undefined,
-        chart_image_bar: pkg.chartBar ? chartPng(pkg.groups, "bar") : undefined,
-        chart_image_pie: pkg.chartPie ? chartPng(pkg.groups, "pie") : undefined,
-        pacote_scope: pkg.pacoteScope,
-        language: pkg.language,
-      })),
-      formats: Array.from(formats),
-      include_performance: includePerformance,
-    };
+    const payload = buildGeneratePayload(packages, header, Array.from(formats), includePerformance);
 
     setStatus("Gerando...");
     try {

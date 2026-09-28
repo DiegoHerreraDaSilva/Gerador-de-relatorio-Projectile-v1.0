@@ -79,7 +79,7 @@ export function AnalyticsPanel() {
   return (
     <div className="analytics-panel page-container">
       <PageHeader
-        title="Analytics"
+        title="Analytics relatórios"
         description="Métricas agregadas sobre relatórios gerados: horas, tempo de geração e taxa de falhas."
         icon={<BarChart3 size={20} strokeWidth={1.8} />}
         actions={

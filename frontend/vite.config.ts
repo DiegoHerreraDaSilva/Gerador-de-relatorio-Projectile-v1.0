@@ -14,6 +14,8 @@ export default defineConfig({
       "/reports": "http://localhost:8011",
       "/artifacts": "http://localhost:8011",
       "/analytics": "http://localhost:8011",
+      "/auto-generation": "http://localhost:8011",
+      "/my-reviews": "http://localhost:8011",
     },
   },
   build: {

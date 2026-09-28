@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity, History, BarChart3, MessagesSquare,
-  ChevronLeft, Menu, X, Plus,
+  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity, History, BarChart3, MessagesSquare, CalendarClock,
+  ChevronLeft, Menu, X, Plus, ClipboardCheck,
 } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
+import { useMyReviewsStore } from "../store/useMyReviewsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { ReportTabsBar } from "./ReportTabsBar";
+import { useSidebarTooltip } from "./SidebarTooltip";
 import { VIEW_TITLES, type AppView } from "../appView";
 
 const COLLAPSED_STORAGE_KEY = "sidebarCollapsed";
@@ -36,15 +38,22 @@ type NavAccess = "all" | "coordinator" | "manager";
 const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; access: NavAccess }> = [
   { view: "report", label: "Gerar relatório", icon: FileText, access: "all" },
   { view: "dashboard", label: "Dashboard de horas", icon: Activity, access: "all" },
+  { view: "management", label: "Painel de gerência", icon: LayoutDashboard, access: "manager" },
+  { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, access: "coordinator" },
+  { view: "analytics", label: "Analytics relatórios", icon: BarChart3, access: "manager" },
   // todo mundo vê, mas só os PRÓPRIOS relatórios (coordenador também) — só o
   // gerente vê os de todos; filtro aplicado no backend (_require_report_access),
   // mesmo princípio de /parse-db e /my-hours.
   { view: "history", label: "Histórico de relatórios", icon: History, access: "all" },
-  { view: "management", label: "Painel de gerência", icon: LayoutDashboard, access: "manager" },
-  { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, access: "coordinator" },
-  { view: "analytics", label: "Analytics", icon: BarChart3, access: "manager" },
   { view: "analytics-chat", label: "Chat analítico", icon: MessagesSquare, access: "manager" },
+  { view: "auto-generation", label: "Geração automática", icon: CalendarClock, access: "manager" },
+  // qualquer papel — só aparece pra quem tem (ou já teve) relatório atribuído
+  { view: "my-reviews", label: "Minhas revisões", icon: ClipboardCheck, access: "all" },
 ];
+
+// contadores da sidebar (aviso só no app): revisão pendente e, pro gerente,
+// o que aguarda a aprovação dele
+const SUMMARY_POLL_MS = 2 * 60 * 1000;
 
 export function Sidebar({
   view,
@@ -59,6 +68,24 @@ export function Sidebar({
     access === "all" || (access === "manager" ? Boolean(user?.isManager) : hasCoordinatorAccess(user));
   const roleLabel = user?.isManager ? "Gerente" : user?.isCoordinator ? "Coordenador" : "Colaborador";
   const addTab = useReportTabsStore((s) => s.addTab);
+  const summary = useMyReviewsStore((s) => s.summary);
+  useEffect(() => {
+    if (!user) return;
+    const load = () => void useMyReviewsStore.getState().loadSummary();
+    load();
+    const timer = setInterval(load, SUMMARY_POLL_MS);
+    window.addEventListener("focus", load);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+  }, [user?.login]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visible = (item: (typeof NAV_ITEMS)[number]) =>
+    canAccess(item.access) && (item.view !== "my-reviews" || (summary?.assigned ?? 0) > 0 || view === "my-reviews");
+  const countFor = (v: AppView): number =>
+    v === "my-reviews" ? summary?.to_review ?? 0 : v === "auto-generation" ? summary?.awaiting_approval ?? 0 : 0;
+  const countLabel = (v: AppView, n: number) =>
+    v === "my-reviews" ? `${n} pra revisar` : `${n} aguardando aprovação`;
 
   const [theme, setTheme] = useState<Theme>(() => {
     const t = document.documentElement.dataset.theme as Theme | undefined;
@@ -97,6 +124,10 @@ export function Sidebar({
   // conceitos diferentes (recolhido = rail fino sempre visível; drawer =
   // painel cheio que abre por cima, só existe fechado ou aberto).
   const showLabels = !collapsed || drawerOpen;
+  // recolhida: cada ícone ganha um tooltip instantâneo (`data-tip`)
+  const tipsOn = !showLabels;
+  const tip = (label: string) => (tipsOn ? label : undefined);
+  const { handlers: tooltipHandlers, tooltip } = useSidebarTooltip(tipsOn);
 
   const navigate = (v: AppView) => {
     onNavigate(v);
@@ -134,6 +165,7 @@ export function Sidebar({
         ref={asideRef}
         className={`sidebar ${collapsed ? "collapsed" : ""} ${drawerOpen ? "drawer-open" : ""}`}
         aria-label="Barra lateral"
+        {...tooltipHandlers}
       >
         <div className="sidebar-head">
           <div className="sidebar-brand">
@@ -152,7 +184,8 @@ export function Sidebar({
           <button
             type="button"
             className="sidebar-collapse-btn"
-            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            data-tip={tip("Expandir menu")}
+            title={tipsOn ? undefined : "Recolher menu"}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
             onClick={() => setCollapsed((v) => !v)}
           >
@@ -170,20 +203,29 @@ export function Sidebar({
 
         <nav className="sidebar-nav" aria-label="Navegação principal">
           {showLabels && <p className="sidebar-section-label">Navegação</p>}
-          {NAV_ITEMS.filter((item) => canAccess(item.access)).map((item) => {
+          {NAV_ITEMS.filter(visible).map((item) => {
             const Icon = item.icon;
             const active = view === item.view;
+            const count = countFor(item.view);
+            const label = count ? `${item.label} (${countLabel(item.view, count)})` : item.label;
             return (
               <button
                 key={item.view}
                 type="button"
                 className={`sidebar-nav-item ${active ? "active" : ""}`}
                 aria-current={active ? "page" : undefined}
-                title={collapsed && !drawerOpen ? item.label : undefined}
+                aria-label={tipsOn || count ? label : undefined}
+                data-tip={tip(label)}
                 onClick={() => navigate(item.view)}
               >
-                <Icon size={18} strokeWidth={1.8} />
+                <span className="sidebar-nav-icon">
+                  <Icon size={18} strokeWidth={1.8} />
+                  {count > 0 && !showLabels && <span className="sidebar-nav-dot" aria-hidden="true" />}
+                </span>
                 {showLabels && <span>{item.label}</span>}
+                {showLabels && count > 0 && (
+                  <span className="sidebar-nav-count" aria-hidden="true" title={countLabel(item.view, count)}>{count}</span>
+                )}
               </button>
             );
           })}
@@ -195,7 +237,8 @@ export function Sidebar({
           <button
             type="button"
             className="sidebar-new-report-btn"
-            title="Novo relatório"
+            aria-label={tipsOn ? "Novo relatório" : undefined}
+            data-tip={tip("Novo relatório")}
             onClick={() => {
               if (view !== "report") onNavigate("report");
               addTab();
@@ -220,7 +263,8 @@ export function Sidebar({
               <button
                 type="button"
                 className="sidebar-footer-btn"
-                title={isLight ? "Mudar para tema escuro" : "Mudar para tema claro"}
+                title={tipsOn ? undefined : isLight ? "Mudar para tema escuro" : "Mudar para tema claro"}
+                data-tip={tip(isLight ? "Mudar para tema escuro" : "Mudar para tema claro")}
                 aria-label={isLight ? "Mudar para tema escuro" : "Mudar para tema claro"}
                 onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
               >
@@ -230,7 +274,8 @@ export function Sidebar({
               <button
                 type="button"
                 className="sidebar-footer-btn"
-                title="Sair"
+                title={tipsOn ? undefined : "Sair"}
+                data-tip={tip("Sair")}
                 aria-label="Sair"
                 onClick={() => logout()}
               >
@@ -241,6 +286,7 @@ export function Sidebar({
           </div>
         )}
       </aside>
+      {tooltip}
     </>
   );
 }

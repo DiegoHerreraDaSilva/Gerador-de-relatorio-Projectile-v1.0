@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { genId, useReportStore, serializeTabBundle, applyTabBundle, blankTabBundle } from "./useReportStore";
+import type { AutoDraftExtras } from "../utils/autoDraft";
 
 const STORAGE_KEY = "relatorio-horas:tabs:v1";
 // tempo parado digitando antes de gravar em disco — junta várias teclas
@@ -8,9 +9,30 @@ const STORAGE_KEY = "relatorio-horas:tabs:v1";
 // de verdade perca trabalho relevante.
 const AUTOSAVE_DEBOUNCE_MS = 600;
 
+/** Guia aberta a partir da geração automática. O rascunho vive no SERVIDOR
+ * (salvo sozinho com `draftVersion`), então essa guia nunca vai pro
+ * `localStorage` — a chave dele é uma só pro navegador (não por login), e um
+ * rascunho de um usuário não pode ficar pro próximo. F5 fecha a guia; o
+ * rascunho continua salvo e reabre pela aba "Geração automática". */
+export type AutoTabMeta = {
+  reportId: string;
+  draftVersion: number;
+  competence: string;
+  status: string;
+  formats: Array<"xlsx" | "pdf">;
+  extras: AutoDraftExtras;
+  // "manager" = aberto pela aba Geração automática (aprova); "reviewer" =
+  // aberto em "Minhas revisões" (edita e manda pra aprovação, rotas /my-reviews)
+  role?: "manager" | "reviewer";
+  reviewerName?: string | null;
+  // o que o gerente pediu na última devolução (mostrado na barra)
+  returnComment?: string | null;
+};
+
 export type ReportTabMeta = {
   id: string;
   label: string;
+  auto?: AutoTabMeta;
   // `false` = rótulo ainda é o automático ("Guia N" ou o nome do projeto
   // importado) — pode ser sobrescrito sozinho; `true` = usuário renomeou à
   // mão, nunca mais muda sozinho (mesmo padrão de `fileNameEdited`).
@@ -29,6 +51,9 @@ interface ReportTabsState {
   pendingSave: boolean;
 
   addTab: () => void;
+  openAutoTab: (auto: AutoTabMeta, label: string, bundle: string) => void;
+  updateAutoMeta: (reportId: string, patch: Partial<AutoTabMeta>) => void;
+  closeAutoTabs: () => void;
   closeTab: (id: string) => void;
   switchTab: (id: string) => void;
   renameTab: (id: string, label: string) => void;
@@ -36,6 +61,13 @@ interface ReportTabsState {
 }
 
 let suppressAutosave = false;
+
+/** true enquanto uma guia é CARREGADA (troca/abertura) — quem assina
+ * `useReportStore` pra reagir a edição (autosave da geração automática)
+ * precisa ignorar essas mudanças, que não são do usuário. */
+export function isLoadingTabBundle(): boolean {
+  return suppressAutosave;
+}
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleAutosave() {
@@ -118,6 +150,48 @@ export const useReportTabsStore = create<ReportTabsState>()(
       get().persist();
     },
 
+    openAutoTab: (auto, label, bundle) => {
+      const existing = get().tabs.find((t) => t.auto?.reportId === auto.reportId);
+      if (existing) {
+        // já aberto: volta pra ele sem trocar o conteúdo (pode ter edição
+        // ainda não salva no servidor)
+        get().switchTab(existing.id);
+        return;
+      }
+      const currentBundle = serializeTabBundle(useReportStore.getState());
+      const newId = genId();
+      set((s) => {
+        s.bundles[s.activeTabId] = currentBundle;
+        s.tabs.push({ id: newId, label, labelEdited: true, auto });
+        s.bundles[newId] = bundle;
+        s.activeTabId = newId;
+      });
+      loadBundleIntoLiveStore(bundle);
+      get().persist();
+    },
+
+    updateAutoMeta: (reportId, patch) => {
+      set((s) => {
+        const tab = s.tabs.find((t) => t.auto?.reportId === reportId);
+        if (tab?.auto) Object.assign(tab.auto, patch);
+      });
+    },
+
+    closeAutoTabs: () => {
+      const s = get();
+      if (!s.tabs.some((t) => t.auto)) return;
+      const keep = s.tabs.filter((t) => !t.auto);
+      const activeIsAuto = s.tabs.find((t) => t.id === s.activeTabId)?.auto;
+      set((st) => {
+        for (const t of st.tabs) if (t.auto) delete st.bundles[t.id];
+        st.tabs = keep.length ? keep : [{ id: genId(), label: "Guia 1", labelEdited: false }];
+        if (!keep.length) st.bundles[st.tabs[0].id] = blankTabBundle();
+        if (activeIsAuto) st.activeTabId = st.tabs[0].id;
+      });
+      if (activeIsAuto) loadBundleIntoLiveStore(get().bundles[get().activeTabId]);
+      get().persist();
+    },
+
     closeTab: (id) => {
       const s = get();
       if (s.tabs.length <= 1) return; // nunca fecha a última guia
@@ -173,12 +247,15 @@ export const useReportTabsStore = create<ReportTabsState>()(
         // precisa sobreviver a um F5, só ao ciclo de edição atual; o que
         // fica em `s.bundles` (usado ao trocar de guia dentro da mesma
         // sessão) continua com o histórico completo, intocado aqui.
+        // guia da geração automática não vai pro disco (ver `AutoTabMeta`)
+        const diskTabs = s.tabs.filter((t) => !t.auto);
         const bundlesForDisk = Object.fromEntries(
-          Object.entries(bundles).map(([id, bundleStr]) => [id, stripUndoStackForDisk(bundleStr)])
+          diskTabs.map((t) => [t.id, stripUndoStackForDisk(bundles[t.id])])
         );
+        const diskActive = diskTabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : diskTabs[0]?.id;
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ version: 1, activeTabId: s.activeTabId, tabs: s.tabs, bundles: bundlesForDisk })
+          JSON.stringify({ version: 1, activeTabId: diskActive, tabs: diskTabs, bundles: bundlesForDisk })
         );
         set({ bundles, pendingSave: false });
       } catch {

@@ -8,6 +8,10 @@ import { MyHoursDashboard } from "./components/MyHoursDashboard";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { AnalyticsPanel } from "./components/AnalyticsPanel";
 import { AnalyticsChatPanel } from "./components/AnalyticsChatPanel";
+import { AutoGenerationPanel } from "./components/AutoGenerationPanel";
+import { AutoReportBar } from "./components/AutoReportBar";
+import { MyReviewsPanel } from "./components/MyReviewsPanel";
+import { useReportTabsStore } from "./store/useReportTabsStore";
 import { useAuthStore } from "./store/useAuthStore";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
@@ -60,6 +64,8 @@ export default function App() {
         {view === "history" && <HistoryPanel />}
         {view === "analytics" && <AnalyticsPanel />}
         {view === "analytics-chat" && <AnalyticsChatPanel />}
+        {view === "auto-generation" && <AutoGenerationPanel onNavigate={setView} />}
+        {view === "my-reviews" && <MyReviewsPanel onNavigate={setView} />}
         {view === "report" && <ReportView />}
       </main>
     </div>
@@ -73,6 +79,9 @@ function ReportView() {
   const isSplit = useReportStore((s) => s.isSplit);
   const hasPackages = packages.length > 0;
   const activePkg = packages.find((p) => p.id === activeId);
+  // guia aberta pela geração automática: aprovar (barra) no lugar de
+  // importar/gerar/enviar — o rascunho vive no servidor
+  const isAutoTab = useReportTabsStore((s) => Boolean(s.tabs.find((t) => t.id === s.activeTabId)?.auto));
 
   return (
     <>
@@ -105,7 +114,7 @@ function ReportView() {
             )}
           </div>
           <div id="summaryBarActions">
-            <button
+            {!isAutoTab && <button
               type="button"
               className="btn-secondary"
               onClick={() => {
@@ -114,14 +123,16 @@ function ReportView() {
               }}
             >
               Alterar dados
-            </button>
+            </button>}
           </div>
         </div>
       )}
 
+      {isAutoTab && <AutoReportBar />}
+
       <ValidationBanner />
 
-      <FileUpload key={hasPackages ? "report-loaded" : "new-import"} />
+      {!isAutoTab && <FileUpload key={hasPackages ? "report-loaded" : "new-import"} />}
 
       <div id="step2" className={hasPackages ? "visible" : ""} style={{ display: hasPackages ? "block" : "none" }}>
         <PackageTabs />
@@ -131,7 +142,7 @@ function ReportView() {
         </div>
       </div>
 
-      <GenerateFooter />
+      {!isAutoTab && <GenerateFooter />}
       <Chat />
     </>
   );
