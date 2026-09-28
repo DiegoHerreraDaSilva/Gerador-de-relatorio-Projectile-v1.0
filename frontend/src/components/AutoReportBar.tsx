@@ -172,8 +172,8 @@ export function AutoReportBar() {
                 : status === "aprovado" || status === "enviado"
                   ? "Aprovado pelo gerente. Edições aqui não são salvas."
                   : "Este relatório não está mais com você; edições aqui não são salvas."
-              : status === "aprovado"
-                ? "Aprovado — edições aqui não são salvas. Pra mudar, use “Reabrir” na aba Geração automática."
+              : status === "aprovado" || status === "enviado"
+                ? `${status === "enviado" ? "Enviado" : "Aprovado"} — edições aqui não são salvas. Pra mudar, use “Reabrir” na aba Geração automática.`
                 : "Este relatório não está em revisão; edições aqui não são salvas."}
           </p>
           {!reviewer && status === "aprovado" && (

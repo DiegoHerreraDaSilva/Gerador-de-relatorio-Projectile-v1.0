@@ -120,11 +120,10 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
   };
 
   const bulkReopen = async () => {
-    const reopenable = pickedItems.filter((i) => i.status === "aprovado");
+    const reopenable = pickedItems;
     if (!reopenable.length) return;
-    const skipped = pickedItems.length - reopenable.length;
-    const note = skipped ? `\n\n${skipped} já enviado${skipped === 1 ? "" : "s"} não ${skipped === 1 ? "reabre" : "reabrem"}.` : "";
-    if (!window.confirm(`Reabrir ${reopenable.length} relatório${reopenable.length === 1 ? "" : "s"} pra revisão? A aprovação é desfeita (o que foi pro histórico continua lá).${note}`)) return;
+    const sentCount = reopenable.filter((i) => i.status === "enviado").length;
+    if (!window.confirm(`Reabrir ${reopenable.length} relatório${reopenable.length === 1 ? "" : "s"} pra revisão? ${reopenWarning(sentCount)}`)) return;
     setBulkBusy(true);
     for (const item of reopenable) await useAutoGenerationStore.getState().action(item, "reopen");
     setPicked(new Set());
@@ -293,9 +292,7 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
             <a className="btn-secondary" href={`/auto-generation/files?${pickedItems.map((i) => `ids=${encodeURIComponent(i.id)}`).join("&")}`}>
               <Download size={14} strokeWidth={2} /> Baixar
             </a>
-            <button type="button" className="btn-secondary" onClick={() => void bulkReopen()}
-              disabled={bulkBusy || !pickedItems.some((i) => i.status === "aprovado")}
-              title={pickedItems.some((i) => i.status === "aprovado") ? undefined : "Relatório já enviado não reabre"}>
+            <button type="button" className="btn-secondary" onClick={() => void bulkReopen()} disabled={bulkBusy}>
               <RotateCcw size={14} strokeWidth={2} /> Reabrir
             </button>
           </div>
@@ -306,6 +303,14 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
       {showSettings && <AutoSettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
+}
+
+/** O que a confirmação de "Reabrir" avisa — enviado já está com o cliente. */
+function reopenWarning(sentCount: number): string {
+  const base = "A aprovação é desfeita (o que foi pro histórico continua lá).";
+  if (!sentCount) return base;
+  return `${base}\n\n${sentCount === 1 ? "Ele já foi enviado" : `${sentCount} já foram enviados`} ao cliente: `
+    + "depois de corrigir, aprove e envie de novo — o cliente só tem a versão anterior.";
 }
 
 function fmtDate(value: string): string {
@@ -444,9 +449,9 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
                 </a>
               </>
             )}
-            {item?.status === "aprovado" && (
+            {item && (item.status === "aprovado" || sent) && (
               <button type="button" className="btn-secondary" disabled={busy}
-                onClick={() => window.confirm("Reabrir pra revisão? A aprovação é desfeita (o que foi pro histórico continua lá).") && void action(item, "reopen")}>
+                onClick={() => window.confirm(`Reabrir pra revisão? ${reopenWarning(sent ? 1 : 0)}`) && void action(item, "reopen")}>
                 <RotateCcw size={14} strokeWidth={2} /> Reabrir
               </button>
             )}

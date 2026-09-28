@@ -675,6 +675,19 @@ def test_varios_aprovados_num_email_so(auto_db, graph):
     assert refused.status_code == 409 and len(graph) == 1
 
 
+def test_enviado_reabre_e_precisa_ser_enviado_de_novo(auto_db, graph):
+    report_id = _approved()
+    body = {"to": ["cliente@mbb.com"], "subject": "Relatório"}
+    assert _client().post(f"/auto-generation/reports/{report_id}/send", json=body).status_code == 200
+    assert _client().post(f"/auto-generation/reports/{report_id}/reopen", json={}).status_code == 200
+    detail = service.detail(report_id)
+    assert detail["status"] == "em_revisao" and detail["sent_at"] is None and not detail["has_approved_payload"]
+    # o envio anterior continua na linha do tempo
+    assert [e["action"] for e in detail["events"]][-2:] == ["sent", "reopened"]
+    # sem aprovar de novo não dá pra enviar (o cliente só tem a versão antiga)
+    assert _client().post(f"/auto-generation/reports/{report_id}/send", json=body).status_code == 409
+
+
 def test_minhas_revisoes_so_mostram_competencias_da_janela(auto_db, reviewers):
     """Coordenador/colaborador só vê os últimos 12 meses e o ano atual —
     rascunho atribuído de uma competência antiga some da lista e do contador."""

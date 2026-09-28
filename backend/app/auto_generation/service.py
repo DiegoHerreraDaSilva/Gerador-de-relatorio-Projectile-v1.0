@@ -483,10 +483,12 @@ def skip(report_id: str, actor: dict, comment: str = "") -> None:
 
 
 def reopen(report_id: str, actor: dict, comment: str = "") -> None:
-    """Aprovado (ainda não enviado) volta pra revisão — o que foi pro
-    histórico continua lá; a próxima aprovação vira uma versão nova."""
-    _transition(report_id, {STATUS_APPROVED}, STATUS_IN_REVIEW, actor, "reopened", comment,
-                approved_payload_json=None, approved_by=None, approved_at=None)
+    """Aprovado ou já ENVIADO volta pra revisão — o que foi pro histórico
+    continua lá, e o envio anterior continua na linha do tempo (evento
+    `sent`); a próxima aprovação vira uma versão nova, e ela precisa ser
+    enviada de novo (o cliente só tem a versão antiga)."""
+    _transition(report_id, {STATUS_APPROVED, STATUS_SENT}, STATUS_IN_REVIEW, actor, "reopened", comment,
+                approved_payload_json=None, approved_by=None, approved_at=None, sent_by=None, sent_at=None)
 
 
 def regenerate(report_id: str, actor: dict) -> None:
