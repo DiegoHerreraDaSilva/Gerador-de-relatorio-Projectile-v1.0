@@ -42,7 +42,7 @@ Depois da importação, o usuário pode:
 - ativar gráficos de barras ou pizza;
 - ampliar o preview e usar tela cheia;
 - gerar XLSX, PDF ou ambos;
-- incluir bruto/performance no arquivo final;
+- o arquivo final (XLSX/PDF) nunca mostra bruto/performance — a performance entra só no cálculo das horas;
 - enviar os relatórios por e-mail sem baixar os arquivos;
 - traduzir grupos, atividades e rótulos fixos para inglês ou alemão quando o login estiver autorizado;
 - usar o chat para editar o relatório por operações estruturadas.
@@ -88,7 +88,7 @@ Quando o filtro por pessoa está ativo, faturado e performance ficam indisponív
 
 ### Diagnóstico de relatórios
 
-Gerente e coordenador. O gerente vê todos os períodos; o coordenador, só os **últimos 12 meses e o ano passado** (o backend responde 403 pra outro período e só devolve amostras desses meses). O coordenador também não vê horas, faturado nem performance: a tela dele usa `/management/send-status`. Permite:
+Gerente e coordenador. O gerente vê todos os períodos; o coordenador, só os **últimos 12 meses e o ano atual** (o backend responde 403 pra outro período e só devolve amostras desses meses). O coordenador também não vê horas, faturado nem performance: a tela dele usa `/management/send-status`. Permite:
 
 - acompanhar a situação de envio por projeto e mês (`enviado`, `parcial`, `não enviado`, `fechado`), com marcação manual de envio;
 - manter o registro permanente de clientes/projetos fechados (popup **Fechados**);
@@ -156,7 +156,7 @@ Pontos importantes:
   | Papel | Variável | Acesso |
   |---|---|---|
   | Gerente | `MANAGEMENT_PANEL_LOGINS` | tudo |
-  | Coordenador | `COORDINATOR_LOGINS` | Gerar relatório (inclusive busca por cliente/projeto), Dashboard de horas (as próprias ou de qualquer colaborador de engenharia), o próprio Histórico e Diagnóstico de relatórios (últimos 12 meses e ano passado, sem horas/faturado/performance) |
+  | Coordenador | `COORDINATOR_LOGINS` | Gerar relatório (inclusive busca por cliente/projeto), Dashboard de horas (as próprias ou de qualquer colaborador de engenharia), o próprio Histórico e Diagnóstico de relatórios (sem horas/faturado/performance) — como o colaborador, só os últimos 12 meses e o ano atual em tudo |
   | Colaborador | — (qualquer outro login) | Gerar relatório (só as próprias horas), Dashboard de horas e o próprio Histórico |
 
 - O coordenador não vê os KPIs do Painel de Gerência nem pela API: `/management/kpis`, `/analytics/summary` e `/analytics/chat` respondem 403 pra ele, e o Diagnóstico usa `/management/send-status`, que não traz horas, faturamento nem performance.
@@ -553,7 +553,7 @@ Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios
 
 | Método e rota | Função |
 |---|---|
-| `GET /management/send-status` | status de envio por projeto/mês e opções de filtro, sem números de KPI; coordenador só nos últimos 12 meses ou no ano passado |
+| `GET /management/send-status` | status de envio por projeto/mês e opções de filtro, sem números de KPI; coordenador só nos últimos 12 meses ou no ano atual |
 | `GET /management/clients-with-hours` | clientes ativos no mês/período |
 | `GET /management/client-projects` | projetos ativos de um cliente |
 | `GET /management/projects` | lista projetos para o diagnóstico |
@@ -596,7 +596,7 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 
 - **Login ou dados não conectam:** confira variáveis `PROJECTILE_DB_*`, senha no Credential Manager e acesso à rede interna.
 - **403 em páginas gerenciais:** o login não está em `MANAGEMENT_PANEL_LOGINS` (ou em `COORDINATOR_LOGINS`, pro Diagnóstico); reinicie o backend após alterar `.env`.
-- **403 no Diagnóstico de um coordenador:** o período pedido está fora dos últimos 12 meses e do ano passado. A tela só oferece esses dois; o 403 aparece quando a chamada vai direto na API.
+- **403 "Fora do período permitido" (coordenador ou colaborador):** quem não é gerente só vê e filtra os últimos 12 meses e o ano atual — na busca do Gerar relatório, no Diagnóstico, no Dashboard de horas, no Histórico e em Minhas revisões. A tela só oferece esses meses; o 403 aparece quando a chamada vai direto na API (ou numa guia antiga com um mês de fora).
 - **Chat analítico lento na 1ª pergunta (~20 s):** é a carga das horas da janela de 12 meses; as seguintes usam o cache de 15 minutos.
 - **Chat analítico sempre com `classifier: claude`:** falta `OPENROUTER_API_KEY`/`TYPESAFE_API_KEY`, ou o Jev está fora do ar ou sem confiança. Funciona igual, com uma chamada a mais ao Claude.
 - **403 na tradução:** o login não está em `TRANSLATE_ALLOWED_LOGINS`.
