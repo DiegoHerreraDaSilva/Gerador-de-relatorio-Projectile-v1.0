@@ -18,7 +18,7 @@ import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { buildPeriodLabel, getReportYearOptions, parsePeriodLabelForControls } from "../utils/period";
+import { buildPeriodLabel, monthOptionsFor, parsePeriodLabelForControls, reportYearOptionsFor } from "../utils/period";
 import { getReportImportActionState } from "../utils/reportImport";
 import { StepCard } from "./StepCard";
 import { RadioCardGroup } from "./RadioCard";
@@ -210,12 +210,25 @@ function PeriodPicker() {
   const endMonthLabel = useReportStore((s) => s.importEndMonthLabel);
   const setEndMonthLabel = useReportStore((s) => s.setImportEndMonthLabel);
 
+  // quem não é gerente só escolhe os últimos 12 meses e o ano atual
+  // (`utils/period.ts::periodWindow`, o backend barra o resto com 403)
+  const isManager = useAuthStore((s) => Boolean(s.user?.isManager));
   const { startMonth, startYear, endMonth } = parsePeriodLabelForControls(monthLabel, endMonthLabel);
-  const yearOptions = getReportYearOptions();
+  const yearOptions = reportYearOptionsFor(isManager);
+  const monthOptions = monthOptionsFor(isManager, startYear);
+  // trocou de ano e o mês escolhido não vale nele: vai pro primeiro que vale
+  const fitMonth = (month: string, year: string) => {
+    const allowed = monthOptionsFor(isManager, year);
+    return allowed.includes(month) ? month : allowed[0] ?? month;
+  };
 
   const applyRange = (sMonth: string, year: string, eMonth: string) => {
-    setHeaderField("monthLabel", buildPeriodLabel(sMonth, year, eMonth, year));
-    setEndMonthLabel(`${eMonth}/${year}`);
+    const start = fitMonth(sMonth, year);
+    const allowed = monthOptionsFor(isManager, year);
+    // o mês final nunca antes do inicial
+    const end = allowed.indexOf(fitMonth(eMonth, year)) < allowed.indexOf(start) ? start : fitMonth(eMonth, year);
+    setHeaderField("monthLabel", buildPeriodLabel(start, year, end, year));
+    setEndMonthLabel(`${end}/${year}`);
   };
 
   return (
@@ -237,22 +250,22 @@ function PeriodPicker() {
         <div className="period-fields period-fields-single">
           <div className="period-field">
             <label className="db-search-label">Mês</label>
-            <PeriodSelect value={startMonth} label="Mês" options={MESES_PT} onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)} />
+            <PeriodSelect value={startMonth} label="Mês" options={monthOptions} onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)} />
           </div>
           <div className="period-field">
             <label className="db-search-label">Ano</label>
-            <PeriodSelect value={startYear} label="Ano" options={yearOptions} onChange={(y) => setHeaderField("monthLabel", `${startMonth}/${y}`)} />
+            <PeriodSelect value={startYear} label="Ano" options={yearOptions} onChange={(y) => setHeaderField("monthLabel", `${fitMonth(startMonth, y)}/${y}`)} />
           </div>
         </div>
       ) : (
         <div className="period-fields period-fields-range">
           <div className="period-field">
             <label className="db-search-label">Mês inicial</label>
-            <PeriodSelect value={startMonth} label="Mês inicial" options={MESES_PT} onChange={(m) => applyRange(m, startYear, endMonth)} />
+            <PeriodSelect value={startMonth} label="Mês inicial" options={monthOptions} onChange={(m) => applyRange(m, startYear, endMonth)} />
           </div>
           <div className="period-field">
             <label className="db-search-label">Mês final</label>
-            <PeriodSelect value={endMonth} label="Mês final" options={MESES_PT} onChange={(m) => applyRange(startMonth, startYear, m)} />
+            <PeriodSelect value={endMonth} label="Mês final" options={monthOptions} onChange={(m) => applyRange(startMonth, startYear, m)} />
           </div>
           <div className="period-field period-field-year">
             <label className="db-search-label">Ano</label>

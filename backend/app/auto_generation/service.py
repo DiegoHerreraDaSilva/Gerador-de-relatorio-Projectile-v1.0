@@ -603,16 +603,20 @@ def return_to_reviewer(report_id: str, comment: str, actor: dict) -> None:
         s.add_event(report_id, "returned", actor, comment)
 
 
-def _is_assigned(report: dict, user: dict) -> bool:
+def _is_assigned(report: dict, user: dict, competence_from: str | None = None) -> bool:
+    """Atribuído a quem pede e dentro da janela dele (`competence_from`,
+    "AAAA-MM", vem da rota — `api/period_access.py`; None = gerente)."""
     login = (user.get("login") or "").strip().casefold()
+    if competence_from and report.get("competence", "") < competence_from:
+        return False
     return bool(login) and (report.get("reviewer_login") or "").strip().casefold() == login
 
 
-def _load_assigned(report_id: str, user: dict) -> dict:
-    """Relatório atribuído a quem pede — de outra pessoa (ou inexistente) é
-    404, não 403: não revela que o relatório existe."""
+def _load_assigned(report_id: str, user: dict, competence_from: str | None = None) -> dict:
+    """Relatório atribuído a quem pede — de outra pessoa (ou inexistente, ou
+    fora da janela) é 404, não 403: não revela que o relatório existe."""
     report = store.get_report(report_id)
-    if report is None or not _is_assigned(report, user):
+    if report is None or not _is_assigned(report, user, competence_from):
         raise NotFound(report_id)
     return report
 
@@ -620,10 +624,10 @@ def _load_assigned(report_id: str, user: dict) -> dict:
 _REVIEW_DONE_LIMIT = 20
 
 
-def my_reviews(user: dict) -> dict:
+def my_reviews(user: dict, competence_from: str | None = None) -> dict:
     """"Minhas revisões": o que está com a pessoa (em revisão/devolvido), o
     que ela mandou e espera o gerente, e os últimos concluídos."""
-    items = store.list_assigned(user.get("login") or "", REVIEW_LIST_STATUSES)
+    items = store.list_assigned(user.get("login") or "", REVIEW_LIST_STATUSES, competence_from)
     comments = store.latest_comments(
         [i["id"] for i in items if i["status"] in (STATUS_REVIEWED, STATUS_RETURNED)], ("submitted", "returned"),
     )
@@ -640,20 +644,20 @@ def my_reviews(user: dict) -> dict:
     }
 
 
-def review_summary(user: dict, is_manager: bool) -> dict:
+def review_summary(user: dict, is_manager: bool, competence_from: str | None = None) -> dict:
     """Contadores da sidebar: o que espera a revisão da pessoa e, pro
     gerente, o que espera a aprovação dele."""
     login = user.get("login") or ""
     return {
-        "to_review": store.count_by_status(tuple(REVIEWER_EDITABLE), reviewer_login=login),
+        "to_review": store.count_by_status(tuple(REVIEWER_EDITABLE), reviewer_login=login, competence_from=competence_from),
         # tudo o que já foi atribuído à pessoa (decide se o menu aparece)
-        "assigned": store.count_by_status(REVIEW_LIST_STATUSES, reviewer_login=login),
+        "assigned": store.count_by_status(REVIEW_LIST_STATUSES, reviewer_login=login, competence_from=competence_from),
         "awaiting_approval": store.count_by_status((STATUS_REVIEWED,)) if is_manager else None,
     }
 
 
-def review_detail(report_id: str, user: dict) -> dict:
-    _load_assigned(report_id, user)
+def review_detail(report_id: str, user: dict, competence_from: str | None = None) -> dict:
+    _load_assigned(report_id, user, competence_from)
     return detail(report_id)
 
 
@@ -672,11 +676,12 @@ def _keep_manager_fields(data: dict, current: dict) -> dict:
     }
 
 
-def review_save(report_id: str, draft: Draft, expected_version: int, user: dict) -> int:
+def review_save(report_id: str, draft: Draft, expected_version: int, user: dict,
+                competence_from: str | None = None) -> int:
     data = draft.dump()
     with store.write_session() as s:
         report = s.get_report_for_update(report_id)
-        if report is None or not _is_assigned(report, user):
+        if report is None or not _is_assigned(report, user, competence_from):
             raise NotFound(report_id)
         if report["status"] not in REVIEWER_EDITABLE:
             raise WorkflowError("Esse relatório já foi mandado pra aprovação — não dá mais pra editar.")
@@ -687,11 +692,11 @@ def review_save(report_id: str, draft: Draft, expected_version: int, user: dict)
         )
 
 
-def submit_review(report_id: str, user: dict, comment: str = "") -> str:
+def submit_review(report_id: str, user: dict, comment: str = "", competence_from: str | None = None) -> str:
     """Revisor terminou: manda pro gerente aprovar (`revisado`)."""
     with store.write_session() as s:
         report = s.get_report_for_update(report_id)
-        if report is None or not _is_assigned(report, user):
+        if report is None or not _is_assigned(report, user, competence_from):
             raise NotFound(report_id)
         if report["status"] not in REVIEWER_EDITABLE:
             raise WorkflowError("Esse relatório já foi mandado pra aprovação.")

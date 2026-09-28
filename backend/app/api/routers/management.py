@@ -40,31 +40,35 @@ from ...projectile_db import (
 )
 from ..dependencies import is_manager, require_manager, require_manager_or_coordinator
 from ..errors import GENERIC_DB_ERROR, GENERIC_EMAIL_ERROR, log_and_generic_error
+from .. import period_access
 from ..shared import resolve_month_range
 
 router = APIRouter()
 
-COORDINATOR_PERIOD_ERROR = "Coordenador vê só os últimos 12 meses e o ano passado."
-
 
 def _coordinator_months() -> set[str]:
-    """Meses que o coordenador pode ver no Diagnóstico: os últimos 12 meses
-    corridos e o ano passado inteiro. Gerente vê todos os períodos."""
-    _, _, rolling = _resolve_period(12, None)
-    _, _, last_year = _resolve_period(12, date.today().year - 1)
-    return set(rolling) | set(last_year)
+    """Meses que o coordenador pode ver no Diagnóstico — a janela de
+    `period_access` (últimos 12 meses e o ano atual). Gerente vê todos."""
+    return set(period_access.allowed_months())
 
 
 def _check_coordinator_period(user: dict, months: int, year: int | None) -> None:
     """Barra no backend o que a tela já esconde: coordenador só pede os
-    últimos 12 meses (`months=12`, sem `year`) ou o ano passado."""
+    últimos 12 meses (`months=12`, sem `year`) ou o ano atual."""
     if is_manager(user):
         return
     if year is None and months == 12:
         return
-    if year == date.today().year - 1:
+    if year == date.today().year:
         return
-    raise HTTPException(403, COORDINATOR_PERIOD_ERROR)
+    raise HTTPException(403, period_access.error_message())
+
+
+def _sample_month(sample_id: str) -> str | None:
+    """Mês de uma amostra existente (pra barrar editar/apagar amostra fora
+    da janela de quem não é gerente)."""
+    sample = next((s for s in list_samples(None)["samples"] if s.get("id") == sample_id), None)
+    return sample.get("month") if sample else None
 
 
 @router.get("/management/clients-with-hours")
@@ -74,6 +78,7 @@ async def management_clients_with_hours_endpoint(month_label: str, _user: dict =
     quem teve movimento naquele período (não o cadastro inteiro do
     Projectile)."""
     start_date, end_date = resolve_month_range(month_label)
+    period_access.check_range(_user, start_date, end_date)
     try:
         project_ids = fetch_project_ids_with_hours(start_date, end_date)
         clients = fetch_clients_for_projects(project_ids)
@@ -90,6 +95,7 @@ async def management_client_projects_endpoint(
     popula o seletor multi-seleção de projeto da tela de importação "por
     cliente"."""
     start_date, end_date = resolve_month_range(month_label)
+    period_access.check_range(_user, start_date, end_date)
     try:
         active_ids = set(fetch_project_ids_with_hours(start_date, end_date))
         client_ids = set(fetch_project_ids_for_clients([client]))
@@ -246,6 +252,7 @@ async def management_kpi_sample_create_endpoint(
     do fluxo de e-mail, ou o match automático nunca achou o projeto certo."""
     if not re.fullmatch(r"\d{4}-\d{2}", payload.month):
         raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
+    period_access.check_month(_user, payload.month)
     try:
         projects = fetch_all_projects_with_details()
     except ProjectileDbError as e:
@@ -288,6 +295,10 @@ async def management_kpi_sample_update_endpoint(
     patch = payload.model_dump(exclude_unset=True)
     if patch.get("pacote_scope") == "__unset__":
         del patch["pacote_scope"]
+    if not is_manager(_user):
+        # nem a amostra atual nem o mês novo podem estar fora da janela
+        period_access.check_month(_user, _sample_month(sample_id))
+        period_access.check_month(_user, patch.get("month"))
     if not update_project_kpi_sample(sample_id, patch):
         raise HTTPException(404, "Amostra não encontrada.")
     return {"ok": True}
@@ -300,6 +311,7 @@ async def management_project_packages_endpoint(
     """Pacotes de trabalho com hora de verdade nesse projeto/mês no
     Projectile — alimenta o multi-select de "Pacote de trabalho" na edição
     de amostra do Diagnóstico (ver `list_pacotes_for_project`)."""
+    period_access.check_month(_user, month)
     try:
         return {"packages": list_pacotes_for_project(project_id, month)}
     except ProjectileDbError as e:
@@ -362,6 +374,8 @@ async def management_reopen_project_endpoint(project_id: str, _user: dict = Depe
 async def management_kpi_sample_delete_endpoint(sample_id: str, _user: dict = Depends(require_manager_or_coordinator)):
     """Remove uma amostra errada. O e-mail original continua marcado como
     processado — não volta a ser reprocessado no próximo polling."""
+    if not is_manager(_user):
+        period_access.check_month(_user, _sample_month(sample_id))
     if not delete_project_kpi_sample(sample_id):
         raise HTTPException(404, "Amostra não encontrada.")
     return {"ok": True}

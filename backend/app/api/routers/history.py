@@ -11,6 +11,7 @@ from ... import management
 from ...services import report_queries
 from ...services.audit import record_event
 from ..dependencies import require_session
+from .. import period_access
 from ..errors import GENERIC_REPORTS_DB_ERROR, log_and_generic_error
 
 router = APIRouter()
@@ -31,6 +32,10 @@ def _require_report_access(report: dict, user: dict) -> None:
         return
     if (report.get("created_by") or "").lower() != user["login"].lower():
         raise HTTPException(403, "Sem acesso a este relatório.")
+    # fora da janela (últimos 12 meses e o ano atual): some pra quem não é gerente
+    start = report.get("competence_start") or report.get("created_at")
+    if start is not None and not period_access.in_window(user, start):
+        raise HTTPException(404, "Relatório não encontrado.")
 
 
 def _get_report_or_404(report_id: str) -> dict:
@@ -62,10 +67,12 @@ async def list_reports_endpoint(
     # /parse-db (não confiar em identidade vinda do cliente pra consultar
     # dado de outra pessoa).
     effective_created_by = created_by if is_mgr else _user["login"]
+    limits = period_access.window_for(_user)
     try:
         return report_queries.list_reports(
             page=page, page_size=page_size, report_number=report_number,
             competence=competence, status=status, created_by=effective_created_by, search=q,
+            competence_from=limits[0] if limits else None,
         )
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)

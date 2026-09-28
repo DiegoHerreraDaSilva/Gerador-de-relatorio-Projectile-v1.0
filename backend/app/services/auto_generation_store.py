@@ -133,22 +133,29 @@ def get_report(report_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def list_assigned(login: str, statuses: tuple[str, ...]) -> list[dict]:
+def list_assigned(login: str, statuses: tuple[str, ...], competence_from: str | None = None) -> list[dict]:
     """Relatórios atribuídos a `login` (sem diferenciar caixa: o login da
-    sessão vem de `auser.rLogin` e o do revisor de `temployee.pLogin`)."""
+    sessão vem de `auser.rLogin` e o do revisor de `temployee.pLogin`).
+    `competence_from` ("AAAA-MM") corta as competências mais antigas."""
+    query = select(*_LIST_COLUMNS).where(
+        func.lower(auto_reports.c.reviewer_login) == login.lower(), auto_reports.c.status.in_(statuses),
+    )
+    if competence_from:
+        query = query.where(auto_reports.c.competence >= competence_from)
     with _connect(begin=False) as conn:
         rows = conn.execute(
-            select(*_LIST_COLUMNS)
-            .where(func.lower(auto_reports.c.reviewer_login) == login.lower(), auto_reports.c.status.in_(statuses))
-            .order_by(auto_reports.c.competence.desc(), auto_reports.c.project_name)
+            query.order_by(auto_reports.c.competence.desc(), auto_reports.c.project_name)
         ).mappings().all()
     return [dict(r) for r in rows]
 
 
-def count_by_status(statuses: tuple[str, ...], reviewer_login: str | None = None) -> int:
+def count_by_status(statuses: tuple[str, ...], reviewer_login: str | None = None,
+                    competence_from: str | None = None) -> int:
     query = select(func.count()).select_from(auto_reports).where(auto_reports.c.status.in_(statuses))
     if reviewer_login is not None:
         query = query.where(func.lower(auto_reports.c.reviewer_login) == reviewer_login.lower())
+    if competence_from:
+        query = query.where(auto_reports.c.competence >= competence_from)
     with _connect(begin=False) as conn:
         return int(conn.execute(query).scalar_one())
 

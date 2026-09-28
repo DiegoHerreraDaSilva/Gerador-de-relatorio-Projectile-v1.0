@@ -15,6 +15,7 @@ from ...projectile_db import ProjectileDbError, fetch_employee_hours, fetch_proj
 from ...projectile_db import group_hours, group_hours_by_project
 from ..dependencies import require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
+from .. import period_access
 from ..shared import build_parse_response, resolve_month_range
 
 router = APIRouter()
@@ -110,6 +111,7 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     employee_name = _user["name"]
 
     start_date, end_date = resolve_month_range(payload.month_label)
+    period_access.check_range(_user, start_date, end_date)
 
     try:
         rows = fetch_employee_hours(
@@ -138,6 +140,7 @@ class ParseDbClientRequest(BaseModel):
 @router.post("/parse-db-client")
 async def parse_db_client_endpoint(payload: ParseDbClientRequest, _user: dict = Depends(require_manager_or_coordinator)):
     start_date, end_date = resolve_month_range(payload.month_label)
+    period_access.check_range(_user, start_date, end_date)
 
     try:
         rows = fetch_project_hours(payload.project_ids, start_date, end_date)

@@ -8,6 +8,8 @@ exceção sobe pra quem chama decidir o HTTP status (ver `main.py`,
 `_log_and_generic_error`)."""
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import and_, desc, func, or_, select
 
 from ..db.reports_db import get_engine
@@ -63,9 +65,16 @@ def list_reports(
     *, page: int, page_size: int,
     report_number: str | None = None, competence: str | None = None,
     status: str | None = None, created_by: str | None = None,
-    search: str | None = None,
+    search: str | None = None, competence_from: date | None = None,
 ) -> dict:
     conditions = []
+    if competence_from is not None:
+        # janela de quem não é gerente (ver `api/period_access.py`); relatório
+        # sem competência reconhecida vale pela data em que foi gerado
+        conditions.append(or_(
+            reports.c.competence_start >= competence_from,
+            and_(reports.c.competence_start.is_(None), reports.c.created_at >= competence_from),
+        ))
     if search and (condition := _search_condition(search)) is not None:
         conditions.append(condition)
     if report_number:

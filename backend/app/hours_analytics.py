@@ -311,6 +311,7 @@ def day_matched_comparison(
     end: datetime.date,
     today: datetime.date,
     extra_holidays_for_year: Callable[[int], set[datetime.date]] | None = None,
+    not_before: datetime.date | None = None,
 ) -> dict | None:
     """Compara o período com a janela anterior de MESMO número de dias úteis
     encerrados, não com o mês anterior fechado.
@@ -348,6 +349,11 @@ def day_matched_comparison(
 
     delta = round(current_hours - previous_hours, 2)
     oldest = min(previous)
+    # janela anterior começa antes do que a pessoa pode ver (`not_before`,
+    # ver `api/period_access.py`): sem comparação — com os dias de antes
+    # zerados ela acusaria uma alta que não existiu
+    if not_before is not None and oldest < not_before:
+        return None
     return {
         "label": f"mesmos {len(closed)} dias úteis desde {oldest.strftime('%d/%m')}",
         "hours": previous_hours,

@@ -171,26 +171,26 @@ def _fake_kpis(monkeypatch):
     return calls
 
 
-def test_coordenador_ve_os_ultimos_12_meses_e_o_ano_passado(monkeypatch):
+def test_coordenador_ve_os_ultimos_12_meses_e_o_ano_atual(monkeypatch):
     from datetime import date
 
     calls = _fake_kpis(monkeypatch)
     client = _client_as(_COORDINATOR)
     assert client.get("/management/send-status").status_code == 200
-    assert client.get("/management/send-status", params={"year": date.today().year - 1}).status_code == 200
+    assert client.get("/management/send-status", params={"year": date.today().year}).status_code == 200
     assert len(calls) == 2
 
 
 @pytest.mark.parametrize("params", [
     {"year": 2019},
-    {"year": "CURRENT"},
+    {"year": "LAST"},        # o ano passado saiu (decisão de 2026-09-28)
     {"months": 36},
 ])
 def test_coordenador_nao_ve_outros_periodos(monkeypatch, params):
     from datetime import date
 
-    if params.get("year") == "CURRENT":
-        params = {"year": date.today().year}
+    if params.get("year") == "LAST":
+        params = {"year": date.today().year - 1}
     calls = _fake_kpis(monkeypatch)
     response = _client_as(_COORDINATOR).get("/management/send-status", params=params)
     assert response.status_code == 403
@@ -208,20 +208,23 @@ def test_gerente_ve_qualquer_periodo_no_diagnostico(monkeypatch):
 def test_amostras_do_coordenador_ficam_na_janela_permitida(monkeypatch):
     from datetime import date
 
+    from backend.app.api import period_access
+
     today = date.today()
     recent = today.strftime("%Y-%m")
-    last_year = f"{today.year - 1}-01"
+    edge = period_access.allowed_months()[0]           # 11 meses atrás: ainda vale
+    before = f"{int(edge[:4]) - (edge[5:] == '01')}-{12 if edge[5:] == '01' else int(edge[5:]) - 1:02d}"
     old = f"{today.year - 3}-05"
     document = {
-        "samples": [{"month": m, "sample_id": m} for m in (recent, last_year, old)],
+        "samples": [{"month": m, "sample_id": m} for m in (recent, edge, before, old)],
         "skipped_messages": [{"received_at": f"{m}-10T09:00:00"} for m in (recent, old)],
     }
     monkeypatch.setattr(management_router, "list_samples", lambda month=None: document)
 
     body = _client_as(_COORDINATOR).get("/management/kpis/samples").json()
-    assert [s["month"] for s in body["samples"]] == [recent, last_year]
+    assert [s["month"] for s in body["samples"]] == [recent, edge]
     assert [s["received_at"][:7] for s in body["skipped_messages"]] == [recent]
 
     body = _client_as(_MANAGER).get("/management/kpis/samples").json()
-    assert len(body["samples"]) == 3
+    assert len(body["samples"]) == 4
     assert len(body["skipped_messages"]) == 2

@@ -179,3 +179,36 @@ def test_busca_de_nao_gerente_fica_nos_proprios_relatorios(reports_db_engine, mo
         response = other_client.get("/reports", params={"q": "SE.BUSCA.PRIVADO.001"})
         assert response.status_code == 200
         assert response.json()["items"] == []
+
+
+def test_nao_gerente_so_ve_relatorios_da_janela_de_12_meses(reports_db_engine, monkeypatch):
+    """Coordenador/colaborador: só os últimos 12 meses e o ano atual
+    (`api/period_access.py`) — relatório mais antigo nem aparece nem abre."""
+    from datetime import date
+
+    from backend.app.api import period_access
+
+    months = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro",
+              "Outubro", "Novembro", "Dezembro"]
+    start, _ = period_access.window()
+    before = date(start.year - (start.month == 1), 12 if start.month == 1 else start.month - 1, 1)
+    today = date.today()
+    client = _client_for(_OTHER_NON_MANAGER, monkeypatch)
+    with client:
+        client.post("/generate", json=_generate_payload("SE.JANELA.ANTIGO", month_label=f"{months[before.month - 1]}/{before.year}"))
+        client.post("/generate", json=_generate_payload("SE.JANELA.RECENTE", month_label=f"{months[today.month - 1]}/{today.year}"))
+        listed = client.get("/reports", params={"q": "SE.JANELA"}).json()["items"]
+        assert [r["report_number"] for r in listed] == ["SE.JANELA.RECENTE"]
+    app.dependency_overrides.pop(require_session, None)
+
+    manager = _client_for(_OWNER, monkeypatch)
+    with manager:
+        everything = manager.get("/reports", params={"q": "SE.JANELA"}).json()["items"]
+        assert sorted(r["report_number"] for r in everything) == ["SE.JANELA.ANTIGO", "SE.JANELA.RECENTE"]
+        old_id = next(r["id"] for r in everything if r["report_number"] == "SE.JANELA.ANTIGO")
+    app.dependency_overrides.pop(require_session, None)
+
+    client = _client_for(_OTHER_NON_MANAGER, monkeypatch)
+    with client:
+        assert client.get(f"/reports/{old_id}").status_code == 404
+        assert client.get(f"/reports/{old_id}/versions").status_code == 404

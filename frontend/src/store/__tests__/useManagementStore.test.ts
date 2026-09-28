@@ -10,7 +10,7 @@ describe("periodOptionsFor", () => {
     expect(options).toHaveLength(1 + 19);
   });
 
-  it("coordenador vê só os últimos 12 meses e o ano passado", () => {
-    expect(periodOptionsFor(false, 2026)).toEqual([ROLLING_PERIOD, "2025"]);
+  it("coordenador vê só os últimos 12 meses e o ano atual", () => {
+    expect(periodOptionsFor(false, 2026)).toEqual([ROLLING_PERIOD, "2026"]);
   });
 });

@@ -34,6 +34,7 @@ from ...projectile_db import (
 )
 from ..dependencies import is_coordinator, is_manager, require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
+from .. import period_access
 
 router = APIRouter()
 
@@ -164,6 +165,12 @@ async def my_hours_endpoint(
     start_date, end_date = _my_hours_date_range(period)
     today = date.today()
     employee_id, employee_name, filiale = _resolve_target(_user, employee_id)
+    # quem não é gerente não recebe nada antes da janela (últimos 12 meses e
+    # o ano atual): o histórico de 400 dias da referência/série é cortado nela
+    limits = period_access.window_for(_user, today)
+    history_start = today - timedelta(days=_MY_HOURS_HISTORY_DAYS)
+    if limits is not None:
+        history_start = max(history_start, limits[0])
 
     # feriado estadual (SP, sempre) + municipal (Santo André, se for a
     # filial da pessoa) — só neste dashboard pessoal, nunca em
@@ -177,7 +184,7 @@ async def my_hours_endpoint(
             employee_id=employee_id, employee_name=employee_name,
         )
         history_rows = fetch_daily_hours_totals(
-            (today - timedelta(days=_MY_HOURS_HISTORY_DAYS)).isoformat(), end_date.isoformat(),
+            history_start.isoformat(), end_date.isoformat(),
             employee_id=employee_id, employee_name=employee_name,
         )
         contracts = fetch_employee_contracts(employee_id) if employee_id else []
@@ -232,6 +239,10 @@ async def my_hours_endpoint(
     )
 
     reference = resolve_reference(contracts, daily_totals, today)
+    series = monthly_series(daily_totals, today, extra_holidays_for_year=extra_holidays_for_year)
+    if limits is not None:
+        # a série é de 13 meses; o mais antigo cai fora da janela
+        series = [point for point in series if point["month"] >= limits[0].strftime("%Y-%m")]
 
     return {
         "period": period,
@@ -268,9 +279,10 @@ async def my_hours_endpoint(
         },
         "gap_days": [d.isoformat() for d in gap_days(closed_business, daily_totals)],
         "outlier_days": sorted(d.isoformat() for d in outlier_days(daily_totals)),
-        "monthly_series": monthly_series(daily_totals, today, extra_holidays_for_year=extra_holidays_for_year),
+        "monthly_series": series,
         "comparison": day_matched_comparison(
-            daily_totals, start_date, end_date, today, extra_holidays_for_year=extra_holidays_for_year
+            daily_totals, start_date, end_date, today, extra_holidays_for_year=extra_holidays_for_year,
+            not_before=history_start if limits is not None else None,
         ),
         "daily_stats": daily_stats(daily_totals, today),
     }

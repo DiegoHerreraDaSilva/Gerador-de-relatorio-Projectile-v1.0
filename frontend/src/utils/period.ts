@@ -10,6 +10,30 @@ export function getReportYearOptions(currentYear = new Date().getFullYear()): st
   );
 }
 
+/** Janela de quem NÃO é gerente — espelha `backend/app/api/period_access.py`:
+ * os últimos 12 meses (o atual e os 11 anteriores) e o ano atual inteiro.
+ * A tela só oferece esses meses; quem barra de verdade é o backend (403). */
+export function periodWindow(today = new Date()): { startYear: number; startMonth: number; endYear: number } {
+  const index = today.getFullYear() * 12 + today.getMonth() - 11;
+  return { startYear: Math.floor(index / 12), startMonth: index % 12, endYear: today.getFullYear() };
+}
+
+/** Anos do seletor por papel: gerente, desde 2008; os outros, só os da janela. */
+export function reportYearOptionsFor(isManager: boolean, today = new Date()): string[] {
+  if (isManager) return getReportYearOptions(today.getFullYear());
+  const { startYear, endYear } = periodWindow(today);
+  return Array.from({ length: endYear - startYear + 1 }, (_, i) => String(endYear - i));
+}
+
+/** Meses de `year` que o papel pode escolher (nomes de `MESES_PT`). */
+export function monthOptionsFor(isManager: boolean, year: string, today = new Date()): string[] {
+  if (isManager) return MESES_PT;
+  const { startYear, startMonth, endYear } = periodWindow(today);
+  const y = Number(year);
+  if (y < startYear || y > endYear) return [];
+  return MESES_PT.filter((_, i) => y > startYear || i >= startMonth);
+}
+
 // Espelha backend/app/generator.py::parse_period_label — mês único fica
 // exatamente como já era ("Julho/2026"); um período colapsa pra essa mesma
 // forma quando início==fim (reduz a zero a chance de regressão no caso mais

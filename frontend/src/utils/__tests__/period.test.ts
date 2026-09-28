@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildPeriodLabel, getReportYearOptions, lastClosedMonthsRange, parsePeriodLabelForControls } from "../period";
+import {
+  buildPeriodLabel, getReportYearOptions, lastClosedMonthsRange, monthOptionsFor, parsePeriodLabelForControls,
+  periodWindow, reportYearOptionsFor,
+} from "../period";
 
 describe("getReportYearOptions", () => {
   it("lista de 2008 até o ano atual, do mais recente para o mais antigo", () => {
@@ -68,5 +71,23 @@ describe("parsePeriodLabelForControls", () => {
       endMonth: "Outubro",
       endYear: "2026",
     });
+  });
+});
+
+describe("janela de quem não é gerente (últimos 12 meses e o ano atual)", () => {
+  it("em setembro/2026: outubro/2025 a dezembro/2026", () => {
+    const today = new Date(2026, 8, 28);
+    expect(periodWindow(today)).toEqual({ startYear: 2025, startMonth: 9, endYear: 2026 });
+    expect(reportYearOptionsFor(false, today)).toEqual(["2026", "2025"]);
+    expect(monthOptionsFor(false, "2025", today)).toEqual(["Outubro", "Novembro", "Dezembro"]);
+    expect(monthOptionsFor(false, "2026", today)).toHaveLength(12);
+    expect(monthOptionsFor(false, "2024", today)).toEqual([]);
+  });
+
+  it("em dezembro a janela é só o ano atual; gerente não tem limite", () => {
+    const today = new Date(2026, 11, 10);
+    expect(reportYearOptionsFor(false, today)).toEqual(["2026"]);
+    expect(reportYearOptionsFor(true, today)).toHaveLength(19);
+    expect(monthOptionsFor(true, "2010", today)).toHaveLength(12);
   });
 });

@@ -97,10 +97,10 @@ export const ROLLING_PERIOD = "rolling";
 const EARLIEST_DATA_YEAR = 2008;
 
 /** Períodos do filtro por papel: gerente vê todos os anos desde 2008;
- * coordenador, só os últimos 12 meses e o ano passado (o backend barra o
- * resto com 403 em `/management/send-status`). */
+ * coordenador, só os últimos 12 meses e o ano atual (o backend barra o
+ * resto com 403 em `/management/send-status`, ver `api/period_access.py`). */
 export function periodOptionsFor(isManager: boolean, currentYear = new Date().getFullYear()): string[] {
-  if (!isManager) return [ROLLING_PERIOD, String(currentYear - 1)];
+  if (!isManager) return [ROLLING_PERIOD, String(currentYear)];
   return [
     ROLLING_PERIOD,
     ...Array.from({ length: currentYear - EARLIEST_DATA_YEAR + 1 }, (_, i) => String(currentYear - i)),

@@ -673,3 +673,23 @@ def test_varios_aprovados_num_email_so(auto_db, graph):
     draft_only = _run("2026-09")["E9"]["id"]
     refused = _client().post("/auto-generation/send", json={**body, "report_ids": [first, draft_only]})
     assert refused.status_code == 409 and len(graph) == 1
+
+
+def test_minhas_revisoes_so_mostram_competencias_da_janela(auto_db, reviewers):
+    """Coordenador/colaborador só vê os últimos 12 meses e o ano atual —
+    rascunho atribuído de uma competência antiga some da lista e do contador."""
+    recent = _run()["E8"]["id"]
+    _assign(recent, "colab")
+    with auto_generation_store.write_session() as s:
+        s.insert_report({
+            "id": "01J0ANTIGO0000000000000000", "run_id": "R-antigo", "competence": "2019-03", "project_id": "OLD",
+            "family_key": "acme|antigo", "project_name": "Projeto Antigo", "client": "ACME", "status": "em_revisao",
+            "reviewer_login": "Colab", "reviewer_name": "Colaborador do Projectile", "draft_version": 1,
+            "draft_json": service.detail(recent)["draft"],
+        })
+    colab = lambda: _client(_COLLABORATOR)  # noqa: E731
+    assert [i["project_name"] for i in colab().get("/my-reviews").json()["to_review"]] == [
+        "Legislation Package - Estribo 08.2026"]
+    assert colab().get("/my-reviews/summary").json()["to_review"] == 1
+    assert colab().get("/my-reviews/01J0ANTIGO0000000000000000").status_code == 404
+    assert colab().post("/my-reviews/01J0ANTIGO0000000000000000/submit", json={}).status_code == 404
