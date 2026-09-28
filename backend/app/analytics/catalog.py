@@ -65,6 +65,12 @@ MEASURES: dict[str, Measure] = {m.name: m for m in [
     Measure("active_days", "Dias com apontamento", "count", "hours", False, "dias distintos com alguma hora apontada"),
     Measure("avg_hours_per_employee", "Média por colaborador", "hours", "hours", False,
             "horas divididas pela quantidade de colaboradores distintos"),
+    # comparação com o total: a MESMA consulta sem um dos filtros (share_of)
+    Measure("total_hours", "Horas no total", "hours", "hours", True,
+            "base da comparação: as mesmas horas SEM o filtro indicado em share_of (ex.: todas as horas do "
+            "colaborador, não só as do cliente filtrado)"),
+    Measure("share_percent", "% do total", "percent", "hours", False,
+            "horas / horas no total, em % — quanto o recorte representa do total"),
     # --- faturamento ---------------------------------------------------
     Measure("worked_hours", "Trabalhadas", "hours", "billing", True, "horas trabalhadas (apontadas) do projeto"),
     Measure("billed_hours", "Faturadas", "hours", "billing", True,
@@ -99,6 +105,13 @@ DATASET_LABELS = {
 BILLING_TYPES = {"billable": "Faturável", "non_billable": "Não faturável"}
 STATUSES = {"sent": "Enviado", "partial": "Parcial", "none": "Não enviado", "closed": "Fechado"}
 COST_CENTERS = ("CAD", "CAE")
+
+# medidas de "em relação ao total" e o filtro que pode sair da base
+SHARE_MEASURES = ("total_hours", "share_percent")
+SHARE_FILTERS = {
+    "projects": "project", "clients": "client", "packages": "package",
+    "cost_centers": "cost_center", "billing_type": "billing_type", "employees": "employee",
+}
 
 MAX_MEASURES = 4
 MAX_GROUP_BY = 2

@@ -394,3 +394,42 @@ def test_so_faturaveis_vira_filtro(message, expected):
     from backend.app.analytics import signals
 
     assert signals.only_billing_type(message) == expected
+
+
+# --- trava de "em relação ao total" --------------------------------------------------
+
+
+@pytest.mark.parametrize("message, strength", [
+    ("horas do Lucca na Mercedes em relação ao total de horas", "strong"),
+    ("quanto o Lucca representa das horas da Mercedes", "strong"),
+    ("participação da Mercedes nas horas do time", "strong"),
+    ("percentual das horas do Lucca que foram pra Mercedes", "weak"),
+    ("quantas horas no total em agosto", None),                 # "no total" = somando tudo
+    ("qual o total de horas da Mercedes em agosto", None),
+    ("percentual não faturável por colaborador", None),
+])
+def test_sinal_de_comparacao_com_o_total(message, strength):
+    from backend.app.analytics import signals
+    assert signals.asks_share(message) == strength
+
+
+def test_trava_escolhe_o_que_sai_da_base_pelo_texto():
+    from backend.app.analytics.service import _with_share
+    raw = {"measures": ["hours"], "employees": ["Lucca Perchon Franco"], "clients": ["MERCEDES BENZ DO BRASIL LTDA."]}
+    mine = _with_share(dict(raw), "horas do Lucca na Mercedes em relação ao total dele, mês a mês")
+    assert mine["share_of"] == "clients" and mine["measures"] == ["hours", "total_hours", "share_percent"]
+    # o texto diz que a Mercedes é a base: vence a escolha do planner
+    theirs = _with_share({**raw, "share_of": "clients"}, "quanto o Lucca representa das horas da Mercedes")
+    assert theirs["share_of"] == "employees"
+    # quebra não pedida sai ("em projetos da Mercedes" não é "por projeto")
+    split = _with_share({**raw, "group_by": ["month", "project"]},
+                        "horas do Lucca em projetos da Mercedes em relação ao total, mês a mês")
+    assert split["group_by"] == ["month"]
+    # nada sai da base: vira a participação de cada linha (% do total de sempre)
+    each = _with_share({"measures": ["hours", "share_percent"], "group_by": ["client"], "employees": ["Lucca Perchon Franco"],
+                        "share_of": "employees"}, "participação de cada cliente nas horas do Lucca")
+    assert each["measures"] == ["hours"] and each["share_of"] is None and each["group_by"] == ["client"]
+    # "percentual não faturável" continua sendo a medida própria
+    assert _with_share({"measures": ["non_billable_percent"], "employees": ["Lucca Perchon Franco"]},
+                       "percentual das horas não faturáveis do Lucca") == {
+        "measures": ["non_billable_percent"], "employees": ["Lucca Perchon Franco"]}

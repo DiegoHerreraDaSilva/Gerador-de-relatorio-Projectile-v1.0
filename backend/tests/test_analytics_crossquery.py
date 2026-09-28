@@ -230,3 +230,51 @@ def test_performance_do_cliente_compara_com_tudo_o_que_ele_trabalhou_como_o_pain
     assert table(result)[0] == (("ACME",), {"worked_hours": 14.0, "billed_hours": 9.0, "perf_hours": -5.0,
                                             "performance_percent": -35.7})
     assert table(result)[1][1]["performance_percent"] is None  # Beta: nenhum relatório → sem performance
+
+
+# --- "em relação ao total" (share_of) ----------------------------------------------
+# Ana: 13 h no total (5 em ago, 8 em set, tudo ACME); Bruno: 5 h (3 Beta + 2 ACME, em set)
+
+
+def test_horas_do_colaborador_no_cliente_em_relacao_ao_total_dele_mes_a_mes():
+    """Caso real: "horas do Lucca na Mercedes em relação ao total, mês a mês"
+    devolvia só as horas na Mercedes — o total dele nunca era calculado."""
+    result = run({"measures": ["hours", "total_hours", "share_percent"], "group_by": ["month"],
+                  "employees": ["Bruno Lima"], "clients": ["ACME"], "share_of": "clients",
+                  "month": "2026-08", "month_end": "2026-09"})
+    rows = {row.labels[0]: row.values for row in result.rows}
+    assert rows["setembro/2026"] == {"hours": 2.0, "total_hours": 5.0, "share_percent": 40.0}
+    assert rows["agosto/2026"] == {"hours": 0.0, "total_hours": 0.0, "share_percent": None}
+    assert result.totals == {"hours": 2.0, "total_hours": 5.0, "share_percent": 40.0}
+    assert all(row.share is None for row in result.rows)            # sem um 2º "% do total" confuso
+    assert any("sem o filtro de cliente" in n for n in result.notes)
+
+
+def test_colaborador_em_relacao_ao_total_do_cliente():
+    result = run({"measures": ["hours", "total_hours", "share_percent"], "employees": ["Bruno Lima"],
+                  "clients": ["ACME"], "share_of": "employees", "month": "2026-09"})
+    assert result.totals == {"hours": 2.0, "total_hours": 10.0, "share_percent": 20.0}
+
+
+def test_base_nao_quebra_pela_dimensao_que_saiu_dela():
+    """"CAD por centro de custo em relação ao total": a base agrupada por
+    centro de custo daria CAD/CAD = 100% em toda linha."""
+    result = run({"measures": ["hours", "total_hours", "share_percent"], "group_by": ["cost_center"],
+                  "cost_centers": ["CAD"], "share_of": "cost_centers", "month": "2026-09"})
+    assert [(row.labels, row.values) for row in result.rows] == [
+        (("CAD",), {"hours": 10.0, "total_hours": 13.0, "share_percent": 76.9}),
+    ]
+
+
+def test_comparacao_sem_recorte_pra_tirar_da_base_avisa_e_mostra_so_as_horas():
+    result = run({"measures": ["total_hours", "share_percent"], "share_of": "clients", "month": "2026-09"})
+    assert result.spec.measures == ["hours"] and result.spec.share_of is None
+    assert any("precisa de um recorte" in n for n in result.notes)
+
+
+def test_share_of_vai_e_volta_no_contexto():
+    spec, _ = crossquery.build_spec({"measures": ["share_percent"], "clients": ["ACME"], "share_of": "clients"},
+                                    OPTIONS, TODAY, 12)
+    assert spec.measures == ["hours", "total_hours", "share_percent"]      # as horas sempre vêm junto
+    again, _ = crossquery.build_spec(spec.as_context(), OPTIONS, TODAY, 12)
+    assert again.share_of == "clients" and again.measures == spec.measures

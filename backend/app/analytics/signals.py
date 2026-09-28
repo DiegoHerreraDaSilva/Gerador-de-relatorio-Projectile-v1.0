@@ -29,6 +29,18 @@ _MONTHLY = re.compile(r"\bmes a mes\b|\bmensal(?:mente)?\b")
 _THRESHOLD = re.compile(r"\b(?:menos|mais|acima|abaixo|pelo menos|no minimo|no maximo|superior|inferior)\s+(?:a\s+|de\s+|que\s+)?\d")
 _TOP = re.compile(r"\btop\s*\d|\b(?:os|as)\s+\d+\s+(?:maiores|menores|primeir)")
 _VERSUS = re.compile(r"\s(?:x|vs\.?|versus)\s")
+# "em relação ao total", "do total", "participação", "quanto representa"
+_SHARE = re.compile(
+    # "no total" fica de fora: "quantas horas no total" é só "somando tudo"
+    r"\bem relacao (?:ao|a o) total\b|\b(?:do|sobre o) total\b|\bparticipacao\b|\bproporcao\b"
+    r"|\bfatia\b|\brepresent(?:a|am|ou|aram)\b"
+)
+# fraco: "percentual das horas do Lucca que foram pra Mercedes" é comparação,
+# mas "percentual não faturável" é uma medida própria — só vale quando a
+# consulta não tem já uma medida em %
+_SHARE_WEAK = re.compile(r"\b(?:percentual|porcentagem)\s+d[aeo]s?\b")
+# onde começa a BASE da comparação ("em relação ao total DELE", "das horas DA MERCEDES")
+_SHARE_BASE = re.compile(r"\b(?:total|das horas|nas horas|dos apontamentos)\b")
 _BILLING_FILTER = re.compile(r"\b(?:so|somente|apenas)\s+(?:as\s+|os\s+)?(?:horas\s+)?(?:nao\s+)?faturave")
 
 
@@ -51,7 +63,29 @@ def needs_planner(message: str, preset_group_by: list[str]) -> bool:
     text = _plain(message)
     if asked_dimensions(message) - set(preset_group_by):
         return True
-    return any(pattern.search(text) for pattern in (_THRESHOLD, _TOP, _VERSUS, _BILLING_FILTER))
+    return any(pattern.search(text) for pattern in (_THRESHOLD, _TOP, _VERSUS, _BILLING_FILTER, _SHARE, _SHARE_WEAK))
+
+
+def asks_share(message: str) -> str | None:
+    """A pergunta compara o recorte com um total ("horas do Lucca na
+    Mercedes em relação ao total", "quanto a Mercedes representa") —
+    "strong", "weak" ("percentual das horas...") ou None."""
+    text = _plain(message)
+    if _SHARE.search(text):
+        return "strong"
+    return "weak" if _SHARE_WEAK.search(text) else None
+
+
+def share_base_text(message: str) -> str:
+    """O trecho que descreve a BASE: depois do último "total"/"das horas"/
+    "nas horas", até a próxima oração ("que ...", vírgula) — "em relação ao
+    total DELE", "quanto o Lucca representa das horas DA MERCEDES",
+    "percentual das horas DO LUCCA que foram pra Mercedes"."""
+    text = _plain(message)
+    starts = [m.end() for m in _SHARE_BASE.finditer(text)]
+    if not starts:
+        return ""
+    return re.split(r"\bque\b|,|;", text[starts[-1]:], maxsplit=1)[0]
 
 
 # "e em julho?", "e só da Mercedes?", "o que isso significa?", "agora por cliente"

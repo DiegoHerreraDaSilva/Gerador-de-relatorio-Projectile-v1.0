@@ -27,7 +27,7 @@ from ..core.config import get_settings
 from ..projectile_db import ProjectileDbError
 from ..services.audit import record_event
 from . import analysis, claude_client, cross_output, crossquery, query_engine, router, signals
-from .catalog import BILLING_TYPES, COST_CENTERS
+from .catalog import BILLING_TYPES, COST_CENTERS, MEASURES, SHARE_MEASURES
 from .facts import DataSources
 from .grounding import allowed_numbers, is_grounded
 from .intents import INTENTS
@@ -231,10 +231,67 @@ def _with_cost_center(raw: dict, message: str) -> dict:
     return raw
 
 
+# ordem de quem vira "a parte" quando a pergunta não diz: quem pergunta
+# "horas do Lucca na Mercedes em relação ao total" quer o total DO LUCCA — o
+# colaborador é o sujeito e fica na base; cliente/projeto é a parte
+_SHARE_PRIORITY = ("projects", "clients", "packages", "cost_centers", "billing_type", "employees")
+
+
+def _share_filter_values(raw: dict, key: str) -> list[str]:
+    if key == "projects":
+        return [*(raw.get("projects") or []), *(raw.get("project_match") or [])]
+    if key == "billing_type":
+        return [BILLING_TYPES[raw["billing_type"]]] if raw.get("billing_type") in BILLING_TYPES else []
+    return [v for v in raw.get(key) or [] if isinstance(v, str)]
+
+
+def _with_share(raw: dict, message: str) -> dict:
+    """Trava de "em relação ao total" (determinística, como as outras): a
+    pergunta pede comparação com um total → as medidas da comparação entram
+    e, se quem montou a consulta não disse (ou disse um filtro que não está
+    ativo), escolhe qual filtro sai da base. O que a pergunta cita DEPOIS de
+    "total" ("total da Mercedes") fica na base."""
+    strength = signals.asks_share(message)
+    if not strength:
+        return raw
+    measures = [m for m in raw.get("measures") or [] if isinstance(m, str)]
+    if not measures or any(MEASURES.get(m) and MEASURES[m].dataset != "hours" for m in measures):
+        return raw
+    # "percentual não faturável por colaborador" já é uma medida em %
+    if strength == "weak" and any(MEASURES.get(m) and MEASURES[m].unit == "percent" and m not in SHARE_MEASURES
+                                  for m in measures):
+        return raw
+    if not set(SHARE_MEASURES) <= set(measures):
+        measures = ["hours", "total_hours", "share_percent", *[m for m in measures if m not in ("hours", *SHARE_MEASURES)]]
+    active = [key for key in _SHARE_PRIORITY if _share_filter_values(raw, key)]
+    base_text = signals.share_base_text(message)
+    kept = {
+        key for key in active
+        if any(signals.name_tokens(value) & signals.name_tokens(base_text) for value in _share_filter_values(raw, key))
+    }
+    # o texto diz o que é a base: vale mais que a escolha de quem montou a
+    # consulta (medido: o planner tirava a Mercedes da base em "quanto o
+    # Lucca representa das horas da Mercedes")
+    # só as quebras que a pergunta pede ("mês a mês", "cada cliente"): o
+    # planner quebrava "em projetos da Mercedes" por projeto, e cada projeto
+    # só tem Mercedes — toda linha dava 100%
+    asked = signals.asked_dimensions(message)
+    group_by = [d for d in raw.get("group_by") or [] if d in asked]
+    candidates = [key for key in active if key not in kept]
+    if not candidates:
+        # "participação de cada cliente nas horas do Lucca": nada sai da base
+        # — a comparação é a participação de cada linha no total (coluna
+        # "% do total" de sempre), não uma consulta sem filtro
+        plain = [m for m in measures if m not in SHARE_MEASURES]
+        return {**raw, "measures": plain or ["hours"], "share_of": None, "group_by": group_by}
+    share_of = raw["share_of"] if raw.get("share_of") in candidates else candidates[0]
+    return {**raw, "measures": measures, "share_of": share_of, "group_by": group_by}
+
+
 def _cross_answer(raw: dict, message: str, today: date, sources: DataSources, settings, usage, options: dict,
                   *, explain: bool, intent: str | None, notes: list[str] | None = None) -> dict:
     raw, family_notes = _with_project_family(raw, message, options)
-    raw = _without_unasked_project_split(_with_cost_center(raw, message), message)
+    raw = _with_share(_without_unasked_project_split(_with_cost_center(raw, message), message), message)
     spec, spec_notes = crossquery.build_spec(raw, options, today, settings.analytics_chat_max_months)
     all_notes = list(notes or []) + family_notes + spec_notes
     if not (spec.month or spec.relative):

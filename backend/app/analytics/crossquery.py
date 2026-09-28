@@ -33,6 +33,8 @@ from .catalog import (
     MAX_MEASURES,
     MAX_TOP_N,
     MEASURES,
+    SHARE_FILTERS,
+    SHARE_MEASURES,
     STATUSES,
     THRESHOLD_OPS,
 )
@@ -100,6 +102,8 @@ class QuerySpec:
     sort_by: str | None = None
     sort_order: str = "desc"
     threshold: Threshold | None = None
+    # "em relação ao total": filtro que sai da base (`total_hours`/`share_percent`)
+    share_of: str | None = None
 
     def project_set(self) -> set[str]:
         """Projetos que entram na consulta: os escolhidos + os que casaram com as frases."""
@@ -136,7 +140,23 @@ class QuerySpec:
             "threshold_measure": self.threshold.measure if self.threshold else None,
             "threshold_op": self.threshold.op if self.threshold else None,
             "threshold_value": self.threshold.value if self.threshold else None,
+            "share_of": self.share_of,
         }
+
+    def without_share_filter(self) -> "QuerySpec":
+        """A base da comparação: a mesma consulta sem o filtro `share_of`."""
+        cleared = {
+            "projects": {"projects": [], "project_match": [], "matched_projects": []},
+            "billing_type": {"billing_type": None},
+        }.get(self.share_of, {self.share_of: []})
+        return replace(self, measures=["hours"], threshold=None, top_n=None, sort_by=None, share_of=None, **cleared)
+
+    def share_filter_active(self, key: str | None) -> bool:
+        if key == "projects":
+            return bool(self.projects or self.project_match)
+        if key == "billing_type":
+            return self.billing_type is not None
+        return bool(key and getattr(self, key, None))
 
 
 def _unique_strings(values) -> list[str]:
@@ -223,14 +243,41 @@ def build_spec(raw: dict, options: dict, today, max_months: int) -> tuple[QueryS
     ):
         threshold = Threshold(raw["threshold_measure"], raw["threshold_op"], float(value))
 
+    share_of = raw.get("share_of") if raw.get("share_of") in SHARE_FILTERS else None
     spec = QuerySpec(
-        dataset=dataset, measures=measures, group_by=group_by, period=period,
+        dataset=dataset, measures=measures, group_by=group_by, period=period, share_of=share_of,
         month=month, month_end=month_end, relative=relative,
         project_match=project_match, matched_projects=matched,
         cost_centers=cost_centers, statuses=statuses, billing_type=billing_type,
         top_n=top_n, sort_by=sort_by, sort_order=sort_order, threshold=threshold, **lists,
     )
-    return spec, notes
+    return _check_share(spec, notes), notes
+
+
+def _check_share(spec: QuerySpec, notes: list[str]) -> QuerySpec:
+    """"Em relação ao total" só existe com um filtro pra tirar da base; as
+    horas do recorte sempre vêm junto (sem elas o percentual não se lê)."""
+    wants = [m for m in spec.measures if m in SHARE_MEASURES]
+    if not wants:
+        return replace(spec, share_of=None)
+    if not spec.share_filter_active(spec.share_of):
+        notes.append(
+            "Pra comparar com o total, a pergunta precisa de um recorte (cliente, projeto, colaborador...) — "
+            "mostrei só as horas."
+        )
+        measures = [m for m in spec.measures if m not in SHARE_MEASURES] or ["hours"]
+        return replace(spec, measures=measures, share_of=None,
+                       sort_by=spec.sort_by if spec.sort_by in measures else None,
+                       threshold=spec.threshold if spec.threshold and spec.threshold.measure in measures else None)
+    others = [m for m in spec.measures if m not in SHARE_MEASURES and m != "hours"]
+    measures = (["hours", "total_hours", "share_percent"] + others)[:MAX_MEASURES]
+    return replace(spec, measures=measures)
+
+
+def share_base_label(spec: QuerySpec) -> str:
+    """"todos os clientes", "todos os colaboradores" — o que "no total" quer dizer."""
+    dim = DIMENSIONS[SHARE_FILTERS[spec.share_of]]
+    return f"todos os {dim.plural}" if spec.share_of != "billing_type" else "faturáveis e não faturáveis"
 
 
 # --- execução -----------------------------------------------------------------
@@ -556,18 +603,43 @@ def _order(spec: QuerySpec, rows: list[CrossRow]) -> list[CrossRow]:
     return sorted(rows, key=lambda row: (rank[row.keys[anchor]], inner(row)))
 
 
+def _share_values(part: float | None, base: float) -> dict[str, float | None]:
+    base = round(base, 2)
+    return {"total_hours": base, "share_percent": round((part or 0) / base * 100, 1) if base else None}
+
+
+def _fill_share(spec: QuerySpec, sources: DataSources, rows: list[CrossRow], totals: dict, notes: list[str]) -> None:
+    """Base = a mesma consulta, na mesma quebra, sem o filtro `share_of`."""
+    # a base não quebra pela dimensão que saiu dela ("CAD da Mercedes por
+    # centro de custo" / total da Mercedes, não CAD / CAD = 100%)
+    dropped = SHARE_FILTERS[spec.share_of]
+    base_spec = spec.without_share_filter()
+    base_spec = replace(base_spec, group_by=[d for d in spec.group_by if d != dropped])
+    keep = [i for i, d in enumerate(spec.group_by) if d != dropped]
+    base_groups, base_total, _ = _aggregate(base_spec, sources, [])
+    for row in rows:
+        acc = base_groups.get(tuple(row.keys[i] for i in keep))
+        row.values.update(_share_values(row.values.get("hours"), acc.value("hours") if acc else 0.0))
+    totals.update(_share_values(totals.get("hours"), base_total.value("hours")))
+    notes.append(f"“Horas no total” = as mesmas horas com {share_base_label(spec)}, sem o filtro de "
+                 f"{DIMENSIONS[SHARE_FILTERS[spec.share_of]].label.lower()}.")
+
+
 def execute(spec: QuerySpec, sources: DataSources, max_rows: int, notes: list[str] | None = None) -> CrossResult:
     notes = list(notes or [])
     groups, total, _ = _aggregate(spec, sources, notes)
+    own = [m for m in spec.measures if m not in SHARE_MEASURES]
     rows = [
         CrossRow(
             keys=key,
             labels=tuple(label_for(dim, k) for dim, k in zip(spec.group_by, key)),
-            values={m: acc.value(m) for m in spec.measures},
+            values={m: acc.value(m) for m in own},
         )
         for key, acc in groups.items()
     ]
-    totals = {m: total.value(m) for m in spec.measures}
+    totals = {m: total.value(m) for m in own}
+    if spec.share_of:
+        _fill_share(spec, sources, rows, totals, notes)
     if spec.group_by and spec.group_by != ["month"]:
         # "horas não faturáveis por pacote" não lista os 250 pacotes com zero
         rows = [row for row in rows if any(v not in (None, 0, 0.0) for v in row.values.values())]
@@ -583,7 +655,9 @@ def execute(spec: QuerySpec, sources: DataSources, max_rows: int, notes: list[st
 
     first = spec.measures[0]
     total_first = totals.get(first)
-    if spec.group_by and MEASURES[first].additive and total_first:
+    # com "em relação ao total" o % já é a coluna da comparação — um segundo
+    # "% do total" (participação na soma das linhas) só confundiria
+    if spec.group_by and MEASURES[first].additive and total_first and not spec.share_of:
         for row in rows:
             value = row.values.get(first)
             row.share = round(value / total_first * 100, 1) if value is not None else None

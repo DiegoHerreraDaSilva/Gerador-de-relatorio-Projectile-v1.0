@@ -11,7 +11,16 @@ from dataclasses import dataclass, field
 
 from ..chatbot import ChatUpstreamError, _get_client
 from ..core.config import get_settings
-from .catalog import BILLING_TYPES, COST_CENTERS, DATASET_DIMENSIONS, DIMENSIONS, MEASURES, STATUSES, THRESHOLD_OPS
+from .catalog import (
+    BILLING_TYPES,
+    COST_CENTERS,
+    DATASET_DIMENSIONS,
+    DIMENSIONS,
+    MEASURES,
+    SHARE_FILTERS,
+    STATUSES,
+    THRESHOLD_OPS,
+)
 from .intents import INTENTS, ROUTES
 from .periods import RELATIVE_PERIODS
 from .semantic_model import SOURCES
@@ -172,7 +181,9 @@ _QUERY_EXAMPLES = """Exemplos (pergunta → consulta):
 - "quantos dias cada colaborador apontou em agosto" → measures [active_days, hours], group_by [employee]
 - "quais projetos não tiveram relatório enviado em agosto" → measures [project_months], group_by [project], statuses [none]
 - "taxa de envio por cliente" → measures [send_rate_percent, sent, not_sent], group_by [client]
-- "quem trabalhou mais em cada cliente" → measures [hours], group_by [client, employee]"""
+- "quem trabalhou mais em cada cliente" → measures [hours], group_by [client, employee]
+- "horas do Lucca na Mercedes em relação ao total dele, mês a mês" → measures [hours, total_hours, share_percent], group_by [month], employees [Lucca], clients [a Mercedes], share_of clients
+- "quanto o Lucca representa das horas da Mercedes" → measures [hours, total_hours, share_percent], clients [a Mercedes], employees [Lucca], share_of employees"""
 
 
 def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, options: dict) -> dict:
@@ -214,6 +225,8 @@ def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, optio
                 "threshold_measure": _nullable_enum(measures),
                 "threshold_op": _nullable_enum(list(THRESHOLD_OPS)),
                 "threshold_value": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                # "em relação ao total": qual filtro sai da base (a parte que se compara)
+                "share_of": _nullable_enum(list(SHARE_FILTERS)),
                 "explain": {"type": "boolean"},
             }),
         },
@@ -244,6 +257,9 @@ def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, optio
         "\"últimos 3 meses\" → relative_period; sem período citado → tudo null (o sistema usa os últimos 12 meses).\n"
         "Medida: sem medida citada (\"Mercedes x Lauer\", \"quem mais trabalhou\"), use hours. Faturado/"
         "performance só quando a pergunta fala de faturamento, faturado ou performance.\n"
+        "Comparação com um total (\"em relação ao total\", \"do total\", \"participação\", \"quanto representa\") → "
+        "measures [hours, total_hours, share_percent] com os filtros da pergunta, e share_of = o filtro da PARTE "
+        "(ele sai da base; os outros ficam). \"Lucca na Mercedes em relação ao total dele\" → share_of clients.\n"
         "explain = true só se a pergunta pede interpretação/explicação/opinião (\"o que isso significa\", \"por quê\").\n"
         "Se a mensagem continua a anterior (\"e em julho?\", \"e por projeto?\"), parta da consulta anterior "
         "(campo spec) e mude só o que a mensagem pede.\n"

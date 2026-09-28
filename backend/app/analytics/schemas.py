@@ -48,6 +48,8 @@ class ChatSpec(BaseModel):
     threshold_measure: _Key | None = None
     threshold_op: _Key | None = None
     threshold_value: float | None = Field(default=None, allow_inf_nan=False)
+    # "em relação ao total": filtro que sai da base (revalidado em build_spec)
+    share_of: _Key | None = None
 
 
 class ChatContext(BaseModel):
