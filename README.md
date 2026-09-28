@@ -9,6 +9,7 @@ Além do gerador, a aplicação reúne:
 - diagnóstico: status de envio dos relatórios e correção das amostras usadas nos KPIs;
 - histórico de relatórios gerados, com versões e auditoria;
 - analytics e chat analítico (perguntas em português sobre horas, faturado e envio);
+- geração automática dos rascunhos mensais de todos os projetos, com revisão e aprovação;
 - automação de leitura e envio de relatórios por e-mail via Microsoft Graph;
 - edição assistida e tradução via Anthropic.
 
@@ -98,6 +99,21 @@ Gerente e coordenador. O gerente vê todos os períodos; o coordenador, só os *
 - excluir amostras incorretas;
 - consultar mensagens ignoradas pela automação;
 - cadastrar manualmente uma amostra.
+
+### Geração automática
+
+Só gerentes. Gera, de uma vez, os **rascunhos de todos os projetos com horas** numa competência — o mesmo conteúdo da busca por cliente, sem precisar buscar projeto por projeto — e o que foi ajustado no último relatório aprovado de cada projeto já vem aplicado (nomes de grupo, performance, descrições, assinantes e o número do mês anterior como sugestão).
+
+- Cada projeto aparece num **bloco próprio**, com status, horas, número do relatório e as ações. **Mês passado** mostra os rascunhos da competência, com o status de cada um (em revisão, aprovado, pulado, erro) e selos como "horas mudaram" (o Projectile mudou depois da geração) e "X h sem descrição" (lançamentos sem descrição viram aviso no editor, como na busca manual). **Mês atual** é uma prévia: quais projetos têm horas até agora e o que vai acontecer com cada um — nada é gravado.
+- **Gerar rascunhos** cria o que falta (rodar de novo não duplica); projetos que ganharam horas depois aparecem em "projetos com horas depois da geração", com botão pra gerar só eles. Projetos fechados no Diagnóstico e famílias desativadas nas configurações ficam de fora.
+- **Abrir no editor** abre o rascunho numa guia do editor de sempre (preview, chat, EN/DE). As edições são salvas sozinhas no servidor (indicador "Salvo no servidor"); a guia não fica no navegador — F5 fecha, o rascunho continua salvo.
+- **Aprovar** exige o número do relatório (digitado na lista ou no editor) e os assinantes; barra número fora do formato, repetido no mês ou já usado por outro projeto no histórico. A aprovação grava no histórico e guarda os arquivos que vão pro cliente ("Arquivos").
+- **Aprovados em massa**: cada bloco aprovado tem uma caixa de seleção no canto inferior direito. Com um ou mais marcados, aparece a barra com **Enviar ao cliente** (um e-mail por projeto, cada um com os seus destinatários, ou todos num e-mail só), **Ver** (abre todos no editor), **Baixar** (um ZIP com os arquivos aprovados) e **Reabrir**. Aprovados não mostram mais "Configuração".
+- **Enviar ao cliente** (nos aprovados): abre o e-mail já preenchido — destinatários do último envio deste projeto, assunto e mensagem padrão — com os arquivos aprovados em anexo — dá pra escolher Excel, PDF ou os dois (só aparecem os formatos que foram aprovados). Sai da sua caixa, com a caixa da automação em cópia, e o bloco passa a "Enviado", mostrando quando e pra quem. Dá pra enviar de novo. Se o seu e-mail não estiver em `ALBERTO_EMAIL`, o modal avisa que o envio não vai contar no Diagnóstico.
+- **Revisor** (campo no bloco): atribui o relatório a um colaborador da engenharia. Ele vê o relatório em **Minhas revisões** (item do menu que aparece pra quem tem relatório atribuído, com contador), abre no editor, ajusta o conteúdo e clica **Mandar pra aprovação** — com uma observação opcional. O número do relatório, os arquivos e a aprovação continuam com o gerente. O bloco passa a "Aguardando aprovação"; o gerente **aprova** ou **devolve** dizendo o que mudar (o revisor vê o pedido na lista e no editor). Sem revisor, o gerente revisa e aprova direto. Quem revisou um mês já fica atribuído no rascunho do mês seguinte do mesmo trabalho. No **mês atual**, que ainda não tem rascunho, o revisor escolhido no bloco fica guardado na configuração do projeto: o rascunho já nasce atribuído a ele, neste mês e nos próximos.
+- **Configuração de cada projeto** (botão no bloco): gerar ou não, um relatório pro projeto (padrão) ou um por pacote, assinantes, arquivos e performance — só o que for diferente do **padrão geral**. Vale também nos próximos meses do mesmo trabalho, porque o Projectile abre um projeto novo por mês ("… Estribo 07.2026", "… 08.2026") e a configuração acompanha a família.
+
+Próximas etapas: agendamento no dia escolhido e preferências de IA.
 
 ### Chat analítico
 
@@ -251,7 +267,10 @@ backend/
         chat.py               # /chat, /translate-activities
         analytics.py          # /analytics/summary (só gerente)
         analytics_chat.py     # /analytics/chat, /analytics/chat/export (só gerente)
+        auto_generation.py    # /auto-generation/* (só gerente)
+        my_reviews.py         # /my-reviews/* (quem foi atribuído como revisor)
     analytics/             # chat analítico: catálogo, consulta cruzada, travas, gráficos, Excel
+    auto_generation/       # geração automática: família, memória, rascunho, regras, fluxo
     integrations/
       jev.py               # cliente HTTP do Jev (OpenRouter ou TypeSafe)
     repositories/          # leituras do chat analítico (horas de engenharia, relatórios gerados)
@@ -277,6 +296,8 @@ backend/
       report_persistence.py # begin/finish_generation, fail-open
       report_queries.py     # leituras do histórico + agregações de analytics (não fail-open)
       management_store.py   # persistência de Gerência/Diagnóstico nas tabelas mgmt_* (não fail-open)
+      auto_generation_store.py  # persistência da geração automática (tabelas auto_*, não fail-open)
+      report_files.py       # montagem do XLSX/PDF, compartilhada por /generate e pela aprovação
       audit.py              # trilha de auditoria, fail-open
     tools/
       import_management_json.py  # importação única do antigo management_kpi.json
@@ -286,7 +307,7 @@ backend/
 frontend/
   public/                 # logos da aplicação/e-mail
   src/
-    App.tsx               # shell e troca das sete views
+    App.tsx               # shell e troca das oito views
     appView.ts            # nomes/tipo das views
     components/
       Sidebar.tsx
@@ -301,6 +322,9 @@ frontend/
       HistoryPanel.tsx
       AnalyticsPanel.tsx
       AnalyticsChatPanel.tsx
+      AutoGenerationPanel.tsx  # aba Geração automática
+      AutoReportBar.tsx        # barra da guia aberta a partir dela (gerente ou revisor)
+      MyReviewsPanel.tsx       # Minhas revisões
       analytics/VisualizationRenderer.tsx  # gráficos e tabelas do chat analítico (SVG)
       PageHeader.tsx
       GenerateFooter.tsx
@@ -315,6 +339,7 @@ frontend/
       useHistoryStore.ts
       useAnalyticsStore.ts
       useAnalyticsChatStore.ts
+      useAutoGenerationStore.ts
     styles/index.css
     utils/
   package.json
@@ -397,7 +422,7 @@ npm --prefix frontend run dev
 - FastAPI: `http://localhost:8011`
 - Vite: `http://localhost:5173`
 
-> O proxy atual do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts` e `/analytics`. As telas que chamam `/management/*`, `/my-hours`, `/send-report` ou `/translate-activities` devem ser testadas pelo build servido pelo FastAPI ou após ampliar explicitamente o proxy em `frontend/vite.config.ts`.
+> O proxy atual do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts`, `/analytics`, `/auto-generation` e `/my-reviews`. As telas que chamam `/management/*`, `/my-hours`, `/send-report` ou `/translate-activities` devem ser testadas pelo build servido pelo FastAPI ou após ampliar explicitamente o proxy em `frontend/vite.config.ts`.
 
 ### 5. Produção local
 
@@ -515,6 +540,14 @@ Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios
 | `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
 | `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consulta cruzada sobre um catálogo fixo (nunca SQL gerado por IA); Jev classifica e o Claude só planeja/explica |
 | `POST /analytics/chat/export` | tabela já exibida no chat → `.xlsx` (não consulta nada) |
+| `GET/PUT /auto-generation/config`, `PUT/DELETE /auto-generation/rules/{family_key}`, `PUT /auto-generation/families/{project_id}` | configuração da geração automática (padrão e por família de projeto) |
+| `GET /auto-generation/competences[/{AAAA-MM}[/preview]]`, `POST /auto-generation/competences/{AAAA-MM}/run` | rascunhos de uma competência, prévia do mês atual e "gerar agora" |
+| `GET/PUT/PATCH/POST /auto-generation/reports/{id}[/draft\|numbers\|approve\|skip\|reopen\|regenerate\|files]` | um rascunho: detalhe, salvar (trava por versão), números, aprovar, pular, reabrir, regenerar, arquivos aprovados |
+| `GET /auto-generation/files?ids=…` | download em lote dos arquivos aprovados (ZIP) |
+| `POST /auto-generation/send` | vários aprovados num e-mail só |
+| `GET/POST /auto-generation/reports/{id}/send` | envio ao cliente: o que o e-mail abre preenchido / enviar os arquivos aprovados |
+| `GET /auto-generation/reviewers`, `PUT /auto-generation/reports/{id}/reviewer`, `POST /auto-generation/reports/{id}/return` | revisão (gerente): quem pode revisar, atribuir/tirar revisor, devolver com comentário |
+| `GET /my-reviews[/summary]`, `GET /my-reviews/{id}`, `PUT /my-reviews/{id}/draft`, `POST /my-reviews/{id}/submit` | Minhas revisões (qualquer usuário, só os atribuídos a ele): lista, contadores do menu, abrir, salvar, mandar pra aprovação |
 
 **Gerente ou coordenador** (`test_coordinator_access.py` exige que toda rota nova desses routers esteja classificada numa das duas listas):
 
