@@ -11,6 +11,7 @@ from backend.app import auth, management
 from backend.app.api.dependencies import require_manager, require_manager_or_coordinator, require_session
 from backend.app.api.routers import analytics as analytics_router
 from backend.app.api.routers import analytics_chat as analytics_chat_router
+from backend.app.api.routers import auto_generation as auto_generation_router
 from backend.app.api.routers import management as management_router
 from backend.app.api.routers import parsing as parsing_router
 from backend.app.main import app
@@ -26,6 +27,31 @@ _MANAGER_ONLY = {
     ("GET", "/analytics/summary"),
     ("POST", "/analytics/chat"),
     ("POST", "/analytics/chat/export"),
+    # geração automática — a aba inteira é só do gerente
+    ("GET", "/auto-generation/config"),
+    ("PUT", "/auto-generation/config"),
+    ("PUT", "/auto-generation/rules/{family_key}"),
+    ("DELETE", "/auto-generation/rules/{family_key}"),
+    ("PUT", "/auto-generation/families/{project_id}"),
+    ("GET", "/auto-generation/competences"),
+    ("GET", "/auto-generation/competences/{competence}"),
+    ("GET", "/auto-generation/competences/{competence}/preview"),
+    ("POST", "/auto-generation/competences/{competence}/run"),
+    ("GET", "/auto-generation/reports/{report_id}"),
+    ("PUT", "/auto-generation/reports/{report_id}/draft"),
+    ("PATCH", "/auto-generation/reports/{report_id}/numbers"),
+    ("POST", "/auto-generation/reports/{report_id}/approve"),
+    ("POST", "/auto-generation/reports/{report_id}/skip"),
+    ("POST", "/auto-generation/reports/{report_id}/reopen"),
+    ("POST", "/auto-generation/reports/{report_id}/regenerate"),
+    ("GET", "/auto-generation/reports/{report_id}/files"),
+    ("GET", "/auto-generation/reviewers"),
+    ("PUT", "/auto-generation/reports/{report_id}/reviewer"),
+    ("POST", "/auto-generation/reports/{report_id}/return"),
+    ("GET", "/auto-generation/reports/{report_id}/send"),
+    ("POST", "/auto-generation/reports/{report_id}/send"),
+    ("GET", "/auto-generation/files"),
+    ("POST", "/auto-generation/send"),
 }
 
 
@@ -58,6 +84,7 @@ def test_matriz_de_autorizacao_de_toda_rota_de_gerencia():
         *management_router.router.routes,
         *analytics_router.router.routes,
         *analytics_chat_router.router.routes,
+        *auto_generation_router.router.routes,
         *[r for r in parsing_router.router.routes if r.path == "/parse-db-client"],
     ]
     assert routes

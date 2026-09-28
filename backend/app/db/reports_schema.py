@@ -306,3 +306,129 @@ mgmt_meta = Table(
     Column("updated_at", DateTime(timezone=False), nullable=False),
     **_MYSQL_TABLE_OPTS,
 )
+
+
+# ---------------------------------------------------------------------------
+# Geração automática de relatórios (aba "Geração automática", só gerente).
+# Rascunho sem número de relatório NÃO pode ir pra `reports` (a identidade lá
+# é hash(número, escopo, competência) — todos os rascunhos do mês colidiriam),
+# então ele vive em `auto_reports` e só vira relatório do histórico na
+# APROVAÇÃO, quando o gerente já digitou o número.
+# ---------------------------------------------------------------------------
+
+# chave/valor: "config" (padrão global + agendamento) e "lock" (mutex das
+# escritas, mesmo padrão de `mgmt_meta.samples_lock`)
+auto_settings = Table(
+    "auto_settings",
+    metadata,
+    Column("key", String(50), primary_key=True),
+    Column("value_json", JSON, nullable=True),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+# o Projectile abre UM projeto por mês pro mesmo trabalho ("... Estribo
+# 07.2026", "... 08.2026") — regra e memória são por FAMÍLIA (nome sem a data
+# + cliente), calculada em `auto_generation/families.py`; esta tabela só
+# guarda a associação MANUAL de um projeto a uma família (quando o nome muda)
+auto_families = Table(
+    "auto_families",
+    metadata,
+    Column("project_id", _exact_string(100), primary_key=True),
+    Column("family_key", String(255), nullable=False),
+    Column("updated_by", String(100), nullable=True),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+# configuração por família — só os campos que diferem do padrão global
+auto_rules = Table(
+    "auto_rules",
+    metadata,
+    Column("family_key", String(255), primary_key=True),
+    Column("config_json", JSON, nullable=False),
+    Column("updated_by", String(100), nullable=True),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+# o que o gerente/revisor ajustou no último relatório APROVADO da família
+# (nomes de grupo, performance, descrições, assinantes, último número) —
+# aplicado ao rascunho do mês seguinte. Horas nunca.
+auto_memory = Table(
+    "auto_memory",
+    metadata,
+    Column("family_key", String(255), primary_key=True),
+    Column("memory_json", JSON, nullable=False),
+    Column("source_auto_report_id", CHAR(26), nullable=True),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    **_MYSQL_TABLE_OPTS,
+)
+
+# uma rodada por competência (UNIQUE): "Gerar agora" de novo só cria o que
+# falta, e o agendador (fase 4) usa o mesmo UNIQUE pra não rodar duas vezes
+auto_runs = Table(
+    "auto_runs",
+    metadata,
+    Column("id", CHAR(26), primary_key=True),
+    Column("competence", String(7), nullable=False, unique=True),
+    Column("status", String(20), nullable=False),
+    Column("triggered_by", String(100), nullable=True),
+    Column("started_at", DateTime(timezone=False), nullable=False),
+    Column("finished_at", DateTime(timezone=False), nullable=True),
+    Column("counts_json", JSON, nullable=True),
+    Column("error", Text, nullable=True),
+    **_MYSQL_TABLE_OPTS,
+)
+
+auto_reports = Table(
+    "auto_reports",
+    metadata,
+    Column("id", CHAR(26), primary_key=True),
+    Column("run_id", CHAR(26), nullable=False),
+    Column("competence", String(7), nullable=False),
+    Column("project_id", _exact_string(100), nullable=False),
+    Column("family_key", String(255), nullable=False),
+    Column("project_name", String(255), nullable=False),
+    Column("client", String(255), nullable=True),
+    Column("status", String(20), nullable=False),
+    Column("reviewer_login", String(100), nullable=True),
+    Column("reviewer_name", String(255), nullable=True),
+    # rascunho no formato de estado do editor (pacotes/grupos/atividades com
+    # `id` e `source_key`), ver `auto_generation/builder.py`
+    Column("draft_json", JSON, nullable=True),
+    Column("draft_version", Integer, nullable=False, default=1),
+    Column("source_hours", Double, nullable=True),
+    Column("badges_json", JSON, nullable=True),
+    Column("ai_original_json", JSON, nullable=True),
+    # payload aprovado CONGELADO (formato GeneratePayload, com os gráficos) —
+    # o envio monta os anexos dele, não do histórico (que é fail-open)
+    Column("approved_payload_json", JSON, nullable=True),
+    Column("approved_by", String(100), nullable=True),
+    Column("approved_at", DateTime(timezone=False), nullable=True),
+    Column("sent_by", String(100), nullable=True),
+    Column("sent_at", DateTime(timezone=False), nullable=True),
+    Column("history_links_json", JSON, nullable=True),
+    Column("error", Text, nullable=True),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+    Column("updated_at", DateTime(timezone=False), nullable=False),
+    UniqueConstraint("competence", "project_id", name="uq_auto_reports_competence_project"),
+    Index("idx_auto_reports_competence_status", "competence", "status"),
+    **_MYSQL_TABLE_OPTS,
+)
+
+# linha do tempo e comentários de cada relatório automático
+auto_report_events = Table(
+    "auto_report_events",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("auto_report_id", CHAR(26), nullable=False),
+    Column("action", String(40), nullable=False),
+    Column("actor_login", String(100), nullable=True),
+    Column("actor_name", String(255), nullable=True),
+    Column("comment", Text, nullable=True),
+    Column("metadata_json", JSON, nullable=True),
+    Column("created_at", DateTime(timezone=False), nullable=False),
+    Index("idx_auto_report_events_report", "auto_report_id"),
+    **_MYSQL_TABLE_OPTS,
+)

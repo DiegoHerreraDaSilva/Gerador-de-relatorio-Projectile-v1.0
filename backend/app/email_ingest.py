@@ -152,6 +152,12 @@ def _graph_post(url: str, json_body: dict) -> None:
         raise EmailIngestError(f"Falha ao enviar e-mail pelo Microsoft Graph{detail}") from e
 
 
+def diagnostics_sender_emails() -> list[str]:
+    """Remetentes cujos envios o Diagnóstico conta como "Enviado"
+    (`ALBERTO_EMAIL`) — vazio se não configurado."""
+    return _parse_sender_emails(os.environ.get("ALBERTO_EMAIL", ""))
+
+
 def _parse_sender_emails(raw: str) -> list[str]:
     """`ALBERTO_EMAIL` aceita 1 ou mais endereços separados por vírgula (ex:
     mais de uma pessoa manda relatório pela mesma automação) — espaços em
@@ -709,10 +715,11 @@ def _load_signature_inline_attachments() -> list[dict]:
 
 def send_report_email(
     sender_email: str,
-    to_email: str,
+    to_email: str | list[str],
     subject: str,
     body_text: str,
     attachments: list[tuple[str, bytes]],
+    cc_emails: list[str] | None = None,
 ) -> None:
     """Envia relatório(s) por e-mail via Microsoft Graph, "como" o usuário
     logado (`sender_email` — vem da sessão, `auser.rEmail`, nunca digitado
@@ -736,6 +743,9 @@ def send_report_email(
     fora do código)."""
     mailbox = _require_env("GRAPH_MAILBOX")
     url = f"{GRAPH_BASE}/users/{sender_email}/sendMail"
+    to_list = [to_email] if isinstance(to_email, str) else list(to_email)
+    # a caixa do agente vai SEMPRE em cópia (captura do KPI), sem duplicar
+    cc_list = [c for c in (cc_emails or []) if c.casefold() != mailbox.casefold()] + [mailbox]
     report_attachments = [
         {
             "@odata.type": "#microsoft.graph.fileAttachment",
@@ -751,8 +761,8 @@ def send_report_email(
         "message": {
             "subject": subject,
             "body": {"contentType": "HTML", "content": _build_report_email_html(body_text)},
-            "toRecipients": [{"emailAddress": {"address": to_email}}],
-            "ccRecipients": [{"emailAddress": {"address": mailbox}}],
+            "toRecipients": [{"emailAddress": {"address": a}} for a in to_list],
+            "ccRecipients": [{"emailAddress": {"address": a}} for a in cc_list],
             "attachments": report_attachments + _load_signature_inline_attachments(),
         },
         "saveToSentItems": True,

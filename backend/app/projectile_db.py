@@ -419,7 +419,7 @@ def fetch_engineering_employees(start_date: str, end_date: str) -> list[dict]:
             cur.execute(
                 """
                 SELECT DISTINCT te.pEmployee AS employee_id, te.pFirstName, te.pName,
-                       te.pFiliale, te.pCostCenter AS cost_center, tj.capEmployee
+                       te.pFiliale, te.pCostCenter AS cost_center, tj.capEmployee, te.pLogin
                 FROM ttimebit tb
                 JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
                 JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
@@ -447,6 +447,9 @@ def fetch_engineering_employees(start_date: str, end_date: str) -> list[dict]:
             "name": name,
             "filiale": html.unescape(str(row.get("pFiliale") or "")).strip() or None,
             "cost_center": html.unescape(str(row.get("cost_center") or "")).strip() or None,
+            # login do app (= `auser.rLogin`, ligado por `temployee.pLogin` como
+            # no login) — é por ele que a geração automática atribui revisor
+            "login": str(row.get("pLogin") or "").strip() or None,
         }
     return sorted(employees.values(), key=lambda e: e["name"].casefold())
 
