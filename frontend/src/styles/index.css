@@ -3752,7 +3752,7 @@
 
   /* um bloco por projeto, UM POR LINHA; dentro dele três faixas lado a lado
      (identificação | dados | status e ações) que se empilham em tela estreita */
-  .auto-cards { display: flex; flex-direction: column; gap: 12px; }
+  .auto-cards { display: flex; flex-direction: column; gap: 18px; }
   .auto-cards > .card { margin-bottom: 0; }
   .auto-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 20px; }
   .auto-card-busy { opacity: 0.6; }
@@ -3808,7 +3808,7 @@
     .auto-card-side { align-items: flex-start; margin-left: 0; }
     .auto-card-actions { justify-content: flex-start; }
   }
-  .auto-config-grid label:not(.include-performance-checkbox) { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }
+  .auto-config-grid label:not(.include-performance-checkbox) { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }
   .auto-config-grid select {
     padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
   }
@@ -3831,11 +3831,15 @@
   .auto-settings-modal { max-width: 760px; }
   .auto-settings-section h3 { margin: 0 0 8px; font-size: 0.95rem; }
   .auto-settings-section p { margin: 6px 0 0; font-size: 0.82rem; }
-  .auto-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+  /* subtítulo ("Vale pra todo projeto…") afastado dos campos */
+  .auto-settings-section > p:first-child { margin: 0 0 18px; }
+  .auto-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
   @media (max-width: 640px) { .auto-settings-grid { grid-template-columns: 1fr; } }
   /* rótulos do formulário (texto em cima do campo) — os cartões de marcar
      (.include-performance-checkbox) têm estilo próprio e ficam de fora */
-  .auto-settings-grid label:not(.include-performance-checkbox) { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-muted); }
+  /* margin 0: o `label` global tem margem de cima, menos no 1º (`label:first-of-type`)
+     — o 1º campo de cada grid ficava mais alto que o vizinho; o espaço é o `gap` */
+  .auto-settings-grid label:not(.include-performance-checkbox) { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 0.8rem; color: var(--text-muted); }
   .auto-settings-grid select {
     padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
   }
