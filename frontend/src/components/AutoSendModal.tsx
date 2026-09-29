@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, Check, Paperclip, Send, X } from "lucide-react";
 import { useAutoGenerationStore, type AutoItem, type SendDefaults } from "../store/useAutoGenerationStore";
 import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
-import { competenceLabel } from "./AutoGenerationPanel";
+import { periodLabelOf } from "./AutoGenerationPanel";
 
 const extensionOf = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
 
@@ -233,7 +233,7 @@ export function BulkSendModal({ items, onClose }: { items: AutoItem[]; onClose: 
     };
     const to = join(rows.map((r) => r.defaults?.to ?? []));
     const cc = join(rows.map((r) => r.defaults?.cc ?? [])).filter((a) => !to.some((t) => t.toLowerCase() === a.toLowerCase()));
-    const months = Array.from(new Set(items.map((i) => competenceLabel(i.competence))));
+    const months = Array.from(new Set(items.map((i) => periodLabelOf(i))));
     const month = months.join(", ");
     setCombined({
       to: to.join("; "), cc: cc.join("; "), touched: false,

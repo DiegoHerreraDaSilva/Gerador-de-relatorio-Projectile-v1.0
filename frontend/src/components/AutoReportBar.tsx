@@ -101,7 +101,7 @@ export function AutoReportBar() {
         <span className="auto-bar-kind">
           {reviewer ? <><ClipboardCheck size={16} strokeWidth={2} /> Revisão</> : <><CalendarClock size={16} strokeWidth={2} /> Geração automática</>}
         </span>
-        <span className="auto-bar-title">{tab?.label} · {competenceLabel(auto.competence)}</span>
+        <span className="auto-bar-title">{tab?.label} · {auto.periodLabel ?? competenceLabel(auto.competence)}</span>
         <StatusPill status={status} />
         {!reviewer && auto.reviewerName && (
           <span className="auto-bar-reviewer"><UserRound size={14} strokeWidth={2} aria-hidden="true" /> {auto.reviewerName}</span>

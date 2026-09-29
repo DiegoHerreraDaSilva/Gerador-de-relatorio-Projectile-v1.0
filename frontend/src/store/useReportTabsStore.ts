@@ -18,6 +18,8 @@ export type AutoTabMeta = {
   reportId: string;
   draftVersion: number;
   competence: string;
+  // geração personalizada: o período do relatório ("Julho a Novembro/2026"), no lugar do mês da competência
+  periodLabel?: string | null;
   status: string;
   formats: Array<"xlsx" | "pdf">;
   extras: AutoDraftExtras;

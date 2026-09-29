@@ -10,6 +10,8 @@ import type { AutoBadges, AutoStatus, ReviewComment } from "./useAutoGenerationS
 export type ReviewItem = {
   id: string;
   competence: string;
+  // geração personalizada: o período do recorte no lugar do mês
+  scope_json?: { label: string; summary: string } | null;
   project_name: string;
   client: string | null;
   status: AutoStatus;

@@ -191,6 +191,124 @@ describe("guia aberta por quem revisa", () => {
   });
 });
 
+describe("aba Personalizados", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    installMemoryLocalStorage();
+  });
+
+  const CUSTOM_ITEM = {
+    id: "C1", kind: "avulso", competence: "2026-08", project_id: "custom:C1", family_key: "custom:C1",
+    project_name: "Lucca — Mercedes", client: "Mercedes", status: "em_revisao", reviewer_login: null, reviewer_name: null,
+    draft_version: 1, source_hours: 7, approved_by: null, approved_at: null, sent_by: null, sent_at: null, last_sent: null,
+    error: null, updated_at: "2026-09-29T10:00:00", badges: { custom: true, partial: true, packages: 1 },
+    last_comment: null, scope_json: { label: "Julho a Agosto/2026", summary: "Mercedes · Lucca" },
+  };
+
+  const REQUEST = {
+    id: "Q1", competence: "2026-09", label: "Setembro/2026", summary: "Mercedes · Lucca", title: null, split_by: "nenhum",
+    package_unit: "projeto", reviewer_name: null, status: "agendado", error: null, created_by_name: "Gerente", created_at: "2026-09-29T10:00:00",
+  };
+
+  const stubApi = (calls: string[]) =>
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      const body = url === "/auto-generation/custom" && init?.method === "POST"
+        ? { request: REQUEST }
+        : url === "/auto-generation/custom" ? { items: [CUSTOM_ITEM], counts: { em_revisao: 1 }, requests: [REQUEST] }
+        : url === "/auto-generation/config" ? { defaults: {}, config: {}, rules: [], effective: { mode: "projeto", number_pattern: "^SE\.\d{2}\.\d{3}$" } }
+        : url === "/auto-generation/custom/preview" ? { period_label: "Agosto/2026", summary: "", reports: [], total_hours: 0, warnings: [] }
+        : {};
+      return { ok: true, json: async () => body } as Response;
+    }));
+
+  it("lista pelo endpoint dos personalizados e reaproveita a tela da rodada, sem regra de família", async () => {
+    const calls: string[] = [];
+    stubApi(calls);
+    const { useAutoGenerationStore, CUSTOM_KEY } = await import("../useAutoGenerationStore");
+    useAutoGenerationStore.setState({ _loadedForLogin: null });
+    await useAutoGenerationStore.getState().select(CUSTOM_KEY);
+    const { view, preview, error } = useAutoGenerationStore.getState();
+    expect(error).toBe("");
+    expect(calls).toContain("GET /auto-generation/custom");
+    expect(calls.some((c) => c.includes("/competences/custom"))).toBe(false); // não é uma competência
+    expect(preview).toBeNull();
+    expect(view?.month_label).toBe("Personalizados");
+    expect(view?.run?.status).toBe("done");
+    expect(view?.new_projects).toEqual([]);
+    expect(view?.counts).toEqual({ em_revisao: 1 });
+    // sem configuração individual: vale o padrão geral (formato do número, formatos)
+    expect(view?.items[0].rule).toEqual({});
+    expect(view?.items[0].effective.mode).toBe("projeto");
+    expect(view?.items[0].scope_json?.label).toBe("Julho a Agosto/2026");
+    vi.unstubAllGlobals();
+  });
+
+  it("agendar troca pra aba Personalizados, guarda os pedidos e cancelar recarrega", async () => {
+    const calls: string[] = [];
+    stubApi(calls);
+    const { useAutoGenerationStore, CUSTOM_KEY } = await import("../useAutoGenerationStore");
+    useAutoGenerationStore.setState({ _loadedForLogin: null, selected: "2026-08" });
+    const scope = {
+      period: { start: "2026-07", end: "2026-08" }, blocks: [{ clients: ["Mercedes"], project_ids: [], packages: [], employee_ids: ["10"] }],
+      split_by: "nenhum" as const, package_unit: "projeto" as const,
+    };
+    const preview = await useAutoGenerationStore.getState().previewCustom(scope);
+    expect(preview.period_label).toBe("Agosto/2026");
+    const request = await useAutoGenerationStore.getState().scheduleCustom(scope);
+    expect(request.status).toBe("agendado");
+    expect(useAutoGenerationStore.getState().selected).toBe(CUSTOM_KEY);
+    expect(useAutoGenerationStore.getState().view?.items.map((i) => i.id)).toEqual(["C1"]);
+    expect(useAutoGenerationStore.getState().customRequests.map((r) => r.id)).toEqual(["Q1"]);
+    expect(calls.filter((c) => c === "POST /auto-generation/custom")).toHaveLength(1);
+    await useAutoGenerationStore.getState().deleteCustomRequest(request);
+    expect(calls).toContain("DELETE /auto-generation/custom/requests/Q1");
+    expect(calls.filter((c) => c === "GET /auto-generation/custom").length).toBeGreaterThanOrEqual(2);
+    vi.unstubAllGlobals();
+  });
+
+  it("apagar chama DELETE, fecha a guia aberta do relatório e recarrega a lista", async () => {
+    const calls: string[] = [];
+    stubApi(calls);
+    const { useAutoGenerationStore, CUSTOM_KEY } = await import("../useAutoGenerationStore");
+    const { useReportTabsStore } = await import("../useReportTabsStore");
+    const { reportTabBundle } = await import("../useReportStore");
+    useAutoGenerationStore.setState({ _loadedForLogin: null });
+    await useAutoGenerationStore.getState().select(CUSTOM_KEY);
+    const item = useAutoGenerationStore.getState().view!.items[0];
+    const editor = draftToEditor(DRAFT);
+    useReportTabsStore.getState().openAutoTab(
+      { reportId: item.id, draftVersion: 1, competence: "2026-08", status: "em_revisao", formats: ["xlsx"], extras: editor.extras },
+      "Lucca — Mercedes", reportTabBundle(editor.packages, editor.header, false),
+    );
+    useAutoGenerationStore.setState({ saveState: { [item.id]: "dirty" } });
+    expect(useReportTabsStore.getState().tabs.some((t) => t.auto?.reportId === item.id)).toBe(true);
+
+    await useAutoGenerationStore.getState().deleteCustom(item);
+    expect(calls).toContain("DELETE /auto-generation/custom/C1");
+    expect(useReportTabsStore.getState().tabs.some((t) => t.auto?.reportId === item.id)).toBe(false);
+    expect(useAutoGenerationStore.getState().saveState[item.id]).toBeUndefined();
+    expect(useAutoGenerationStore.getState().busy[item.id]).toBe(false);
+    expect(calls.filter((c) => c === "GET /auto-generation/custom").length).toBeGreaterThanOrEqual(2); // lista de novo
+    vi.unstubAllGlobals();
+  });
+
+  it("a barra do editor mostra o período do recorte, não o mês da competência", async () => {
+    const { useReportTabsStore } = await import("../useReportTabsStore");
+    const { reportTabBundle } = await import("../useReportStore");
+    const editor = draftToEditor(DRAFT);
+    useReportTabsStore.getState().openAutoTab(
+      { reportId: "C1", draftVersion: 1, competence: "2026-08", periodLabel: "Julho a Agosto/2026", status: "em_revisao", formats: ["xlsx"], extras: editor.extras },
+      "Lucca — Mercedes",
+      reportTabBundle(editor.packages, editor.header, false),
+    );
+    const auto = useReportTabsStore.getState().tabs.find((t) => t.auto)?.auto;
+    expect(auto?.periodLabel).toBe("Julho a Agosto/2026");
+    const saved = JSON.parse(localStorage.getItem("relatorio-horas:tabs:v1") ?? "{}");
+    expect(saved.tabs.some((t: { auto?: unknown }) => t.auto)).toBe(false); // continua fora do localStorage
+  });
+});
+
 describe("destinatários do envio ao cliente", () => {
   it("aceita ; , espaço e quebra de linha entre os endereços", async () => {
     const { parseAddresses } = await import("../../components/AutoSendModal");

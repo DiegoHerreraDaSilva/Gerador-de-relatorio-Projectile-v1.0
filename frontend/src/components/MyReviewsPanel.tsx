@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ClipboardCheck, FilePen, MessageSquareText, RefreshCw } from "lucide-react";
 import { PageHeader } from "./PageHeader";
-import { StatusPill, competenceLabel } from "./AutoGenerationPanel";
+import { StatusPill, periodLabelOf } from "./AutoGenerationPanel";
 import type { AppView } from "../appView";
 import { useAutoGenerationStore } from "../store/useAutoGenerationStore";
 import { useMyReviewsStore, type ReviewItem } from "../store/useMyReviewsStore";
@@ -102,7 +102,7 @@ function ReviewCard({ item, onOpen, primary = false }: { item: ReviewItem; onOpe
         <div className="auto-card-main">
           <div className="auto-card-title">
             <h3 title={item.project_name}>{item.project_name}</h3>
-            <span className="muted">{item.client ?? ""} · {competenceLabel(item.competence)}</span>
+            <span className="muted">{item.client ?? ""} · {periodLabelOf(item)}</span>
           </div>
           {missing > 0 && (
             <div className="auto-badges">

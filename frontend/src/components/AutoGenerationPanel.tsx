@@ -1,27 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  CalendarClock, ChevronDown, Download, FilePen, Play, RefreshCw, RotateCcw, Search, Settings, SkipForward, SlidersHorizontal,
-  Send, Undo2, UserRound, X,
+  CalendarClock, ChevronDown, Download, FilePen, Play, Plus, RefreshCw, RotateCcw, Search, Settings, SkipForward, SlidersHorizontal,
+  Send, Trash2, Undo2, UserRound, X,
 } from "lucide-react";
 import { PageHeader } from "./PageHeader";
 import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
 import type { AppView } from "../appView";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import {
+  CUSTOM_KEY,
   EDITABLE_STATUSES,
   useAutoGenerationStore,
   type AutoItem,
   type AutoStatus,
+  type CustomRequestItem,
   type EffectiveConfig,
   type PreviewProject,
   type ProjectRule,
 } from "../store/useAutoGenerationStore";
 import { fmtNum } from "../utils/fmt";
+import { describeSchedule } from "../utils/autoSchedule";
 import { matchesNumberPattern, numberPatternLabel } from "../utils/autoDraft";
 import { ReviewNote } from "./MyReviewsPanel";
 import { AutoSendModal, BulkSendModal } from "./AutoSendModal";
 import { ReviewerPicker } from "./ReviewerPicker";
+import { AutoCustomModal } from "./AutoCustomModal";
+import { Select } from "./Select";
+import { confirmDialog } from "./ConfirmDialog";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
@@ -29,6 +35,12 @@ export function competenceLabel(competence: string | null | undefined): string {
   if (!competence) return "";
   const [year, month] = competence.split("-");
   return `${MONTHS[Number(month) - 1] ?? month}/${year}`;
+}
+
+/** Período de um relatório da lista: o do recorte nos personalizados
+ * ("Julho a Novembro/2026"), o mês da competência nos demais. */
+export function periodLabelOf(item: { competence: string; scope_json?: { label?: string } | null }): string {
+  return item.scope_json?.label ?? competenceLabel(item.competence);
 }
 
 export const STATUS_LABELS: Record<AutoStatus, string> = {
@@ -53,6 +65,8 @@ export function StatusPill({ status }: { status: AutoStatus }) {
 const SELECTABLE: AutoStatus[] = ["aprovado", "enviado"];
 
 const MODE_LABELS = { projeto: "Um relatório pro projeto", pacote: "Um relatório por pacote" } as const;
+// no personalizado o "modo" é o que vira pacote DENTRO do relatório (o recorte pode juntar vários projetos)
+const CUSTOM_UNIT_LABELS = { projeto: "Um relatório por projeto", pacote: "Um relatório por pacote de trabalho" } as const;
 
 /** Aba "Geração automática" (só gerente): um bloco por projeto da
  * competência, cada um com status, número, ações e a configuração
@@ -63,6 +77,8 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
   const runs = useAutoGenerationStore((s) => s.runs);
   const selected = useAutoGenerationStore((s) => s.selected);
   const view = useAutoGenerationStore((s) => s.view);
+  const customRequests = useAutoGenerationStore((s) => s.customRequests);
+  const schedule = useAutoGenerationStore((s) => s.schedule);
   const preview = useAutoGenerationStore((s) => s.preview);
   const loading = useAutoGenerationStore((s) => s.loading);
   const error = useAutoGenerationStore((s) => s.error);
@@ -73,6 +89,7 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
   const [stage, setStage] = useState<AutoStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
   const [openError, setOpenError] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [bulkSend, setBulkSend] = useState<AutoItem[] | null>(null);
@@ -86,6 +103,7 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
   }, []);
 
   const olderRuns = runs.filter((r) => r.competence !== current && r.competence !== previous);
+  const isCustomTab = selected === CUSTOM_KEY;
   const running = view?.run?.status === "running";
   const term = search.trim().toLocaleLowerCase("pt-BR");
   const matches = (text: string) => !term || text.toLocaleLowerCase("pt-BR").includes(term);
@@ -123,7 +141,11 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
     const reopenable = pickedItems;
     if (!reopenable.length) return;
     const sentCount = reopenable.filter((i) => i.status === "enviado").length;
-    if (!window.confirm(`Reabrir ${reopenable.length} relatório${reopenable.length === 1 ? "" : "s"} pra revisão? ${reopenWarning(sentCount)}`)) return;
+    const ok = await confirmDialog({
+      title: `Reabrir ${reopenable.length} relatório${reopenable.length === 1 ? "" : "s"}?`,
+      message: `Voltam pra revisão. ${reopenWarning(sentCount)}`, confirmLabel: "Reabrir",
+    });
+    if (!ok) return;
     setBulkBusy(true);
     for (const item of reopenable) await useAutoGenerationStore.getState().action(item, "reopen");
     setPicked(new Set());
@@ -148,6 +170,9 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
         icon={<CalendarClock size={20} strokeWidth={1.8} />}
         actions={
           <>
+            <button type="button" className="primary" onClick={() => setShowCustom(true)}>
+              <Plus size={14} strokeWidth={2} /> Nova geração personalizada
+            </button>
             <button type="button" className="btn-secondary" onClick={() => setShowSettings(true)}>
               <Settings size={14} strokeWidth={2} /> Padrão geral
             </button>
@@ -157,6 +182,12 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
           </>
         }
       />
+
+      {schedule && (
+        <p className={`auto-schedule-line ${schedule.enabled ? "" : "auto-schedule-line-off"}`}>
+          <CalendarClock size={15} strokeWidth={2} aria-hidden="true" /> {describeSchedule(schedule)}
+        </p>
+      )}
 
       <div className="auto-competences" role="tablist" aria-label="Competência">
         {previous && (
@@ -173,17 +204,22 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
             {competenceLabel(current)}
           </button>
         )}
+        <button type="button" role="tab" aria-selected={isCustomTab}
+          className={isCustomTab ? "active" : ""} onClick={() => void select(CUSTOM_KEY)}>
+          <span className="auto-competence-kind">Recorte livre</span>
+          Personalizados
+        </button>
         {olderRuns.length > 0 && (
-          <select
-            aria-label="Competências anteriores"
+          <Select
+            className="auto-older-select"
+            ariaLabel="Competências anteriores"
             value={olderRuns.some((r) => r.competence === selected) ? selected ?? "" : ""}
-            onChange={(e) => e.target.value && void select(e.target.value)}
-          >
-            <option value="">Anteriores…</option>
-            {olderRuns.map((r) => (
-              <option key={r.competence} value={r.competence}>{competenceLabel(r.competence)}</option>
-            ))}
-          </select>
+            onChange={(v) => v && void select(v)}
+            options={[
+              { value: "", label: "Anteriores…" },
+              ...olderRuns.map((r) => ({ value: r.competence, label: competenceLabel(r.competence) })),
+            ]}
+          />
         )}
       </div>
 
@@ -207,14 +243,45 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
         </div>
       )}
 
-      {view?.run && (running || view.run.status === "failed") && (
+      {isCustomTab && customRequests.length > 0 && (
+        <section className="auto-requests" aria-label="Pedidos agendados">
+          <h3>Agendados <span className="muted">— nascem junto com os automáticos, quando o mês fecha</span></h3>
+          {customRequests.map((r) => <CustomRequestCard key={r.id} request={r} />)}
+        </section>
+      )}
+
+      {isCustomTab && view && view.items.length === 0 && customRequests.length === 0 && !loading && (
+        <div className="card auto-run-card">
+          <div>
+            <h3>Nenhuma geração personalizada ainda</h3>
+            <p className="muted">
+              Agende relatórios de um colaborador, de um cliente ou de uma mistura de projetos e pacotes do mês atual.
+              Eles são gerados junto com os automáticos, quando o mês fecha, e seguem a mesma esteira: revisão, aprovação e envio ao cliente.
+            </p>
+          </div>
+          <button type="button" className="primary" onClick={() => setShowCustom(true)}>
+            <Plus size={14} strokeWidth={2} /> Nova geração personalizada
+          </button>
+        </div>
+      )}
+
+      {view?.run && !isCustomTab && (running || view.run.status === "failed") && (
         <div className="card auto-run-card" role="status" aria-live="polite">
           {running ? (
             <p><RefreshCw size={14} strokeWidth={2} className="spin" /> Gerando os rascunhos de {view.month_label}… a lista atualiza sozinha.</p>
           ) : (
-            <p className="error-text">A última geração falhou: {view.run.error}. Os rascunhos já criados continuam aqui; gere de novo pra completar.</p>
+            <p className="error-text">
+              A última geração falhou: {view.run.error}. Os rascunhos já criados continuam aqui; gere de novo pra completar.
+              {schedule?.enabled && " Com a geração automática ligada, o agendador tenta de novo sozinho (de hora em hora, até 5 vezes)."}
+            </p>
           )}
         </div>
+      )}
+
+      {view?.run && !isCustomTab && view.run.status === "done" && view.run.triggered_by === "sistema" && (
+        <p className="auto-run-note muted">
+          Rodada gerada automaticamente pelo agendador{view.run.finished_at ? ` em ${fmtDate(view.run.finished_at)}` : ""}.
+        </p>
       )}
 
       {(view?.run || preview) && (
@@ -245,7 +312,9 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
               rule={item.rule} effective={item.effective} item={item} onOpen={() => void openInEditor(item)}
               selected={picked.has(item.id)} onToggleSelect={SELECTABLE.includes(item.status) ? () => togglePick(item.id) : undefined} />
           ))}
-          {items.length === 0 && <div className="card"><p className="muted">Nenhum projeto nesse filtro.</p></div>}
+          {items.length === 0 && (!isCustomTab || (view?.items.length ?? 0) > 0) && (
+            <div className="card"><p className="muted">Nenhum projeto nesse filtro.</p></div>
+          )}
         </div>
       )}
 
@@ -301,7 +370,53 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
       {bulkSend && <BulkSendModal items={bulkSend} onClose={() => { setBulkSend(null); setPicked(new Set()); }} />}
 
       {showSettings && <AutoSettingsModal onClose={() => setShowSettings(false)} />}
+      {showCustom && <AutoCustomModal onClose={() => setShowCustom(false)} />}
     </div>
+  );
+}
+
+/** Pedido de geração personalizada agendado — ainda não é rascunho. */
+function CustomRequestCard({ request }: { request: CustomRequestItem }) {
+  const remove = useAutoGenerationStore((s) => s.deleteCustomRequest);
+  const failed = request.status === "erro";
+  const cancel = async () => {
+    const ok = await confirmDialog({
+      title: "Cancelar este pedido?", message: `"${request.title || request.summary || request.label}" deixa de ser gerado na rodada do mês.`,
+      confirmLabel: "Cancelar pedido", cancelLabel: "Manter", danger: true,
+    });
+    if (ok) void remove(request);
+  };
+  return (
+    <article className={`card auto-card auto-request ${failed ? "auto-request-error" : ""}`} aria-label={request.title || request.summary || "Pedido agendado"}>
+      <div className="auto-card-row">
+        <div className="auto-card-main">
+          <div className="auto-card-title">
+            <h3>{request.title || request.summary || "Recorte personalizado"}</h3>
+            <span className="muted auto-custom-scope">{request.label}{request.title && request.summary ? ` · ${request.summary}` : ""}</span>
+          </div>
+          <div className="auto-badges">
+            <span className="auto-badge auto-badge-custom">personalizado</span>
+            {request.split_by && request.split_by !== "nenhum" && (
+              <span className="auto-badge">um item por {request.split_by}</span>
+            )}
+            {request.package_unit && (
+              <span className="auto-badge">um relatório por {request.package_unit === "projeto" ? "projeto" : "pacote de trabalho"}</span>
+            )}
+            {request.reviewer_name && <span className="auto-badge">revisor: {request.reviewer_name}</span>}
+          </div>
+          {failed && request.error && <p className="error-text auto-error">A última rodada não gerou: {request.error} A próxima rodada tenta de novo.</p>}
+        </div>
+        <div className="auto-card-side">
+          <span className={`auto-status-pill ${failed ? "auto-status-erro" : "auto-status-em_revisao"}`}>{failed ? "Erro na rodada" : "Agendado"}</span>
+          <div className="auto-card-actions">
+            <button type="button" className="btn-secondary auto-delete-button" onClick={() => void cancel()}
+              title="Cancela o pedido — nada foi gerado ainda">
+              <Trash2 size={14} strokeWidth={2} /> Cancelar
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -349,13 +464,21 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
   const editable = status ? EDITABLE_STATUSES.includes(status) : false;
   const badges = item?.badges ?? {};
   const hasRule = Object.keys(rule ?? {}).length > 0;
+  // personalizado: recorte livre, sem família (nada de configuração individual nem "modo desatualizado")
+  const isCustom = item?.kind === "avulso";
   // o bloco mostra como o rascunho FOI gerado; a configuração pode ter mudado depois
   const draftMode = item ? badges.mode ?? effective.mode : effective.mode;
-  const modeOutdated = Boolean(item && badges.mode && badges.mode !== effective.mode);
+  const modeOutdated = !isCustom && Boolean(item && badges.mode && badges.mode !== effective.mode);
 
-  const confirmRegenerate = () => {
+  const confirmRegenerate = async () => {
     if (!item) return;
-    if (editable && !window.confirm(`Gerar de novo "${title}" a partir do Projectile? As edições feitas no rascunho serão descartadas.`)) return;
+    if (editable) {
+      const ok = await confirmDialog({
+        title: "Gerar de novo?", message: `"${title}" será gerado de novo a partir do Projectile. As edições feitas no rascunho serão descartadas.`,
+        confirmLabel: "Gerar de novo", danger: true,
+      });
+      if (!ok) return;
+    }
     void action(item, "regenerate");
   };
 
@@ -370,8 +493,19 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
           <div className="auto-card-title">
             <h3 title={title}>{title}</h3>
             <span className="muted">{client}</span>
+            {isCustom && item?.scope_json && (
+              <span className="muted auto-custom-scope" title={item.scope_json.summary}>
+                {item.scope_json.label}{item.scope_json.summary ? ` · ${item.scope_json.summary}` : ""}
+              </span>
+            )}
           </div>
           <div className="auto-badges">
+            {isCustom && <span className="auto-badge auto-badge-custom" title="Recorte livre, fora da rodada mensal">personalizado</span>}
+            {badges.partial && (
+              <span className="auto-badge auto-badge-warn" title="Não cobre o projeto (ou pacote) inteiro — no Diagnóstico aparece como envio parcial e nunca fecha o projeto">
+                recorte parcial
+              </span>
+            )}
             {badges.memory_applied && <span className="auto-badge" title="Nomes de grupo, performance, descrições e assinantes do último relatório aprovado deste projeto">memória do mês anterior</span>}
             {badges.hours_changed && <span className="auto-badge auto-badge-warn" title="As horas do Projectile mudaram depois que o rascunho foi gerado">horas mudaram</span>}
             {(badges.missing_hours ?? 0) > 0 && (
@@ -396,7 +530,10 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
             </div>
             <div>
               <dt>Relatório</dt>
-              <dd>{MODE_LABELS[draftMode] ?? draftMode}{(badges.packages ?? 0) > 1 ? ` · ${badges.packages} pacotes` : ""}</dd>
+              <dd>
+                {(isCustom ? CUSTOM_UNIT_LABELS : MODE_LABELS)[draftMode] ?? draftMode}
+                {(badges.packages ?? 0) > 1 ? ` · ${badges.packages} relatórios` : ""}
+              </dd>
             </div>
           </dl>
           {modeOutdated && (
@@ -416,6 +553,9 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
                 {[...item.last_sent.to, ...item.last_sent.cc].join(", ")}
               </span>
             </p>
+          )}
+          {preview && preview.planned === "sera_gerado" && (
+            <PlannedNumberField preview={preview} pattern={effective.number_pattern} model={effective.number_model} />
           )}
           {preview && preview.planned === "sera_gerado" && (
             <PlannedReviewerField familyKey={familyKey} rule={rule} remembered={preview.remembered_reviewer} />
@@ -451,7 +591,12 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
             )}
             {item && (item.status === "aprovado" || sent) && (
               <button type="button" className="btn-secondary" disabled={busy}
-                onClick={() => window.confirm(`Reabrir pra revisão? ${reopenWarning(sent ? 1 : 0)}`) && void action(item, "reopen")}>
+                onClick={async () => {
+                  const ok = await confirmDialog({
+                    title: "Reabrir pra revisão?", message: reopenWarning(sent ? 1 : 0), confirmLabel: "Reabrir",
+                  });
+                  if (ok) void action(item, "reopen");
+                }}>
                 <RotateCcw size={14} strokeWidth={2} /> Reabrir
               </button>
             )}
@@ -463,11 +608,31 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
             )}
             {item && (editable || item.status === "erro") && (
               <button type="button" className="btn-secondary" disabled={busy}
-                onClick={() => window.confirm(`Pular "${title}" neste mês?`) && void action(item, "skip")}>
+                onClick={async () => {
+                  const ok = await confirmDialog({
+                    title: "Pular este relatório?", message: isCustom ? `"${title}" será pulado.` : `"${title}" será pulado neste mês.`,
+                    confirmLabel: "Pular",
+                  });
+                  if (ok) void action(item, "skip");
+                }}>
                 <SkipForward size={14} strokeWidth={2} /> Pular
               </button>
             )}
-            {!onToggleSelect && (
+            {item && isCustom && !SELECTABLE.includes(item.status) && item.status !== "gerando" && (
+              <button type="button" className="btn-secondary auto-delete-button" disabled={busy}
+                title="Apaga este relatório personalizado e a linha do tempo dele"
+                onClick={async () => {
+                  const ok = await confirmDialog({
+                    title: "Apagar este relatório?",
+                    message: `"${title}": o rascunho e a linha do tempo dele serão apagados. Não dá pra desfazer.`,
+                    confirmLabel: "Apagar", danger: true,
+                  });
+                  if (ok) void useAutoGenerationStore.getState().deleteCustom(item);
+                }}>
+                <Trash2 size={14} strokeWidth={2} /> Apagar
+              </button>
+            )}
+            {!onToggleSelect && !isCustom && (
               <button type="button" className="btn-secondary auto-config-toggle" aria-expanded={showConfig} onClick={() => setShowConfig((v) => !v)}>
                 <SlidersHorizontal size={14} strokeWidth={2} /> Configuração <ChevronDown size={14} className={showConfig ? "flipped" : ""} />
               </button>
@@ -489,7 +654,7 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
           }} />
       )}
       {showSend && item && <AutoSendModal item={item} onClose={() => setShowSend(false)} />}
-      {showConfig && !onToggleSelect && <ProjectConfig familyKey={familyKey} rule={rule} effective={effective} item={item} onRegenerate={item && editable ? confirmRegenerate : undefined} />}
+      {showConfig && !onToggleSelect && !isCustom && <ProjectConfig familyKey={familyKey} rule={rule} effective={effective} item={item} onRegenerate={item && editable ? confirmRegenerate : undefined} />}
     </article>
   );
 }
@@ -627,6 +792,40 @@ function ReturnForm({ reviewerName, onSubmit, onCancel }: {
   );
 }
 
+/** Mês em andamento (ainda sem rascunho): o número do relatório já pode ser
+ * digitado — fica guardado pra esta competência e vai pro rascunho quando ele
+ * for gerado. Só cabe com UM relatório por projeto (com vários pacotes o
+ * número é digitado depois, um por pacote). */
+function PlannedNumberField({ preview, pattern, model }: { preview: PreviewProject; pattern?: string; model?: string | null }) {
+  const setPlannedNumber = useAutoGenerationStore((s) => s.setPlannedNumber);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  if (preview.effective.mode !== "projeto") {
+    return <p className="muted auto-numbers-hint">Um relatório por pacote: os números são digitados depois de gerar, um por pacote.</p>;
+  }
+  const commit = async (code: string) => {
+    setSaving(true);
+    setError("");
+    try {
+      await setPlannedNumber(preview.project_id, code);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="auto-numbers">
+      <span className="auto-numbers-label">Número do relatório</span>
+      <NumberInput value={preview.planned_number ?? ""} suggested="" pattern={pattern} model={model} disabled={saving} onCommit={(code) => void commit(code)} />
+      {error && <span className="error-text auto-numbers-hint" role="alert">{error}</span>}
+      <span className="muted auto-numbers-hint">
+        {preview.planned_number ? "Vai direto pro rascunho quando ele for gerado." : "Opcional — dá pra digitar depois de gerar."}
+      </span>
+    </div>
+  );
+}
+
 function NumbersField({ item, editable, pattern, model }: {
   item: AutoItem; editable: boolean; pattern?: string; model?: string | null;
 }) {
@@ -729,20 +928,22 @@ function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
           <span>Gerar relatório deste projeto</span>
         </label>
         <label>Relatório
-          <select value={form.mode ?? ""} onChange={(e) => set("mode", (e.target.value || undefined) as ProjectRule["mode"])}>
-            <option value="">Padrão ({MODE_LABELS[(inherited("mode") as "projeto" | "pacote") ?? "projeto"] ?? "—"})</option>
-            <option value="projeto">{MODE_LABELS.projeto}</option>
-            <option value="pacote">{MODE_LABELS.pacote}</option>
-          </select>
+          <Select ariaLabel="Relatório" value={form.mode ?? ""} onChange={(v) => set("mode", (v || undefined) as ProjectRule["mode"])}
+            options={[
+              { value: "", label: `Padrão (${MODE_LABELS[(inherited("mode") as "projeto" | "pacote") ?? "projeto"] ?? "—"})` },
+              { value: "projeto", label: MODE_LABELS.projeto },
+              { value: "pacote", label: MODE_LABELS.pacote },
+            ]} />
         </label>
         <label>Arquivos
-          <select value={formatsValue}
-            onChange={(e) => set("formats", e.target.value ? (e.target.value.split("+") as Array<"xlsx" | "pdf">) : undefined)}>
-            <option value="">Padrão ({((inherited("formats") as string[] | undefined) ?? ["xlsx"]).map((f) => f.toUpperCase()).join(" + ")})</option>
-            <option value="xlsx">XLSX</option>
-            <option value="pdf">PDF</option>
-            <option value="pdf+xlsx">XLSX + PDF</option>
-          </select>
+          <Select ariaLabel="Arquivos" value={formatsValue}
+            onChange={(v) => set("formats", v ? (v.split("+") as Array<"xlsx" | "pdf">) : undefined)}
+            options={[
+              { value: "", label: `Padrão (${((inherited("formats") as string[] | undefined) ?? ["xlsx"]).map((f) => f.toUpperCase()).join(" + ")})` },
+              { value: "xlsx", label: "XLSX" },
+              { value: "pdf", label: "PDF" },
+              { value: "pdf+xlsx", label: "XLSX + PDF" },
+            ]} />
         </label>
         <label>Assinante Schwaben
           <input type="text" value={form.signer1_name ?? ""} placeholder={placeholder("signer1_name")} onChange={(e) => set("signer1_name", e.target.value)} />
@@ -776,6 +977,7 @@ function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
 /** Padrão geral — o que vale pra todo projeto sem configuração própria. */
 function AutoSettingsModal({ onClose }: { onClose: () => void }) {
   const config = useAutoGenerationStore((s) => s.config);
+  const schedule = useAutoGenerationStore((s) => s.schedule);
   const loadConfig = useAutoGenerationStore((s) => s.loadConfig);
   const saveConfig = useAutoGenerationStore((s) => s.saveConfig);
   const refresh = useAutoGenerationStore((s) => s.refresh);
@@ -819,10 +1021,8 @@ function AutoSettingsModal({ onClose }: { onClose: () => void }) {
               <p className="muted">Vale pra todo projeto que não tiver configuração própria (botão “Configuração” em cada projeto).</p>
               <div className="auto-settings-grid">
                 <label>Relatório
-                  <select value={field("mode")} onChange={(e) => setField("mode", e.target.value)}>
-                    <option value="projeto">{MODE_LABELS.projeto}</option>
-                    <option value="pacote">{MODE_LABELS.pacote}</option>
-                  </select>
+                  <Select ariaLabel="Relatório" value={field("mode") || "projeto"} onChange={(v) => setField("mode", v)}
+                    options={[{ value: "projeto", label: MODE_LABELS.projeto }, { value: "pacote", label: MODE_LABELS.pacote }]} />
                 </label>
                 <label>Local da data
                   <input type="text" value={field("location")} onChange={(e) => setField("location", e.target.value)} />
@@ -863,6 +1063,34 @@ function AutoSettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
               <p className="muted">Assinantes em branco usam os do último relatório aprovado de cada projeto.</p>
+              <div className="auto-schedule-block">
+                <h3>Geração automática do mês</h3>
+                <p className="muted">
+                  No dia e na hora escolhidos (horário de São Paulo), o sistema gera sozinho os rascunhos do mês que fechou,
+                  junto com os pedidos da geração personalizada. Só gera rascunhos: nada é enviado.
+                </p>
+                <label className="auto-schedule-toggle">
+                  <input type="checkbox" checked={form.schedule_enabled !== false}
+                    onChange={(e) => setField("schedule_enabled", e.target.checked)} />
+                  <span>Gerar automaticamente todo mês</span>
+                </label>
+                <div className="auto-schedule-fields">
+                  <label>Dia do mês
+                    <Select ariaLabel="Dia do mês" value={String(form.schedule_day ?? 1)} disabled={form.schedule_enabled === false}
+                      onChange={(v) => setField("schedule_day", Number(v))}
+                      options={Array.from({ length: 28 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))} />
+                  </label>
+                  <label>Hora
+                    <input type="time" value={field("schedule_time") || "06:00"} disabled={form.schedule_enabled === false}
+                      onChange={(e) => setField("schedule_time", e.target.value)} />
+                  </label>
+                </div>
+                {schedule && (
+                  <p className="auto-schedule-next" role="status">
+                    <CalendarClock size={15} strokeWidth={2} aria-hidden="true" /> {describeSchedule(schedule)}
+                  </p>
+                )}
+              </div>
             </section>
           )}
           {status && <p className="muted" role="status">{status}</p>}
