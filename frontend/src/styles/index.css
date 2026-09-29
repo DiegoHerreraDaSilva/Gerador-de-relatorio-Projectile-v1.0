@@ -1644,7 +1644,8 @@
     flex-direction: column;
     gap: 14px;
   }
-  .modal-body { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+  /* margem negativa + padding: o conteúdo mantém a largura, mas a barra de rolagem se afasta dos campos e fica perto da borda do card */
+  .modal-body { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; flex: 1 1 auto; margin-right: -14px; padding-right: 14px; }
   .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; }
   .modal-head h2 { margin: 0; font-size: 1.15rem; }
   .modal-close {
@@ -3850,6 +3851,147 @@
   .auto-settings-files-label { font-size: 0.8rem; color: var(--text-muted); }
   .auto-settings-files-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .auto-field-hint { font-size: 0.72rem; color: var(--text-muted); }
+
+  /* geração personalizada: selo, resumo do recorte e o modal de montagem */
+  .auto-delete-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--bad) 60%, var(--border)); color: var(--bad); }
+  .auto-badge-custom { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); color: var(--brand-strong); }
+  .auto-card-title .auto-custom-scope { font-size: 0.76rem; overflow-wrap: anywhere; }
+  .auto-custom-modal { max-width: 920px; }
+  .auto-custom-body { display: flex; flex-direction: column; gap: 22px; }
+  .auto-custom-body > p { margin: 0; }
+  .auto-custom-section { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+  .auto-custom-section h3 { margin: 0; font-size: 0.95rem; }
+  .auto-custom-subtitle { margin: 6px 0 0; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
+  .auto-custom-switch { display: inline-flex; align-self: flex-start; gap: 4px; padding: 3px; border-radius: 10px; background: var(--surface-2); }
+  .auto-custom-switch button {
+    padding: 6px 14px; border-radius: 8px; border: 0; background: transparent; color: var(--text-muted); font-size: 0.85rem;
+  }
+  .auto-custom-switch button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); font-weight: 600; }
+  .auto-custom-period-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+  .auto-custom-period { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+  .auto-custom-period legend { float: left; padding: 0; margin-right: 8px; font-size: 0.8rem; color: var(--text-muted); }
+  .auto-custom-period select, .auto-custom-field input {
+    padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .auto-custom-blocks { display: flex; flex-direction: column; gap: 12px; }
+  .auto-custom-block { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); }
+  .auto-custom-block-invalid { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+  .auto-custom-block-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .auto-custom-block-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
+  /* `.month-dropdown` tem `flex: 0 0 190px`: dentro do campo (coluna) isso vira ALTURA e deixava um vão vazio no recorte */
+  .auto-custom-block .month-dropdown { flex: none; width: 100%; }
+  .auto-custom-block .month-dropdown-list { width: max(100%, 300px); max-height: 240px; z-index: 30; }
+  /* colunas do fim abrem a lista pela direita: com 300px ela passava da borda do modal e criava rolagem horizontal */
+  .auto-custom-block-grid > :nth-child(n+3) .month-dropdown-list { left: auto; right: 0; }
+  @media (max-width: 900px) {
+    .auto-custom-block-grid > :nth-child(n+3) .month-dropdown-list { left: 0; right: auto; }
+    .auto-custom-block-grid > :nth-child(even) .month-dropdown-list { left: auto; right: 0; }
+  }
+  /* a barra de rolagem vai pra borda do modal: margem negativa = o padding do card (22px), devolvido em padding */
+  .auto-custom-body { overflow-x: hidden; margin-right: -14px; padding-right: 14px; }
+  /* `.reviewer-picker` tem `flex: 0 1 280px` (pra linha): no campo em coluna virava 280px de ALTURA */
+  .auto-custom-field .reviewer-picker { flex: none; width: 100%; }
+  .mgmt-filter-label-hint { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; cursor: help; }
+  .mgmt-filter-label-hint svg { opacity: 0.7; }
+  .mgmt-filter-label-hint:hover svg, .mgmt-filter-label-hint:focus-visible svg { opacity: 1; color: var(--accent); }
+  .auto-custom-result { margin: 4px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 0.82rem; color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); }
+  .instant-tip {
+    position: fixed; z-index: 10000; max-width: 280px; padding: 8px 11px; border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); background: var(--surface-2); color: var(--text);
+    font-size: 0.78rem; font-weight: 500; line-height: 1.4; pointer-events: none;
+    box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--hairline);
+    animation: sidebar-tooltip-in 90ms ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) { .instant-tip { animation: none; } }
+  /* confirmação própria (`confirmDialog`): fica acima de qualquer modal aberto */
+  .confirm-backdrop { z-index: 9000; }
+  .confirm-card { max-width: 440px; gap: 12px; }
+  .confirm-head { display: flex; align-items: center; gap: 10px; }
+  .confirm-head h2 { margin: 0; font-size: 1.05rem; }
+  .confirm-icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; flex: none; color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 30%, transparent); }
+  .confirm-message { margin: 0 0 6px; font-size: 0.9rem; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+  .confirm-danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .confirm-danger:hover { background: color-mix(in srgb, var(--bad) 88%, #000); border-color: transparent; }
+  .auto-custom-fixed-period { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1.05rem; font-weight: 600; }
+  .auto-requests { display: flex; flex-direction: column; gap: 10px; }
+  .auto-requests > h3 { margin: 0; font-size: 0.95rem; }
+  .auto-requests > h3 .muted { font-size: 0.8rem; font-weight: 400; }
+  .auto-request-error { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+  /* cabeçalho da aba: a próxima geração num chip, com respiro entre o título e as abas */
+  .auto-schedule-line {
+    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin: 6px 0 8px; padding: 8px 12px;
+    border-radius: 10px; font-size: 0.82rem; color: var(--text);
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-2)); border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  }
+  .auto-schedule-line svg { flex: none; color: var(--accent); }
+  .auto-schedule-line-off { color: var(--text-muted); background: var(--surface-2); border-color: var(--border); }
+  .auto-schedule-line-off svg { color: var(--text-muted); }
+  .auto-run-note { margin: 0; font-size: 0.8rem; }
+  /* "Padrão geral": a geração automática é uma seção própria, separada do resto por uma linha */
+  .auto-schedule-block { display: flex; flex-direction: column; gap: 14px; margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+  .auto-schedule-block h3 { margin: 0; font-size: 1rem; }
+  .auto-settings-section .auto-schedule-block p { margin: 0; font-size: 0.82rem; line-height: 1.5; }
+  .auto-schedule-toggle {
+    display: flex; align-items: center; gap: 10px; margin: 0; padding: 12px 14px; border-radius: 10px; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--border); font-size: 0.9rem; font-weight: 600; color: var(--text);
+  }
+  .auto-schedule-toggle input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .auto-schedule-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: end; }
+  @media (max-width: 560px) { .auto-schedule-fields { grid-template-columns: 1fr; } }
+  .auto-schedule-fields label { display: flex; flex-direction: column; gap: 6px; margin: 0; font-size: 0.8rem; color: var(--text-muted); }
+  /* select e hora com a MESMA altura e fonte (a hora saía monoespaçada e mais baixa) */
+  .auto-schedule-fields select, .auto-schedule-fields input[type="time"] {
+    box-sizing: border-box; height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font: inherit; font-size: 0.9rem;
+  }
+  /* o relógio do campo de hora é do navegador e saía preto no tema escuro: `color-scheme` troca o ícone */
+  .auto-schedule-fields input[type="time"] { color-scheme: dark; }
+  [data-theme="light"] .auto-schedule-fields input[type="time"] { color-scheme: light; }
+  .auto-schedule-fields input[type="time"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.8; }
+  .auto-schedule-fields input[type="time"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+  .auto-schedule-fields select:disabled, .auto-schedule-fields input[type="time"]:disabled { opacity: 0.5; cursor: not-allowed; }
+  .auto-schedule-next {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; color: var(--text);
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-2)); border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  }
+  .auto-schedule-next svg { flex: none; color: var(--accent); }
+  /* <Select>: o dropdown do app no lugar do <select> nativo (lista com o visual dos tokens) */
+  .app-select { flex: none; width: 100%; min-width: 0; }
+  .app-select .month-dropdown-trigger { width: 100%; height: 42px; padding: 0 12px; font-size: 0.9rem; font-weight: 500; }
+  .app-select .month-dropdown-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+  .app-select-list { width: 100%; min-width: 140px; max-height: 260px; overflow-y: auto; z-index: 40; }
+  .app-select-list.up { top: auto; bottom: calc(100% + 4px); }
+  .app-select-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: none; text-align: left; }
+  .app-select-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-select-option svg { flex: none; color: var(--accent); }
+  .app-select-option.kbd:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .app-select-option:disabled { opacity: 0.45; cursor: not-allowed; }
+  .auto-older-select { width: 190px; align-self: center; }
+  .auto-older-select .month-dropdown-trigger { height: 40px; border-radius: 10px; }
+  .period-select-app { flex: 1 1 0; width: auto; }
+  .pane-app-select .month-dropdown-trigger { height: 36px; font-size: 0.85rem; }
+  .issue-recover-app-select { width: 260px; }
+  .issue-recover-app-select .month-dropdown-trigger { height: 36px; font-size: 0.85rem; }
+  .auto-custom-block-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  @media (max-width: 900px) { .auto-custom-block-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .auto-custom-block-grid { grid-template-columns: 1fr; } }
+  .auto-custom-problem { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.8rem; color: var(--warn); }
+  .auto-custom-add { align-self: flex-start; }
+  .auto-custom-extra { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; margin-top: 6px; }
+  @media (max-width: 640px) { .auto-custom-extra { grid-template-columns: 1fr; } }
+  /* margin 0: o `label` global tem margem de cima (menos no 1º) — o espaço é o `gap` */
+  .auto-custom-field { display: flex; flex-direction: column; gap: 4px; margin: 0; font-size: 0.8rem; color: var(--text-muted); }
+  .auto-custom-preview { padding-top: 4px; border-top: 1px solid var(--border); }
+  .auto-custom-preview p { margin: 0; font-size: 0.82rem; }
+  .auto-custom-preview-scroll { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .auto-custom-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .auto-custom-table th, .auto-custom-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  .auto-custom-table th { position: sticky; top: 0; background: var(--surface-2); font-size: 0.75rem; color: var(--text-muted); }
+  .auto-custom-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .auto-custom-table tbody tr:last-child td { border-bottom: 0; }
+  .auto-custom-table .auto-badge { margin-left: 6px; }
+  .auto-custom-warnings { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--warn); }
+  .auto-custom-warnings li { display: flex; align-items: flex-start; gap: 6px; }
 
   .auto-bar { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
   .auto-bar-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }

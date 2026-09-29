@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { confirmDialog } from "./ConfirmDialog";
 import { createPortal } from "react-dom";
 import { Trash2, Pencil, Check, X, ChevronDown, RefreshCw, Stethoscope } from "lucide-react";
 import { ExtraHoursInput } from "./ExtraHoursInput";
@@ -392,7 +393,11 @@ export function DiagnosticsPanel() {
   };
 
   const deleteSample = async (s: Sample) => {
-    if (!window.confirm(`Apagar a amostra de "${s.project_name}" (${s.month})? Isso não pode ser desfeito.`)) return;
+    const ok = await confirmDialog({
+      title: "Apagar amostra?", message: `A amostra de "${s.project_name}" (${s.month}) será apagada. Isso não pode ser desfeito.`,
+      confirmLabel: "Apagar", danger: true,
+    });
+    if (!ok) return;
     try {
       await fetchJson(`/management/kpis/samples/${s.sample_id}`, { method: "DELETE" });
       await load(true);

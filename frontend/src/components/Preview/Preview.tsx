@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Select } from "../Select";
 import { useReportStore } from "../../store/useReportStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { PreviewSheet } from "./PreviewSheet";
@@ -262,18 +263,13 @@ export function Preview() {
           >
             {isSplit && (
               <div className="preview-pane-header">
-                <select
-                  className="pane-package-select"
-                  aria-label="Pacote exibido no painel esquerdo"
+                <Select
+                  className="pane-app-select"
+                  ariaLabel="Pacote exibido no painel esquerdo"
                   value={primaryPaneId ?? ""}
-                  onChange={(e) => useReportStore.getState().setActivePackageId(e.target.value)}
-                >
-                  {packages.map((pkg) => (
-                    <option key={pkg.id} value={pkg.id} disabled={pkg.id === secondaryPaneId}>
-                      {pkg.projectName || pkg.key}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => useReportStore.getState().setActivePackageId(v)}
+                  options={packages.map((pkg) => ({ value: pkg.id, label: pkg.projectName || pkg.key, disabled: pkg.id === secondaryPaneId }))}
+                />
               </div>
             )}
             <div className="preview-sheet-wrap" id="previewSheetWrap">
@@ -289,18 +285,13 @@ export function Preview() {
               {...secondaryPaneDragHandlers}
             >
               <div className="preview-pane-header">
-                <select
-                  className="pane-package-select"
-                  aria-label="Pacote exibido no painel direito"
+                <Select
+                  className="pane-app-select"
+                  ariaLabel="Pacote exibido no painel direito"
                   value={secondaryPaneId ?? ""}
-                  onChange={(e) => setPaneB(e.target.value)}
-                >
-                  {packages.map((pkg) => (
-                    <option key={pkg.id} value={pkg.id} disabled={pkg.id === primaryPaneId}>
-                      {pkg.projectName || pkg.key}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setPaneB(v)}
+                  options={packages.map((pkg) => ({ value: pkg.id, label: pkg.projectName || pkg.key, disabled: pkg.id === primaryPaneId }))}
+                />
               </div>
               <div className="preview-sheet-wrap" id="previewSheetWrap2">
                 {secondaryPaneId && <PreviewSheet paneId="1" packageId={secondaryPaneId} />}

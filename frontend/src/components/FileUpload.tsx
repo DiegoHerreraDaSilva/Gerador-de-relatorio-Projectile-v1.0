@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Select } from "./Select";
 import {
   Archive,
   Calendar,
@@ -182,14 +183,13 @@ function PeriodSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <select
-      className="period-select"
-      aria-label={label}
+    <Select
+      className="period-select-app"
+      ariaLabel={label}
       value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {options.map((option) => <option key={option} value={option}>{option}</option>)}
-    </select>
+      onChange={onChange}
+      options={options.map((option) => ({ value: option, label: option }))}
+    />
   );
 }
 

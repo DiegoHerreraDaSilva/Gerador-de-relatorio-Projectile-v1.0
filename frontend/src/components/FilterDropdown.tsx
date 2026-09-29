@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Info } from "lucide-react";
+import { InstantTip } from "./InstantTip";
 import { useClickOutside } from "../hooks/useClickOutside";
 
 function normalizeForSearch(text: string): string {
@@ -102,6 +103,9 @@ export function MultiSelectDropdown({
   onChange,
   labelFor = (opt) => opt,
   className,
+  searchPlaceholder,
+  emptyLabel = "Todos",
+  hint,
 }: {
   label: string;
   options: string[];
@@ -109,11 +113,21 @@ export function MultiSelectDropdown({
   onChange: (values: string[]) => void;
   labelFor?: (opt: string) => string;
   className?: string;
+  /** Com isso, a lista ganha uma caixa de busca no topo (sem diferenciar
+   * maiúsculas nem acentos); o que já está marcado continua marcado. */
+  searchPlaceholder?: string;
+  /** O que "nada marcado" significa aqui ("Todos" nos filtros do Painel). */
+  emptyLabel?: string;
+  /** Explicação que aparece na hora ao passar o mouse no rótulo. */
+  hint?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(wrapRef, () => setOpen(false), open);
+  useClickOutside(wrapRef, () => { setOpen(false); setQuery(""); }, open);
+  const normalized = normalizeForSearch(query.trim());
+  const visible = normalized ? options.filter((opt) => normalizeForSearch(labelFor(opt)).includes(normalized)) : options;
 
   const toggle = (value: string) => {
     onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
@@ -121,14 +135,20 @@ export function MultiSelectDropdown({
 
   const summary =
     selected.length === 0
-      ? "Todos"
+      ? emptyLabel
       : selected.length === 1
       ? labelFor(selected[0])
       : `${selected.length} selecionados`;
 
   return (
     <div className={`mgmt-filter ${className ?? ""}`}>
-      <span className="mgmt-filter-label">{label}</span>
+      {hint ? (
+        <InstantTip text={hint} className="mgmt-filter-label mgmt-filter-label-hint">
+          {label} <Info size={12} strokeWidth={2} aria-hidden="true" />
+        </InstantTip>
+      ) : (
+        <span className="mgmt-filter-label">{label}</span>
+      )}
       <div className="month-dropdown" ref={wrapRef}>
         <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
           <span className="mgmt-filter-summary" title={summary}>{summary}</span>
@@ -136,8 +156,24 @@ export function MultiSelectDropdown({
         </button>
         {open && (
           <ul className="month-dropdown-list" role="listbox">
+            {searchPlaceholder && (
+              <li className="month-dropdown-search">
+                <input
+                  type="search"
+                  autoFocus
+                  value={query}
+                  placeholder={searchPlaceholder}
+                  aria-label={searchPlaceholder}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") { setOpen(false); setQuery(""); }
+                  }}
+                />
+              </li>
+            )}
             {options.length === 0 && <li className="mgmt-filter-empty">Nenhuma opção</li>}
-            {options.map((opt) => (
+            {options.length > 0 && visible.length === 0 && <li className="mgmt-filter-empty">Nenhum resultado</li>}
+            {visible.map((opt) => (
               <li key={opt}>
                 <label className="mgmt-filter-option">
                   <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />

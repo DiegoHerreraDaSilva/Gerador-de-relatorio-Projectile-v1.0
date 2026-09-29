@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Select } from "./Select";
 import { useReportStore } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import type { RowIssue } from "../api/types";
@@ -129,17 +130,14 @@ export function ValidationBanner() {
         <span className="validation-banner-title">⚠ <span>{issues.length}</span> linha(s) ignorada(s) com possível erro de apontamento</span>
         {hasRecoverable && groupOptions.length > 0 && (
           <div className="issue-recover-bulk">
-            <select
-              className="pane-package-select issue-recover-select"
+            <Select
+              className="issue-recover-app-select"
+              ariaLabel="Grupo de destino"
               value={target}
-              onChange={(e) => setTarget(e.target.value)}
+              onChange={setTarget}
               disabled={collapsed}
-            >
-              <option value="">Escolher grupo...</option>
-              {groupOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+              options={[{ value: "", label: "Escolher grupo..." }, ...groupOptions.map((opt) => ({ value: opt.value, label: opt.label }))]}
+            />
             <button
               type="button"
               className="primary issue-recover-btn"
