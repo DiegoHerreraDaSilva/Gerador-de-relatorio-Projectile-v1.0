@@ -34,13 +34,18 @@ _SHARE = re.compile(
     # "no total" fica de fora: "quantas horas no total" é só "somando tudo"
     r"\bem relacao (?:ao|a o) total\b|\b(?:do|sobre o) total\b|\bparticipacao\b|\bproporcao\b"
     r"|\bfatia\b|\brepresent(?:a|am|ou|aram)\b"
+    # "comparado às horas totais", "em comparação ao total", "versus o total",
+    # "em relação às horas totais" (medido: só a forma "em relação ao total"
+    # era reconhecida): verbo/preposição de comparação + até 4 palavras + total
+    r"|\b(?:em relacao|em comparacao|comparad[oa]s?|comparando|comparar|comparacao|versus|frente)\b"
+    r"(?:\s+\w+){0,4}?\s+(?:(?:o|ao|aos|a|as|com o|com as|com)\s+)?(?:total|totais|todas as horas)\b"
 )
 # fraco: "percentual das horas do Lucca que foram pra Mercedes" é comparação,
 # mas "percentual não faturável" é uma medida própria — só vale quando a
 # consulta não tem já uma medida em %
 _SHARE_WEAK = re.compile(r"\b(?:percentual|porcentagem)\s+d[aeo]s?\b")
 # onde começa a BASE da comparação ("em relação ao total DELE", "das horas DA MERCEDES")
-_SHARE_BASE = re.compile(r"\b(?:total|das horas|nas horas|dos apontamentos)\b")
+_SHARE_BASE = re.compile(r"\b(?:total|totais|das horas|nas horas|dos apontamentos)\b")
 _BILLING_FILTER = re.compile(r"\b(?:so|somente|apenas)\s+(?:as\s+|os\s+)?(?:horas\s+)?(?:nao\s+)?faturave")
 
 

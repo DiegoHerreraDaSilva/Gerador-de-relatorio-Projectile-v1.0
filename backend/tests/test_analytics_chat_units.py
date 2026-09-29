@@ -404,6 +404,13 @@ def test_so_faturaveis_vira_filtro(message, expected):
     ("quanto o Lucca representa das horas da Mercedes", "strong"),
     ("participação da Mercedes nas horas do time", "strong"),
     ("percentual das horas do Lucca que foram pra Mercedes", "weak"),
+    # caso real de 2026-09-29: só "em relação ao total" era reconhecido
+    ("quantas horas o Lucca tem em projetos da Mercedes comparado as horas totais", "strong"),
+    ("horas do Lucca em relação às horas totais", "strong"),
+    ("em comparação ao total de horas", "strong"),
+    ("Mercedes versus o total", "strong"),
+    ("compare agosto com setembro", None),
+    ("horas totais da Mercedes", None),
     ("quantas horas no total em agosto", None),                 # "no total" = somando tudo
     ("qual o total de horas da Mercedes em agosto", None),
     ("percentual não faturável por colaborador", None),
@@ -411,6 +418,20 @@ def test_so_faturaveis_vira_filtro(message, expected):
 def test_sinal_de_comparacao_com_o_total(message, strength):
     from backend.app.analytics import signals
     assert signals.asks_share(message) == strength
+
+
+def test_comparacao_do_planner_sem_sinal_na_frase_ainda_escolhe_a_base():
+    """O planner montou total_hours/share_percent, mas a frase é um jeito
+    novo de perguntar que o sinal não conhece: a trava escolhe a base mesmo
+    assim (antes caía num aviso de "falta recorte" com o recorte presente)."""
+    from backend.app.analytics.service import _with_share
+    raw = {"measures": ["hours", "total_hours", "share_percent"], "employees": ["Lucca Perchon Franco"],
+           "clients": ["MERCEDES BENZ DO BRASIL LTDA."]}
+    out = _with_share(dict(raw), "o quanto do tempo do Lucca vai pra Mercedes?")
+    assert out["share_of"] == "clients" and out["measures"] == ["hours", "total_hours", "share_percent"]
+    # sem nenhum recorte não há o que comparar: a consulta segue como veio
+    plain = {"measures": ["hours"], "group_by": ["month"]}
+    assert _with_share(dict(plain), "comparar o total de agosto com setembro") == plain
 
 
 def test_trava_escolhe_o_que_sai_da_base_pelo_texto():

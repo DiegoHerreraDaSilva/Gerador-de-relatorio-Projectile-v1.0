@@ -252,9 +252,13 @@ def _with_share(raw: dict, message: str) -> dict:
     ativo), escolhe qual filtro sai da base. O que a pergunta cita DEPOIS de
     "total" ("total da Mercedes") fica na base."""
     strength = signals.asks_share(message)
+    measures = [m for m in raw.get("measures") or [] if isinstance(m, str)]
+    if not strength and any(m in SHARE_MEASURES for m in measures):
+        # o planner montou a comparação mas a frase não bateu no sinal (jeito
+        # novo de perguntar): vale a comparação dele, e a trava escolhe a base
+        strength = "strong"
     if not strength:
         return raw
-    measures = [m for m in raw.get("measures") or [] if isinstance(m, str)]
     if not measures or any(MEASURES.get(m) and MEASURES[m].dataset != "hours" for m in measures):
         return raw
     # "percentual não faturável por colaborador" já é uma medida em %
@@ -264,6 +268,10 @@ def _with_share(raw: dict, message: str) -> dict:
     if not set(SHARE_MEASURES) <= set(measures):
         measures = ["hours", "total_hours", "share_percent", *[m for m in measures if m not in ("hours", *SHARE_MEASURES)]]
     active = [key for key in _SHARE_PRIORITY if _share_filter_values(raw, key)]
+    if not active:
+        # sem nenhum recorte não há o que comparar com o total ("comparar o
+        # total de agosto com setembro" é outra coisa): consulta como veio
+        return raw
     base_text = signals.share_base_text(message)
     kept = {
         key for key in active
