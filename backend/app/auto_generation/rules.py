@@ -29,6 +29,12 @@ DEFAULTS: dict = {
     # só no padrão global
     "location": "Santo André",
     "number_pattern": DEFAULT_NUMBER_PATTERN,
+    # agendador da rodada mensal (`scheduler.py`): gera os rascunhos do mês que
+    # fechou no dia e na hora (America/Sao_Paulo). Decisão do usuário,
+    # 2026-09-29: ligado, dia 1, 06:00. Só no padrão global (não é por família).
+    "schedule_enabled": True,
+    "schedule_day": 1,
+    "schedule_time": "06:00",
 }
 
 _Text = Field(default=None, max_length=200)
@@ -98,6 +104,10 @@ class GlobalConfig(FamilyRule):
     number_pattern: str | None = Field(default=None, max_length=200)
     # o que a tela manda: "SE.##.###" (`#` = dígito) — vira `number_pattern`
     number_model: str | None = Field(default=None, min_length=1, max_length=60)
+    schedule_enabled: bool | None = None
+    # 1–28: existe em todo mês (o "mês que fechou" é sempre o anterior)
+    schedule_day: int | None = Field(default=None, ge=1, le=28)
+    schedule_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
     @field_validator("number_pattern")
     @classmethod

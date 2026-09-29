@@ -706,3 +706,49 @@ def test_minhas_revisoes_so_mostram_competencias_da_janela(auto_db, reviewers):
     assert colab().get("/my-reviews/summary").json()["to_review"] == 1
     assert colab().get("/my-reviews/01J0ANTIGO0000000000000000").status_code == 404
     assert colab().post("/my-reviews/01J0ANTIGO0000000000000000/submit", json={}).status_code == 404
+
+
+# --- número digitado na prévia do mês atual -------------------------------------------
+
+
+def _plan(competence, project_id, number):
+    return _client().put(f"/auto-generation/competences/{competence}/numbers/{project_id}", json={"number": number})
+
+
+def test_numero_digitado_na_previa_vai_pro_rascunho_quando_ele_e_gerado(auto_db):
+    assert _plan("2026-09", "E9", "SE.26.060").json() == {"number": "SE.26.060"}
+    projects = {p["project_id"]: p for p in service.preview("2026-09")["projects"]}
+    assert projects["E9"]["planned_number"] == "SE.26.060"
+    item = _run("2026-09")["E9"]
+    detail = service.detail(item["id"])
+    assert detail["draft"]["packages"][0]["project_code"] == "SE.26.060"
+    assert item["badges"]["numbers"] == ["SE.26.060"]
+    # regenerar (descarta as edições) volta com o número reservado
+    service.regenerate(item["id"], _MANAGER)
+    assert service.detail(item["id"])["draft"]["packages"][0]["project_code"] == "SE.26.060"
+    # o número reservado é de UMA competência: agosto não herda o de setembro
+    assert all(p["planned_number"] is None for p in service.preview("2026-08")["projects"])
+
+
+def test_numero_da_previa_e_validado_e_pode_ser_apagado(auto_db):
+    bad = _plan("2026-08", "E8", "SE.26.0511")                      # um dígito a mais (caso real)
+    assert bad.status_code == 400 and "fora do formato SE.##.###" in bad.json()["detail"]
+    assert _plan("2026-08", "NAO-EXISTE", "SE.26.001").status_code == 404
+    assert _plan("2026-08", "E8", "SE.26.001").status_code == 200
+    clash = _plan("2026-08", "P1", "SE.26.001")                     # já reservado pra outro projeto do mês
+    assert clash.status_code == 400 and "já está reservado" in clash.json()["detail"]
+    assert _plan("2026-08", "E8", "").json() == {"number": None}     # vazio apaga
+    assert _plan("2026-08", "P1", "SE.26.001").status_code == 200    # e libera o número
+    assert _client(_COLLABORATOR).put("/auto-generation/competences/2026-08/numbers/E8", json={"number": "SE.26.002"}).status_code == 403
+
+
+def test_numero_da_previa_so_cabe_em_relatorio_de_um_pacote():
+    one = {"packages": [{"project_code": ""}]}
+    service._apply_planned_number(one, "SE.26.070")
+    assert one["packages"][0]["project_code"] == "SE.26.070"
+    # vários pacotes: não dá pra saber a qual deles o número pertence
+    many = {"packages": [{"project_code": ""}, {"project_code": ""}]}
+    service._apply_planned_number(many, "SE.26.070")
+    assert [p["project_code"] for p in many["packages"]] == ["", ""]
+    service._apply_planned_number(one, None)                        # sem número reservado: não mexe
+    assert one["packages"][0]["project_code"] == "SE.26.070"

@@ -41,6 +41,7 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 from . import email_ingest
+from .auto_generation import scheduler as auto_scheduler
 from .api.dependencies import (  # noqa: F401 — re-exportado: testes fazem `from .main import require_session`
     require_manager,
     require_session,
@@ -123,6 +124,24 @@ async def _poll_emails_loop() -> None:
 @app.on_event("startup")
 async def _start_email_polling() -> None:
     asyncio.create_task(_poll_emails_loop())
+
+
+async def _auto_scheduler_loop() -> None:
+    await auto_scheduler.loop()
+
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+@app.on_event("startup")
+async def _start_auto_scheduler() -> None:
+    """Agendador da rodada mensal da geração automática (`auto_generation/scheduler.py`)
+    — a referência fica guardada: o loop só tem uma referência fraca no asyncio e
+    o coletor poderia recolhê-lo. Processo único (NSSM); o UNIQUE da rodada protege
+    se houver mais de um."""
+    task = asyncio.create_task(_auto_scheduler_loop())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @app.on_event("startup")

@@ -3,7 +3,7 @@ pedidos das rotas. Tudo com `extra="forbid"` e números finitos: o rascunho
 vem do navegador e vira arquivo e memória do mês seguinte."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -129,6 +129,39 @@ class SendRequest(_Strict):
 class CombinedSendRequest(SendRequest):
     # vários relatórios aprovados num e-mail só
     report_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class PlannedNumberRequest(_Strict):
+    # vazio/None = tirar o número reservado
+    number: str | None = Field(default=None, max_length=100)
+
+
+_Short = Annotated[str, Field(min_length=1, max_length=500)]
+
+
+class CustomBlock(_Strict):
+    """Um recorte da geração personalizada. Os filtros de um bloco se
+    cruzam; blocos diferentes se somam (`auto_generation/custom.py`)."""
+    clients: list[_Short] = Field(default_factory=list, max_length=50)
+    project_ids: list[_Short] = Field(default_factory=list, max_length=300)
+    packages: list[_Short] = Field(default_factory=list, max_length=300)
+    employee_ids: list[_Short] = Field(default_factory=list, max_length=100)
+
+
+class CustomPeriod(_Strict):
+    start: str = Field(max_length=7)  # AAAA-MM
+    end: str = Field(max_length=7)
+
+
+class CustomRequest(_Strict):
+    period: CustomPeriod
+    blocks: list[CustomBlock] = Field(min_length=1, max_length=20)
+    # quantos relatórios saem (um com tudo, ou um por projeto/pacote/colaborador)
+    split_by: Literal["nenhum", "projeto", "pacote", "colaborador"] = "nenhum"
+    # o que vira "pacote" dentro de cada relatório
+    package_unit: Literal["projeto", "pacote"] = "projeto"
+    title: str | None = Field(default=None, max_length=200)
+    reviewer_login: str | None = Field(default=None, max_length=100)
 
 
 class FamilyRequest(_Strict):

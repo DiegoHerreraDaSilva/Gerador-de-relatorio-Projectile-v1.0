@@ -14,6 +14,32 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 _REPORTS_DB_TEST_NAME = "reports_db_test"
+_checked_test_schemas: set[str] = set()
+
+
+def _drop_stale_tables(engine) -> None:
+    """`metadata.create_all` não altera uma tabela que já existe: depois de uma
+    migration (coluna nova), o schema de teste criado antes ficava velho e o
+    teste quebrava com "Unknown column" — só localmente, porque no CI o banco
+    nasce limpo. Tabela cujas colunas diferem do modelo é apagada (o schema de
+    teste é descartável) e o `create_all` a recria. Uma vez por sessão."""
+    from sqlalchemy import inspect
+
+    from backend.app.db.reports_schema import metadata
+
+    inspector = inspect(engine)
+    stale = [
+        table.name for table in metadata.sorted_tables
+        if inspector.has_table(table.name)
+        and {c["name"] for c in inspector.get_columns(table.name)} != {c.name for c in table.columns}
+    ]
+    if not stale:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        for name in stale:
+            conn.execute(text(f"DROP TABLE `{name}`"))
+        conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +55,19 @@ def _no_real_email_polling(monkeypatch):
         return None
 
     monkeypatch.setattr(main, "_poll_emails_loop", _idle)
+
+
+@pytest.fixture(autouse=True)
+def _no_auto_scheduler(monkeypatch):
+    """Mesmo motivo do polling de e-mail: `with TestClient(app)` sobe o loop do
+    agendador da geração automática, que rodaria a rodada de VERDADE (Projectile
+    e reports_db) se a hora coincidisse. `scheduler.tick`/`decide` são testados direto."""
+    from backend.app import main
+
+    async def _idle() -> None:
+        return None
+
+    monkeypatch.setattr(main, "_auto_scheduler_loop", _idle)
 
 
 @pytest.fixture
@@ -97,6 +136,9 @@ def reports_db_engine(monkeypatch):
 
     test_url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{_REPORTS_DB_TEST_NAME}?charset=utf8mb4"
     engine = create_engine(test_url, pool_pre_ping=True)
+    if test_url not in _checked_test_schemas:
+        _drop_stale_tables(engine)
+        _checked_test_schemas.add(test_url)
     metadata.create_all(engine)
 
     # DELETE, não TRUNCATE: no MySQL TRUNCATE é DDL (recria a tabela, ~0,3s

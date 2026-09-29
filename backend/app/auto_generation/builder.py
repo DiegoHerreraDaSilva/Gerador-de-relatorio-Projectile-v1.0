@@ -86,7 +86,7 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
-def _draft_packages(parsed: dict, mode: str, project_name: str) -> list[dict]:
+def _draft_packages(parsed: dict, mode: str) -> list[dict]:
     packages = []
     for pkg in parsed["packages"]:
         name = pkg.get("project_name") or pkg["key"]
@@ -94,8 +94,10 @@ def _draft_packages(parsed: dict, mode: str, project_name: str) -> list[dict]:
             "id": _new_id(),
             "key": pkg["key"],
             # no modo "projeto" a chave é o project_id (muda todo mês) — a
-            # memória casa pelo nome do projeto sem a data
-            "source_key": families.normalize_key(pkg["key"] if mode == "pacote" else project_name),
+            # memória casa pelo nome do projeto sem a data. É o nome do
+            # PACOTE do rascunho, não o de um "projeto único": a geração
+            # personalizada junta vários projetos num relatório só
+            "source_key": families.normalize_key(pkg["key"] if mode == "pacote" else name),
             "project_code": "",
             "suggested_code": "",
             "project_name": name,
@@ -132,6 +134,45 @@ def draft_hours(draft: dict) -> float:
     ), 3)
 
 
+def period_label(start: str, end: str) -> str:
+    """Rótulo do período do relatório, o mesmo que `buildPeriodLabel` (front)
+    produz e que `generator.parse_period_label` lê de volta: "Agosto/2026" pra
+    um mês, "Julho a Novembro/2026" no mesmo ano, "Dezembro/2025 a
+    Fevereiro/2026" cruzando o ano. `start`/`end` são "AAAA-MM"."""
+    if start == end:
+        return month_label(start)
+    (start_year, start_month), (end_year, end_month) = parse_competence(start), parse_competence(end)
+    if start_year == end_year:
+        return f"{MONTH_NAMES_PT[start_month - 1]} a {MONTH_NAMES_PT[end_month - 1]}/{end_year}"
+    return f"{month_label(start)} a {month_label(end)}"
+
+
+def _header(label: str, config: dict, today: date) -> dict:
+    return {
+        "location_date": location_date(config.get("location") or "Santo André", today),
+        "month_label": label,
+        "signer1_name": config.get("signer1_name", ""),
+        "signer1_company": config.get("signer1_company", "Schwaben Engineering"),
+        "signer2_name": config.get("signer2_name", ""),
+        "signer2_company": config.get("signer2_company", "Mercedes-Benz do Brasil"),
+    }
+
+
+def _draft(mode: str, label: str, config: dict, today: date, packages, issues) -> dict:
+    parsed = build_parse_response(packages, issues)
+    return {
+        "schema": DRAFT_SCHEMA,
+        "mode": mode,
+        "header": _header(label, config, today),
+        # arquivo nunca mostra performance (`report_files.build_report_file`)
+        "include_performance": False,
+        "formats": list(config.get("formats") or ["xlsx"]),
+        "packages": _draft_packages(parsed, mode),
+        "issues": parsed["issues"],
+        "memory_applied": False,
+    }
+
+
 def build_draft(
     competence: str, project: dict, rows: list[dict], config: dict, remembered: dict | None, today: date,
 ) -> dict:
@@ -141,27 +182,37 @@ def build_draft(
         packages, issues = group_hours_by_project(rows, {project["project_id"]: project["name"]})
     else:
         packages, issues = group_hours(rows, split_by_package=True)
-    parsed = build_parse_response(packages, issues)
-    draft = {
-        "schema": DRAFT_SCHEMA,
-        "mode": mode,
-        "header": {
-            "location_date": location_date(config.get("location") or "Santo André", today),
-            "month_label": month_label(competence),
-            "signer1_name": config.get("signer1_name", ""),
-            "signer1_company": config.get("signer1_company", "Schwaben Engineering"),
-            "signer2_name": config.get("signer2_name", ""),
-            "signer2_company": config.get("signer2_company", "Mercedes-Benz do Brasil"),
-        },
-        # arquivo nunca mostra performance (`report_files.build_report_file`)
-        "include_performance": False,
-        "formats": list(config.get("formats") or ["xlsx"]),
-        "packages": _draft_packages(parsed, mode, project["name"]),
-        "issues": parsed["issues"],
-        "memory_applied": False,
-    }
+    draft = _draft(mode, month_label(competence), config, today, packages, issues)
     draft["memory_applied"] = memory.apply(draft, remembered)
     return draft
+
+
+def build_custom_draft(
+    rows: list[dict], names: dict[str, str], label: str, unit: str, config: dict, today: date,
+) -> dict:
+    """Rascunho de um relatório PERSONALIZADO: as linhas podem vir de vários
+    projetos (e de vários colaboradores), num período qualquer. `unit` diz o
+    que vira "pacote" do relatório: "projeto" (um por projeto, o pacote de
+    trabalho vira o grupo — `names` dá o nome de cada chave de projeto) ou
+    "pacote" (um por pacote de trabalho, o prefixo da observação vira o grupo,
+    como na busca manual em modo pacote). Sem memória: o relatório avulso não
+    tem família."""
+    if unit == "projeto":
+        packages, issues = group_hours_by_project(rows, names)
+    else:
+        # `group_hours` chaveia só pelo nome do pacote de trabalho: roda por
+        # projeto e junta, pra dois projetos com o mesmo nome de pacote não
+        # se fundirem. (O número da linha nos avisos é o da linha DENTRO do
+        # projeto.)
+        by_project: dict[str, list[dict]] = {}
+        for row in rows:
+            by_project.setdefault(str(row.get("project_id") or ""), []).append(row)
+        packages, issues = [], []
+        for project_rows in by_project.values():
+            found, found_issues = group_hours(project_rows, split_by_package=True)
+            packages += found
+            issues += found_issues
+    return _draft(unit, label, config, today, packages, issues)
 
 
 def fetch_rows_by_project(competence: str, project_ids: list[str]) -> dict[str, list[dict]]:

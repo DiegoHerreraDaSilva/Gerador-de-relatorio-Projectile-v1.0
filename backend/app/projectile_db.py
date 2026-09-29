@@ -548,6 +548,58 @@ def fetch_project_hours(
         raise ProjectileDbError(f"Falha ao consultar horas dos projetos no Projectile: {e}") from e
 
 
+def fetch_custom_hours(
+    start_date: str, end_date: str, project_ids: list[str] | None = None, employee_ids: list[str] | None = None,
+    conn: pymysql.connections.Connection | None = None,
+) -> list[dict]:
+    """Horas (CAD+CAE) de um recorte livre — projetos e/ou colaboradores —
+    pra geração personalizada. `fetch_project_hours` filtra projeto sem
+    colaborador e `fetch_my_hours` colaborador sem projeto; nenhuma das duas
+    cruza os dois, e nenhuma devolve QUEM apontou. Mesmos filtros de
+    `fetch_project_hours` (centro de custo, `sysClientId`, `pDeleteFlag`) e o
+    mesmo formato de linha (`group_hours*` consomem direto), mais
+    `employee_id`/`person` e `inicio`/`fim` — a chave que distingue dois
+    lançamentos iguais no mesmo dia, pra um recorte que soma blocos que se
+    sobrepõem não contar a mesma linha duas vezes.
+
+    Sem `project_ids` e sem `employee_ids` não há recorte: devolve `[]` (a
+    tela não deixa, e o servidor não puxa o Projectile inteiro por engano)."""
+    if not project_ids and not employee_ids:
+        return []
+    clauses: list[str] = []
+    params: list[str] = []
+    if project_ids:
+        clauses.append(f"tj.pProject IN ({','.join(['%s'] * len(project_ids))})")
+        params.extend(project_ids)
+    if employee_ids:
+        clauses.append(f"tj.pEmployee IN ({','.join(['%s'] * len(employee_ids))})")
+        params.extend(employee_ids)
+    where = " AND ".join(clauses)
+    try:
+        with _borrowed_connection(conn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT tb.pDate AS data, tb.pNote AS observacao, tb.pTime AS horas,
+                       tb.capJob AS pacote, tj.pProject AS project_id,
+                       tj.pEmployee AS employee_id, tj.capEmployee AS person,
+                       tb.pStart AS inicio, tb.pEnd AS fim
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
+                WHERE {where}
+                  AND (te.pCostCenter LIKE %s OR te.pCostCenter LIKE %s)
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                ORDER BY tb.pDate, tb.pStart
+                """,
+                (*params, "%CAD%", "%CAE%", _SYS_CLIENT_ID, start_date, end_date),
+            )
+            return cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar horas do recorte no Projectile: {e}") from e
+
+
 def _missing_observacao_issue(row_index: int, hs_float: float, row: dict) -> RowIssue | None:
     """Hora sem Observação preenchida não pode desaparecer da soma em
     silêncio — mesmo critério em `group_hours` e `group_hours_by_project`,

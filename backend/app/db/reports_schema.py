@@ -385,7 +385,14 @@ auto_reports = Table(
     "auto_reports",
     metadata,
     Column("id", CHAR(26), primary_key=True),
-    Column("run_id", CHAR(26), nullable=False),
+    # nulo no relatório personalizado (`kind = "avulso"`): não nasce de rodada
+    Column("run_id", CHAR(26), nullable=True),
+    # "mensal" = rodada da competência; "avulso" = geração personalizada
+    # (`auto_generation/custom.py`) — `competence` é o mês FINAL do período,
+    # `project_id`/`family_key` são sintéticos (`custom:<id>`) e o recorte que
+    # o gerou fica em `scope_json` (é o que o "Regenerar" relê)
+    Column("kind", String(10), nullable=False, default="mensal", server_default="mensal"),
+    Column("scope_json", JSON, nullable=True),
     Column("competence", String(7), nullable=False),
     Column("project_id", _exact_string(100), nullable=False),
     Column("family_key", String(255), nullable=False),

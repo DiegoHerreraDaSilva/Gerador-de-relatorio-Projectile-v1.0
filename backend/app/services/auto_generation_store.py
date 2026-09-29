@@ -30,6 +30,8 @@ from .management_store import ManagementStoreError
 
 _LOCK_KEY = "lock"
 CONFIG_KEY = "config"
+KIND_MONTHLY = "mensal"
+KIND_CUSTOM = "avulso"
 
 # colunas "leves" da lista (sem o rascunho nem o payload congelado, que podem
 # ter centenas de KB com os gráficos)
@@ -55,6 +57,50 @@ def _connect(begin: bool) -> Iterator:
 
 
 # --- leitura ------------------------------------------------------------------
+
+
+def _planned_key(competence: str) -> str:
+    return f"planned_numbers:{competence}"
+
+
+def get_planned_numbers(competence: str) -> dict[str, str]:
+    """Números digitados na prévia do mês (antes do rascunho existir):
+    `{project_id: número}` — aplicados quando o rascunho é gerado."""
+    with _connect(begin=False) as conn:
+        row = conn.execute(
+            select(auto_settings.c.value_json).where(auto_settings.c.key == _planned_key(competence))
+        ).first()
+    return {k: v for k, v in (row.value_json or {}).items() if isinstance(v, str)} if row else {}
+
+
+_SCHEDULER_STATE_KEY = "scheduler_state"
+_CUSTOM_REQUESTS_PREFIX = "custom_requests:"
+
+
+def get_scheduler_state() -> dict:
+    """Tentativas do agendador na competência-alvo (`{competence, attempts,
+    last_attempt_at}`) — o que impede uma rodada falha de virar um loop."""
+    with _connect(begin=False) as conn:
+        row = conn.execute(
+            select(auto_settings.c.value_json).where(auto_settings.c.key == _SCHEDULER_STATE_KEY)
+        ).first()
+    return dict(row.value_json or {}) if row else {}
+
+
+def _custom_requests_key(competence: str) -> str:
+    return f"{_CUSTOM_REQUESTS_PREFIX}{competence}"
+
+
+def get_custom_requests() -> dict[str, list[dict]]:
+    """Pedidos de geração personalizada AGENDADOS, por competência
+    (`{AAAA-MM: [pedido, …]}`). O rascunho só nasce quando a rodada da
+    competência roda (`service.generate_custom_requests`)."""
+    with _connect(begin=False) as conn:
+        rows = conn.execute(
+            select(auto_settings.c.key, auto_settings.c.value_json)
+            .where(auto_settings.c.key.like(f"{_CUSTOM_REQUESTS_PREFIX}%"))
+        ).all()
+    return {key[len(_CUSTOM_REQUESTS_PREFIX):]: [r for r in (value or []) if isinstance(r, dict)] for key, value in rows}
 
 
 def get_config() -> dict:
@@ -95,9 +141,25 @@ def get_run(competence: str) -> dict | None:
 
 
 def list_reports(competence: str) -> list[dict]:
+    """Os relatórios da RODADA da competência — o personalizado
+    (`kind = "avulso"`) tem o mesmo `competence` (mês final do período), mas
+    não é um projeto do mês: entra por `list_custom`."""
     with _connect(begin=False) as conn:
         rows = conn.execute(
-            select(*_LIST_COLUMNS).where(auto_reports.c.competence == competence).order_by(auto_reports.c.project_name)
+            select(*_LIST_COLUMNS)
+            .where(auto_reports.c.competence == competence, auto_reports.c.kind == KIND_MONTHLY)
+            .order_by(auto_reports.c.project_name)
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def list_custom() -> list[dict]:
+    """Relatórios personalizados, os mais novos primeiro (sem janela: só o
+    gerente cria e vê)."""
+    with _connect(begin=False) as conn:
+        rows = conn.execute(
+            select(*_LIST_COLUMNS).where(auto_reports.c.kind == KIND_CUSTOM)
+            .order_by(auto_reports.c.created_at.desc(), auto_reports.c.project_name)
         ).mappings().all()
     return [dict(r) for r in rows]
 
@@ -215,6 +277,35 @@ class WriteSession:
         if result.rowcount == 0:
             self._conn.execute(insert(auto_settings).values(key=key, value_json=value, updated_at=utcnow()))
 
+    def planned_numbers(self, competence: str) -> dict[str, str]:
+        """Igual a `get_planned_numbers`, mas NA conexão da sessão de escrita
+        (ler pelo store aqui dentro seria outra conexão — ver o aviso do módulo)."""
+        row = self._conn.execute(
+            select(auto_settings.c.value_json).where(auto_settings.c.key == _planned_key(competence))
+        ).first()
+        return {k: v for k, v in (row.value_json or {}).items() if isinstance(v, str)} if row else {}
+
+    def set_planned_number(self, competence: str, project_id: str, number: str | None) -> None:
+        current = self.planned_numbers(competence)
+        if number:
+            current[project_id] = number
+        else:
+            current.pop(project_id, None)
+        self._upsert_setting(_planned_key(competence), current)
+
+    def set_scheduler_state(self, state: dict) -> None:
+        self._upsert_setting(_SCHEDULER_STATE_KEY, state)
+
+    def custom_requests(self, competence: str) -> list[dict]:
+        """Na conexão da sessão de escrita (ver o aviso do módulo)."""
+        row = self._conn.execute(
+            select(auto_settings.c.value_json).where(auto_settings.c.key == _custom_requests_key(competence))
+        ).first()
+        return [r for r in (row.value_json or []) if isinstance(r, dict)] if row else []
+
+    def set_custom_requests(self, competence: str, requests: list[dict]) -> None:
+        self._upsert_setting(_custom_requests_key(competence), requests)
+
     def set_rule(self, family_key: str, config: dict | None, actor: str) -> None:
         self._conn.execute(delete(auto_rules).where(auto_rules.c.family_key == family_key))
         if config:
@@ -250,7 +341,9 @@ class WriteSession:
     def existing_project_ids(self, competence: str) -> set[str]:
         return {
             r.project_id
-            for r in self._conn.execute(select(auto_reports.c.project_id).where(auto_reports.c.competence == competence))
+            for r in self._conn.execute(select(auto_reports.c.project_id).where(
+                auto_reports.c.competence == competence, auto_reports.c.kind == KIND_MONTHLY,
+            ))
         }
 
     def insert_report(self, report: dict) -> None:
@@ -277,6 +370,11 @@ class WriteSession:
             .values(draft_version=new_version, updated_at=utcnow(), **fields)
         )
         return new_version
+
+    def delete_report(self, report_id: str) -> None:
+        """Apaga o relatório e a linha do tempo dele (sem FK: a ordem é do código)."""
+        self._conn.execute(delete(auto_report_events).where(auto_report_events.c.auto_report_id == report_id))
+        self._conn.execute(delete(auto_reports).where(auto_reports.c.id == report_id))
 
     def add_event(self, report_id: str, action: str, actor: dict | None, comment: str | None = None,
                   metadata: dict | None = None) -> None:

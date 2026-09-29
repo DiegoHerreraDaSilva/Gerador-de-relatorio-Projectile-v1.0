@@ -12,13 +12,15 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import ValidationError
 
-from ...auto_generation import builder, service
+from ...auto_generation import builder, scheduler, service
 from ...auto_generation.schemas import (
     ApproveRequest,
     CombinedSendRequest,
     CommentRequest,
     FamilyRequest,
+    CustomRequest,
     NumbersRequest,
+    PlannedNumberRequest,
     ReviewerRequest,
     RunRequest,
     SendRequest,
@@ -62,9 +64,23 @@ def _call(fn, *args, **kwargs):
         raise log_and_generic_error(e, generic_message=GENERIC_EMAIL_ERROR)
 
 
+def _with_schedule(payload: dict) -> dict:
+    """Junta o agendador (ligado?, próxima geração, mês-alvo, rodada do mês que fechou)."""
+    return {**payload, "schedule": scheduler.schedule_info()}
+
+
+# tudo dentro da função que vai pro threadpool: as consultas ao banco não rodam no event loop
+def _config_view() -> dict:
+    return _with_schedule(service.get_configuration())
+
+
+def _competences_view() -> dict:
+    return _with_schedule(service.list_competences())
+
+
 @router.get("/auto-generation/config")
 async def get_config_endpoint(_user: dict = Depends(require_manager)):
-    return await run_in_threadpool(_call, service.get_configuration)
+    return await run_in_threadpool(_call, _config_view)
 
 
 @router.put("/auto-generation/config")
@@ -93,7 +109,7 @@ async def put_family_endpoint(project_id: str, body: FamilyRequest, _user: dict 
 
 @router.get("/auto-generation/competences")
 async def list_competences_endpoint(_user: dict = Depends(require_manager)):
-    return await run_in_threadpool(_call, service.list_competences)
+    return await run_in_threadpool(_call, _competences_view)
 
 
 @router.get("/auto-generation/competences/{competence}")
@@ -104,6 +120,51 @@ async def competence_endpoint(competence: str, _user: dict = Depends(require_man
 @router.get("/auto-generation/competences/{competence}/preview")
 async def preview_endpoint(competence: str, _user: dict = Depends(require_manager)):
     return await run_in_threadpool(_call, service.preview, competence)
+
+
+@router.put("/auto-generation/competences/{competence}/numbers/{project_id}")
+async def planned_number_endpoint(
+    competence: str, project_id: str, body: PlannedNumberRequest, _user: dict = Depends(require_manager),
+):
+    """Número do relatório digitado na PRÉVIA do mês (ainda sem rascunho) —
+    aplicado quando o rascunho for gerado."""
+    if len(project_id) > 100:
+        raise HTTPException(400, "Projeto inválido.")
+    number = await run_in_threadpool(_call, service.set_planned_number, competence, project_id, body.number, _user)
+    return {"number": number}
+
+
+@router.get("/auto-generation/custom")
+async def custom_list_endpoint(_user: dict = Depends(require_manager)):
+    """Os relatórios da geração personalizada (todos, os mais novos primeiro)."""
+    return await run_in_threadpool(_call, service.custom_view)
+
+
+@router.delete("/auto-generation/custom/{report_id}")
+async def custom_delete_endpoint(report_id: str, _user: dict = Depends(require_manager)):
+    """Apaga um personalizado ainda em rascunho (aprovado/enviado: reabra antes)."""
+    await run_in_threadpool(_call, service.delete_custom, report_id, _user)
+    return {"ok": True}
+
+
+@router.post("/auto-generation/custom/preview")
+async def custom_preview_endpoint(body: CustomRequest, _user: dict = Depends(require_manager)):
+    """O que o recorte geraria — relatórios, horas e avisos. Não grava."""
+    return await run_in_threadpool(_call, service.preview_custom, body.model_dump())
+
+
+@router.post("/auto-generation/custom", status_code=201)
+async def custom_schedule_endpoint(body: CustomRequest, _user: dict = Depends(require_manager)):
+    """AGENDA a geração personalizada do mês atual: os rascunhos nascem junto
+    com os da rodada dessa competência, não agora."""
+    return {"request": await run_in_threadpool(_call, service.schedule_custom, body.model_dump(), _user)}
+
+
+@router.delete("/auto-generation/custom/requests/{request_id}")
+async def custom_request_delete_endpoint(request_id: str, _user: dict = Depends(require_manager)):
+    """Cancela um pedido personalizado que ainda não virou rascunho."""
+    await run_in_threadpool(_call, service.delete_custom_request, request_id, _user)
+    return {"ok": True}
 
 
 @router.post("/auto-generation/competences/{competence}/run", status_code=202)

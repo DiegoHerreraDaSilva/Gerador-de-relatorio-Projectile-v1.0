@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # Claude; 0,80/0,60 → 0 erradas, mas 11 pro Claude.
     jev_min_confidence: float = 0.60
     jev_min_confidence_none: float = 0.40
+    # Chave de emergência do agendador da geração automática (`AUTO_GENERATION_ENABLED=false`
+    # desliga o loop sem reverter código). O liga/desliga do dia a dia é do gerente,
+    # no "Padrão geral" (`schedule_enabled`); este só existe pra parar tudo por fora.
+    auto_generation_enabled: bool = True
     # Modelo do chat analítico — separado de ANTHROPIC_MODEL (chat de edição
     # do relatório). Haiku: as tarefas são curtas e a latência importa mais.
     analytics_chat_model: str = "claude-haiku-4-5-20251001"

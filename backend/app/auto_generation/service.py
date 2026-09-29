@@ -40,7 +40,7 @@ from ..services.report_files import (
     sanitized_file_name,
 )
 from ..services.report_persistence import GenerationGuard, finish_generation_failure, finish_generation_success
-from . import builder, families, memory, rules
+from . import builder, custom, families, memory, rules
 from .schemas import Draft
 
 logger = logging.getLogger(__name__)
@@ -220,14 +220,21 @@ def _execute_run(run_id: str, competence: str, actor: dict, project_ids: list[st
         keys = {p["project_id"]: _family_for(p, overrides) for p in projects}
         memories = store.get_memories(sorted(set(keys.values())))
         rows_by_project = builder.fetch_rows_by_project(competence, [p["project_id"] for p in projects])
+        planned_numbers = store.get_planned_numbers(competence)
         today = date.today()
 
         for project in projects:
             status = _generate_one(
                 run_id, competence, project, keys[project["project_id"]], global_config, family_rules,
                 memories, rows_by_project.get(project["project_id"], []), closed_projects, closed_clients, today,
+                planned_numbers,
             )
             counts[status] = counts.get(status, 0) + 1
+        if not project_ids:
+            # "gerar só estes projetos" não leva junto os pedidos personalizados
+            made = generate_custom_requests(competence, actor)
+            if made:
+                counts["personalizados"] = made
         final = {"status": "done", "error": None}
     except Exception as e:  # Projectile/reports_db fora do ar: a rodada falha, os já gravados ficam
         logger.exception("Rodada de geração automática %s falhou", competence)
@@ -239,8 +246,15 @@ def _execute_run(run_id: str, competence: str, actor: dict, project_ids: list[st
         logger.exception("Não consegui fechar a rodada %s", competence)
 
 
+def _apply_planned_number(draft: dict, number: str | None) -> None:
+    """Número digitado na prévia do mês. Só cabe quando o relatório é UM (modo
+    projeto): com vários pacotes não dá pra saber a qual deles pertence."""
+    if number and len(draft.get("packages", [])) == 1:
+        draft["packages"][0]["project_code"] = number[:100]
+
+
 def _generate_one(run_id, competence, project, family_key, global_config, family_rules, memories, rows,
-                  closed_projects, closed_clients, today) -> str:
+                  closed_projects, closed_clients, today, planned_numbers=None) -> str:
     """Um projeto — erro aqui vira `erro` SÓ nele, a rodada continua."""
     base = {
         "id": str(ULID()), "run_id": run_id, "competence": competence, "project_id": project["project_id"],
@@ -259,6 +273,7 @@ def _generate_one(run_id, competence, project, family_key, global_config, family
             draft = builder.build_draft(competence, project, rows, config, memories.get(family_key), today)
             if not draft["packages"]:
                 raise ValueError("nenhum lançamento com descrição encontrado pro projeto no mês")
+            _apply_planned_number(draft, (planned_numbers or {}).get(project["project_id"]))
             report = {
                 **base, "status": STATUS_IN_REVIEW, "draft_json": draft,
                 "source_hours": project["hours"], "badges_json": _badges(draft, project["hours"]),
@@ -313,20 +328,11 @@ def competence_view(competence: str) -> dict:
     # valer nos meses seguintes do mesmo trabalho) e o que vale de fato
     global_config = store.get_config()
     family_rules = store.get_rules()
-    comments = store.latest_comments(
-        [i["id"] for i in out if i["status"] in (STATUS_REVIEWED, STATUS_RETURNED)], ("submitted", "returned"),
-    )
-    sends = store.latest_comments([i["id"] for i in out if i["status"] == STATUS_SENT], ("sent",))
+    _attach_activity(out)
     for item in out:
         item["rule"] = family_rules.get(item["family_key"], {})
         item["effective"] = rules.effective(global_config, item["rule"])
-        item["last_comment"] = comments.get(item["id"])
-        sent = sends.get(item["id"])
-        item["last_sent"] = {"to": (sent.get("metadata") or {}).get("to", []), "cc": (sent.get("metadata") or {}).get("cc", []),
-                             "actor_name": sent["actor_name"], "created_at": sent["created_at"]} if sent else None
-    counts: dict[str, int] = {}
-    for item in out:
-        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    counts = _count_statuses(out)
     new_projects = [p for p in (current or {}).values() if p["project_id"] not in listed] if run else []
     return {
         "competence": competence,
@@ -336,6 +342,27 @@ def competence_view(competence: str) -> dict:
         "counts": counts,
         "new_projects": sorted(new_projects, key=lambda p: p["name"].casefold()),
     }
+
+
+def _attach_activity(items: list[dict]) -> None:
+    """`last_comment` (devolução/observação de quem revisou) e `last_sent`
+    (pra quem foi o último envio) de cada item da lista."""
+    comments = store.latest_comments(
+        [i["id"] for i in items if i["status"] in (STATUS_REVIEWED, STATUS_RETURNED)], ("submitted", "returned"),
+    )
+    sends = store.latest_comments([i["id"] for i in items if i["status"] == STATUS_SENT], ("sent",))
+    for item in items:
+        item["last_comment"] = comments.get(item["id"])
+        sent = sends.get(item["id"])
+        item["last_sent"] = {"to": (sent.get("metadata") or {}).get("to", []), "cc": (sent.get("metadata") or {}).get("cc", []),
+                             "actor_name": sent["actor_name"], "created_at": sent["created_at"]} if sent else None
+
+
+def _count_statuses(items: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    return counts
 
 
 def _backfill_badges(items: list[dict]) -> list[dict]:
@@ -368,6 +395,7 @@ def preview(competence: str) -> dict:
     family_rules = store.get_rules()
     closed = management.get_closed_registry()
     memories = store.get_memories(sorted({_family_for(p, overrides) for p in projects}))
+    planned_numbers = store.get_planned_numbers(competence)
     out = []
     for p in projects:
         key = _family_for(p, overrides)
@@ -381,8 +409,31 @@ def preview(competence: str) -> dict:
         out.append({**p, "family_key": key, "family_label": families.family_label(p["name"]), "planned": planned,
                     "mode": config.get("mode"), "rule": family_rules.get(key, {}), "effective": config,
                     # quem revisou o último aprovado (vale se a configuração não tiver revisor)
-                    "remembered_reviewer": (memories.get(key) or {}).get("reviewer")})
+                    "remembered_reviewer": (memories.get(key) or {}).get("reviewer"),
+                    # número digitado antes do rascunho existir (vale quando ele for gerado)
+                    "planned_number": planned_numbers.get(p["project_id"])})
     return {"competence": competence, "month_label": builder.month_label(competence), "projects": out}
+
+
+def set_planned_number(competence: str, project_id: str, number: str | None, actor: dict) -> str | None:
+    """Reserva o número do relatório de um projeto do mês (a prévia ainda não
+    tem rascunho). Confere o formato (o mesmo da aprovação) e que o número não
+    está reservado pra outro projeto do mês; o resto — histórico, outras
+    competências — é conferido na aprovação, como sempre."""
+    builder.parse_competence(competence)
+    if not any(p["project_id"] == project_id for p in builder.month_projects(competence)):
+        raise NotFound(project_id)
+    code = (number or "").strip()
+    if code:
+        pattern = rules.effective(store.get_config(), None).get("number_pattern") or rules.DEFAULT_NUMBER_PATTERN
+        if not re.fullmatch(pattern, code):
+            raise InvalidRequest(f"Número \"{code}\" fora do formato {_pattern_label(pattern)}.")
+    with store.write_session() as s:
+        taken = [pid for pid, n in s.planned_numbers(competence).items() if n == code and pid != project_id]
+        if code and taken:
+            raise InvalidRequest(f"O número {code} já está reservado pra outro projeto deste mês.")
+        s.set_planned_number(competence, project_id, code or None)
+    return code or None
 
 
 def list_competences(today: date | None = None) -> dict:
@@ -395,8 +446,13 @@ def list_competences(today: date | None = None) -> dict:
 
 
 def _public(item: dict) -> dict:
-    return {k: v for k, v in item.items() if k not in ("draft_json", "approved_payload_json", "ai_original_json",
-                                                        "badges_json", "history_links_json")}
+    out = {k: v for k, v in item.items() if k not in ("draft_json", "approved_payload_json", "ai_original_json",
+                                                       "badges_json", "history_links_json")}
+    saved = out.get("scope_json")
+    if saved:
+        # o recorte inteiro (ids de colaborador, blocos) é do gerente — quem revisa só vê o período e o resumo
+        out["scope_json"] = {k: saved.get(k) for k in ("label", "summary")}
+    return out
 
 
 def _public_run(run: dict | None) -> dict | None:
@@ -497,6 +553,8 @@ def regenerate(report_id: str, actor: dict) -> None:
     report = _load(report_id)
     if report["status"] not in REGENERABLE:
         raise WorkflowError(f"Não dá pra regenerar um relatório {report['status']}.")
+    if report.get("kind") == store.KIND_CUSTOM:
+        return _regenerate_custom(report, actor)
     projects = {p["project_id"]: p for p in builder.month_projects(report["competence"])}
     project = projects.get(report["project_id"])
     if project is None:
@@ -507,6 +565,7 @@ def regenerate(report_id: str, actor: dict) -> None:
     draft = builder.build_draft(report["competence"], project, rows, config, remembered, date.today())
     if not draft["packages"]:
         raise WorkflowError("Nenhum lançamento com descrição encontrado pro projeto no mês.")
+    _apply_planned_number(draft, store.get_planned_numbers(report["competence"]).get(report["project_id"]))
     with store.write_session() as s:
         current = s.get_report_for_update(report_id)
         if current is None or current["status"] not in REGENERABLE:
@@ -517,6 +576,255 @@ def regenerate(report_id: str, actor: dict) -> None:
             project_name=project["name"][:255], client=project["client"][:255],
         )
         s.add_event(report_id, "regenerated", actor, None)
+
+
+# --- geração personalizada -----------------------------------------------------------
+
+
+def _custom_scope(request: dict) -> dict:
+    """O que fica guardado (e o que o "Regenerar" relê): só o recorte —
+    o revisor escolhido é uma ação da criação, não parte dele."""
+    return {k: v for k, v in request.items() if k != "reviewer_login"}
+
+
+def _custom_plan(scope: dict) -> tuple[custom.Resolved, list[custom.CustomReport], list[str]]:
+    """Recorte → relatórios calculados (sem gravar nada). Compartilhado pela
+    prévia, pela criação e pelo "Regenerar"."""
+    try:
+        resolved = custom.resolve(scope)
+        rows, warnings = custom.collect(resolved)
+        config = rules.effective(store.get_config(), None)
+        reports = custom.build_reports(resolved, rows, config, date.today())
+    except custom.InvalidScope as e:
+        raise InvalidRequest(str(e)) from e
+    warnings = [*resolved.warnings, *warnings]
+    usable = []
+    for report in reports:
+        if report.draft["packages"]:
+            usable.append(report)
+        else:  # só linhas sem descrição: não há o que revisar
+            warnings.append(
+                f"\"{report.title}\" só tem horas sem descrição ({str(round(report.hours, 1)).replace('.', ',')} h) e não gerou relatório."
+            )
+    if not usable:
+        raise InvalidRequest("Nenhuma hora com descrição nesse recorte e período.")
+    return resolved, usable, warnings
+
+
+def preview_custom(request: dict) -> dict:
+    """O que a geração personalizada criaria — nada é gravado."""
+    resolved, reports, warnings = _custom_plan(_custom_scope(request))
+    return {
+        "period_label": resolved.label,
+        "summary": custom.scope_summary(resolved),
+        "reports": custom.summarize(resolved, reports),
+        "total_hours": round(sum(r.hours for r in reports), 2),
+        "warnings": warnings,
+    }
+
+
+def create_custom(request: dict, actor: dict) -> dict:
+    """Cria os rascunhos do recorte na mesma esteira dos mensais (revisão →
+    aprovação → envio). Cada relatório vira uma linha `kind = "avulso"` com o
+    recorte em `scope_json` (é o que o "Regenerar" relê); `competence` é o mês
+    final do período e `project_id`/`family_key` são sintéticos — nunca
+    colidem com um projeto ou família de verdade, e por isso o avulso não lê
+    nem grava memória. Tudo numa transação: ou saem todos, ou nenhum."""
+    login = (request.get("reviewer_login") or "").strip()
+    reviewer = _resolve_reviewer(login) if login else None
+    scope = _custom_scope(request)
+    resolved, reports, warnings = _custom_plan(scope)
+    created = []
+    with store.write_session() as s:
+        for report in reports:
+            report_id = str(ULID())
+            row = {
+                "id": report_id, "run_id": None, "kind": store.KIND_CUSTOM,
+                "scope_json": {"scope": scope, "part": report.key, "label": resolved.label,
+                               "summary": custom.scope_summary(resolved)},
+                "competence": resolved.end_competence,
+                "project_id": f"custom:{report_id}", "family_key": f"custom:{report_id}",
+                "project_name": report.title, "client": report.client or None,
+                "status": STATUS_IN_REVIEW, "draft_json": report.draft, "draft_version": 1,
+                "source_hours": report.hours,
+                "badges_json": _badges(report.draft, report.hours, {"custom": True, "partial": report.partial}),
+            }
+            if reviewer:
+                row["reviewer_login"], row["reviewer_name"] = reviewer["login"][:100], reviewer["name"][:255]
+            s.insert_report(row)
+            s.add_event(report_id, "generated", actor, None, {"custom": True, "label": resolved.label})
+            created.append({"id": report_id, "title": report.title})
+    record_event(
+        actor_id=actor.get("login", ""), actor_name=actor.get("name", ""), action="auto_custom_created",
+        entity_type="auto_report", entity_id=created[0]["id"], source="auto_generation",
+        metadata={"label": resolved.label, "reports": len(created), "split_by": resolved.split_by,
+                  "package_unit": resolved.package_unit},
+    )
+    return {"created": created, "warnings": warnings}
+
+
+def _current_competence() -> str:
+    today = date.today()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+def _public_request(competence: str, entry: dict) -> dict:
+    return {
+        "id": entry["id"], "competence": competence, "label": entry.get("label"), "summary": entry.get("summary"),
+        "title": entry.get("title"), "split_by": (entry.get("scope") or {}).get("split_by"),
+        "package_unit": (entry.get("scope") or {}).get("package_unit"),
+        "reviewer_name": entry.get("reviewer_name"), "status": entry.get("status", "agendado"),
+        "error": entry.get("error"), "created_by_name": entry.get("created_by_name"), "created_at": entry.get("created_at"),
+    }
+
+
+def schedule_custom(request: dict, actor: dict) -> dict:
+    """AGENDA uma geração personalizada — não cria rascunho agora. Vale só pro
+    MÊS ATUAL (decisão do usuário, 2026-09-29) e é gerada junto com os
+    projetos da rodada dessa competência (`generate_custom_requests`, chamada
+    por `_execute_run`), quando o mês já fechou e as horas estão completas. Aqui
+    só confere que o recorte é válido (colaborador na engenharia, pacotes com
+    um projeto…) e o revisor; a prévia (`preview_custom`) mostra o que sairia
+    com as horas de agora."""
+    current = _current_competence()
+    period = request.get("period") or {}
+    if period.get("start") != current or period.get("end") != current:
+        raise InvalidRequest(f"A geração personalizada vale só pro mês atual ({builder.month_label(current)}).")
+    login = (request.get("reviewer_login") or "").strip()
+    reviewer = _resolve_reviewer(login) if login else None
+    scope = _custom_scope(request)
+    try:
+        resolved = custom.resolve(scope)
+    except custom.InvalidScope as e:
+        raise InvalidRequest(str(e)) from e
+    entry = {
+        "id": str(ULID()), "scope": scope, "title": resolved.title or None,
+        "reviewer_login": reviewer["login"] if reviewer else None, "reviewer_name": reviewer["name"] if reviewer else None,
+        "label": resolved.label, "summary": custom.scope_summary(resolved), "status": "agendado", "error": None,
+        "created_by": actor.get("login"), "created_by_name": actor.get("name"), "created_at": store.utcnow().isoformat(),
+    }
+    with store.write_session() as s:
+        s.set_custom_requests(current, [*s.custom_requests(current), entry])
+    record_event(
+        actor_id=actor.get("login", ""), actor_name=actor.get("name", ""), action="auto_custom_scheduled",
+        entity_type="auto_custom_request", entity_id=entry["id"], source="auto_generation",
+        metadata={"competence": current, "label": resolved.label, "split_by": resolved.split_by,
+                  "package_unit": resolved.package_unit},
+    )
+    return _public_request(current, entry)
+
+
+def delete_custom_request(request_id: str, actor: dict) -> None:
+    """Cancela um pedido que ainda não virou rascunho (agendado ou que deu
+    erro na rodada)."""
+    for competence, entries in store.get_custom_requests().items():
+        if not any(e.get("id") == request_id for e in entries):
+            continue
+        with store.write_session() as s:
+            current = s.custom_requests(competence)
+            if not any(e.get("id") == request_id for e in current):
+                raise NotFound(request_id)
+            s.set_custom_requests(competence, [e for e in current if e.get("id") != request_id])
+        record_event(
+            actor_id=actor.get("login", ""), actor_name=actor.get("name", ""), action="auto_custom_request_deleted",
+            entity_type="auto_custom_request", entity_id=request_id, source="auto_generation",
+            metadata={"competence": competence},
+        )
+        return
+    raise NotFound(request_id)
+
+
+def generate_custom_requests(competence: str, actor: dict) -> int:
+    """Gera os rascunhos dos pedidos personalizados agendados pra `competence`
+    — junto com os projetos da rodada. Pedido que deu certo sai da fila (os
+    relatórios aparecem em "Personalizados"); o que falhou (recorte sem horas,
+    revisor que saiu da engenharia…) fica com o motivo, e a próxima rodada tenta
+    de novo. Um pedido com erro não derruba os outros nem a rodada."""
+    pending = [e for e in store.get_custom_requests().get(competence, []) if e.get("status") in ("agendado", "erro")]
+    done: set[str] = set()
+    failed: dict[str, str] = {}
+    for entry in pending:
+        try:
+            create_custom({**entry["scope"], "reviewer_login": entry.get("reviewer_login")}, actor)
+            done.add(entry["id"])
+        except Exception as e:  # noqa: BLE001 — qualquer falha vira o motivo do pedido
+            logger.warning("Pedido personalizado %s de %s falhou: %s", entry.get("id"), competence, e)
+            failed[entry["id"]] = str(e)[:500]
+    if done or failed:
+        with store.write_session() as s:
+            kept = []
+            for entry in s.custom_requests(competence):
+                if entry.get("id") in done:
+                    continue
+                if entry.get("id") in failed:
+                    entry = {**entry, "status": "erro", "error": failed[entry["id"]]}
+                kept.append(entry)
+            s.set_custom_requests(competence, kept)
+    return len(done)
+
+
+def custom_view() -> dict:
+    """A aba "Personalizados": os pedidos agendados (ainda sem rascunho) e os
+    relatórios já gerados."""
+    out = [{**_public(item), "badges": item.get("badges_json") or {}} for item in store.list_custom()]
+    _attach_activity(out)
+    requests = [
+        _public_request(competence, entry)
+        for competence, entries in store.get_custom_requests().items() for entry in entries
+    ]
+    requests.sort(key=lambda r: (r["competence"], r["created_at"] or ""), reverse=True)
+    return {"items": out, "counts": _count_statuses(out), "requests": requests}
+
+
+# o que já foi pro histórico/cliente não se apaga daqui: reabre antes (o histórico continua)
+DELETABLE_CUSTOM = {STATUS_GENERATING, STATUS_ERROR, STATUS_IN_REVIEW, STATUS_REVIEWED, STATUS_RETURNED, STATUS_SKIPPED}
+
+
+def delete_custom(report_id: str, actor: dict) -> None:
+    """Apaga um relatório PERSONALIZADO ainda em rascunho (com a linha do tempo
+    dele). Só o avulso: os mensais são da rodada (apagar um faria a próxima
+    rodada recriá-lo, e o projeto some da lista do mês). Aprovado ou enviado
+    já gravou no histórico e/ou está com o cliente — reabra primeiro. O
+    revisor perde o acesso na hora (o item deixa de existir)."""
+    with store.write_session() as s:
+        report = s.get_report_for_update(report_id)
+        if report is None:
+            raise NotFound(report_id)
+        if report.get("kind") != store.KIND_CUSTOM:
+            raise WorkflowError("Só um relatório personalizado pode ser apagado.")
+        if report["status"] not in DELETABLE_CUSTOM:
+            raise WorkflowError(
+                f"Um relatório {report['status']} já foi pro histórico ou pro cliente — reabra antes de apagar."
+            )
+        s.delete_report(report_id)
+    record_event(
+        actor_id=actor.get("login", ""), actor_name=actor.get("name", ""), action="auto_custom_deleted",
+        entity_type="auto_report", entity_id=report_id, source="auto_generation",
+        metadata={"title": report["project_name"], "status": report["status"],
+                  "label": (report.get("scope_json") or {}).get("label")},
+    )
+
+
+def _regenerate_custom(report: dict, actor: dict) -> None:
+    """Refaz o rascunho de um personalizado relendo o recorte e o período
+    guardados (descarta as edições — a tela confirma antes)."""
+    saved = report.get("scope_json") or {}
+    if not saved.get("scope"):
+        raise WorkflowError("Esse relatório não guardou o recorte que o gerou.")
+    _resolved, reports, _warnings = _custom_plan(saved["scope"])
+    fresh = next((r for r in reports if r.key == saved.get("part")), None)
+    if fresh is None:
+        raise WorkflowError("O recorte não tem mais horas pra esse relatório.")
+    with store.write_session() as s:
+        current = s.get_report_for_update(report["id"])
+        if current is None or current["status"] not in REGENERABLE:
+            raise WorkflowError("O relatório mudou de estado enquanto regenerava.")
+        s.update_report(
+            report["id"], bump_version=True, status=STATUS_IN_REVIEW, draft_json=fresh.draft,
+            source_hours=fresh.hours, error=None, project_name=fresh.title, client=fresh.client or None,
+            badges_json=_badges(fresh.draft, fresh.hours, {"custom": True, "partial": fresh.partial}),
+        )
+        s.add_event(report["id"], "regenerated", actor, None)
 
 
 # --- revisão por colaborador -------------------------------------------------------
@@ -725,8 +1033,18 @@ def _default_texts(report: dict) -> tuple[str, str]:
     """Mesmo assunto/mensagem padrão do envio manual (`SendReportModal`)."""
     frozen = report.get("approved_payload_json") or {}
     packages = frozen.get("packages") or []
-    month = (packages[0].get("header") or {}).get("month_label") if packages else builder.month_label(report["competence"])
+    custom_report = report.get("kind") == store.KIND_CUSTOM
+    fallback_month = (report.get("scope_json") or {}).get("label") if custom_report else None
+    month = (packages[0].get("header") or {}).get("month_label") if packages else (
+        fallback_month or builder.month_label(report["competence"])
+    )
     name = (packages[0].get("header") or {}).get("project_name") if len(packages) == 1 else report["project_name"]
+    if custom_report:
+        # o recorte pode ser uma pessoa, vários projetos… não é "o projeto X"
+        return (
+            f"Relatório de Horas - {name} - {month}",
+            f"Segue em anexo o relatório de horas de {name} referente a {month}.",
+        )
     return (
         f"Relatório de Horas - {name} - {month}",
         f"Segue em anexo o relatório de horas do projeto {name} referente a {month}.",
@@ -740,7 +1058,10 @@ def send_defaults(report_id: str, actor: dict) -> dict:
     report = _load(report_id)
     if report["status"] not in SENDABLE:
         raise WorkflowError("Só dá pra enviar um relatório aprovado.")
-    remembered = (store.get_memories([report["family_key"]]).get(report["family_key"]) or {}).get("recipients") or {}
+    # personalizado não tem família: sem destinatários lembrados
+    remembered = {} if report.get("kind") == store.KIND_CUSTOM else (
+        (store.get_memories([report["family_key"]]).get(report["family_key"]) or {}).get("recipients") or {}
+    )
     subject, message = _default_texts(report)
     sender = (actor.get("email") or "").strip()
     return {
@@ -830,7 +1151,7 @@ def send_reports(report_ids: list[str], to: list[str], cc: list[str], subject: s
             subject=subject.strip(), body_text=message, attachments=attachments,
         )
         # leitura FORA da transação de escrita (ver `approve`)
-        families_sent = sorted({r["family_key"] for r in reports})
+        families_sent = sorted({r["family_key"] for r in reports if r.get("kind") != store.KIND_CUSTOM})
         previous = store.get_memories(families_sent)
         now = store.utcnow()
         with store.write_session() as s:
@@ -945,7 +1266,8 @@ def approve(report_id: str, raw_payload: dict, expected_version: int, actor: dic
     links = _persist_approval_files(payload, actor)
     # leitura FORA da transação de escrita (outra conexão dentro dela podia
     # desfazer a transação no SQLite dos testes — e não precisa do lock)
-    previous = store.get_memories([report["family_key"]]).get(report["family_key"])
+    is_custom = report.get("kind") == store.KIND_CUSTOM
+    previous = None if is_custom else store.get_memories([report["family_key"]]).get(report["family_key"])
     with store.write_session() as s:
         current = s.get_report_for_update(report_id)
         if current is None or current["status"] not in APPROVABLE or current["draft_version"] != expected_version:
@@ -957,7 +1279,8 @@ def approve(report_id: str, raw_payload: dict, expected_version: int, actor: dic
             history_links_json=links,
         )
         reviewer = {"login": report.get("reviewer_login"), "name": report.get("reviewer_name")}
-        s.set_memory(report["family_key"], memory.extract(draft, previous, reviewer), report_id)
+        if not is_custom:  # o recorte avulso não tem família: não sobrescreve memória de ninguém
+            s.set_memory(report["family_key"], memory.extract(draft, previous, reviewer), report_id)
         s.add_event(report_id, "approved", actor, None, {"numbers": [p.header.project_code for p in payload.packages]})
     record_event(
         actor_id=actor.get("login", ""), actor_name=actor.get("name", ""), action="auto_report_approved",
