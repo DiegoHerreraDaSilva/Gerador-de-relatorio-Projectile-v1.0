@@ -36,3 +36,6 @@ dist/
 # dados do painel de gerência (KPIs manuais, lista de pacotes não faturáveis)
 # — persistência local simples, não faz parte do código do projeto
 backend/data/
+
+# saida do Graphify (grafo de conhecimento do codigo, gerado por scripts/atualizar-grafo.bat)
+graphify-out/
