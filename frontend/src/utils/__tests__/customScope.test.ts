@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  blockProblem, buildCustomScope, describeBlock, emptyBlock, monthToCompetence, periodForCompetence, periodLabelOf, periodProblem,
+  blockProblem, buildCustomScope, describeBlock, describeBlockView, emptyBlock, monthToCompetence, periodForCompetence, periodLabelOf, periodProblem,
   type BlockDraft, type PeriodDraft,
 } from "../customScope";
 
@@ -89,5 +89,25 @@ describe("recorte", () => {
     expect(describeBlock(block({ employeeIds: ["10", "20", "30"] }), employee, project)).toBe("3 colaboradores");
     expect(describeBlock(block({ clients: ["A", "B", "C"], projectIds: ["1", "2"] }), employee, project))
       .toBe("3 clientes · 2 projetos");
+  });
+});
+
+describe("recorte do pedido em nomes", () => {
+  const view = (patch: Partial<Parameters<typeof describeBlockView>[0]>) =>
+    describeBlockView({ clients: [], projects: [], packages: [], employees: [], ...patch });
+
+  it("só o cliente pega todos os projetos dele", () => {
+    expect(view({ clients: ["MERCEDES"] })).toBe("MERCEDES · todos os projetos");
+  });
+
+  it("junta cliente, projeto, pacotes e colaboradores", () => {
+    expect(view({ clients: ["MERCEDES"], projects: ["Estribo"], packages: ["1546.1-001"], employees: ["Lucca"] }))
+      .toBe("MERCEDES · Estribo · pacote: 1546.1-001 · colaborador: Lucca");
+    expect(view({ clients: ["A", "B"], projects: ["P1", "P2"], packages: [], employees: ["Ana", "Lucca"] }))
+      .toBe("A, B · P1, P2 · colaboradores: Ana, Lucca");
+  });
+
+  it("só o colaborador não restringe cliente nem projeto", () => {
+    expect(view({ employees: ["Lucca"] })).toBe("qualquer cliente e projeto · colaborador: Lucca");
   });
 });

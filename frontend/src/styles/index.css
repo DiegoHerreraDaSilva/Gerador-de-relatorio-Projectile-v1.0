@@ -3915,6 +3915,13 @@
   .auto-custom-fixed-period { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1.05rem; font-weight: 600; }
   .auto-requests { display: flex; flex-direction: column; gap: 10px; }
   .auto-requests > h3 { margin: 0; font-size: 0.95rem; }
+  .auto-config-hint { grid-column: 1 / -1; margin: 0; }
+  /* recortes do personalizado, um por linha, com os nomes */
+  .auto-request-blocks { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+  .auto-request-blocks li { display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0; overflow-wrap: anywhere; }
+  .auto-request-block-n { flex: none; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); min-width: 62px; }
+  .auto-requests-note p { margin: 0; font-size: 0.88rem; line-height: 1.5; color: var(--text-muted); }
+  .auto-requests-note strong { color: var(--text); }
   .auto-requests > h3 .muted { font-size: 0.8rem; font-weight: 400; }
   .auto-request-error { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
   /* cabeçalho da aba: a próxima geração num chip, com respiro entre o título e as abas */

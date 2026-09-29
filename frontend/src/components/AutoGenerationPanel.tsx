@@ -14,13 +14,16 @@ import {
   useAutoGenerationStore,
   type AutoItem,
   type AutoStatus,
+  type CustomConfigValues,
   type CustomRequestItem,
+  type CustomUnit,
   type EffectiveConfig,
   type PreviewProject,
   type ProjectRule,
 } from "../store/useAutoGenerationStore";
 import { fmtNum } from "../utils/fmt";
-import { describeSchedule } from "../utils/autoSchedule";
+import { describeSchedule, formatScheduleAt } from "../utils/autoSchedule";
+import { describeBlockView, type CustomBlockView } from "../utils/customScope";
 import { matchesNumberPattern, numberPatternLabel } from "../utils/autoDraft";
 import { ReviewNote } from "./MyReviewsPanel";
 import { AutoSendModal, BulkSendModal } from "./AutoSendModal";
@@ -250,6 +253,17 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
         </section>
       )}
 
+      {isCustomTab && view && view.items.length === 0 && customRequests.length > 0 && !loading && (
+        <div className="card auto-requests-note" role="status">
+          <p>
+            <strong>Nenhum relatório gerado ainda.</strong>{" "}
+            {schedule?.enabled && customRequests.some((r) => r.competence === schedule.target)
+              ? `Os pedidos acima viram relatórios na geração automática de ${formatScheduleAt(schedule.next_at)}, junto com os do mês.`
+              : "Os pedidos acima viram relatórios quando a rodada do mês deles rodar — automaticamente na data agendada ou pelo botão “Gerar rascunhos” da competência, depois que o mês fechar."}
+          </p>
+        </div>
+      )}
+
       {isCustomTab && view && view.items.length === 0 && customRequests.length === 0 && !loading && (
         <div className="card auto-run-card">
           <div>
@@ -284,7 +298,7 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
         </p>
       )}
 
-      {(view?.run || preview) && (
+      {(view?.run || preview) && !(isCustomTab && view?.items.length === 0) && (
         <div className="auto-toolbar">
           <div className="send-status-search">
             <Search size={14} strokeWidth={2} />
@@ -375,36 +389,84 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
   );
 }
 
+const SPLIT_LABELS = {
+  nenhum: "Tudo junto (1 item na lista)", projeto: "Um item por projeto", pacote: "Um item por pacote de trabalho",
+  colaborador: "Um item por colaborador",
+} as const;
+const FORMAT_LABELS: Record<string, string> = { xlsx: "XLSX", pdf: "PDF" };
+
+/** Os recortes de uma geração personalizada, um por linha, com nomes. */
+function CustomBlocksList({ blocks }: { blocks: CustomBlockView[] }) {
+  if (!blocks.length) return null;
+  return (
+    <ul className="auto-request-blocks" aria-label="Recortes">
+      {blocks.map((block, index) => (
+        <li key={index}>
+          {blocks.length > 1 && <span className="auto-request-block-n">Recorte {index + 1}</span>}
+          <span>{describeBlockView(block)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** O que a configuração PRÓPRIA do pedido define, em chips ("assinante Schwaben: Diego", "arquivos: PDF"). */
+function ownConfigChips(config: CustomConfigValues | undefined): string[] {
+  const out: string[] = [];
+  if (config?.signer1_name) out.push(`assinante Schwaben: ${config.signer1_name}`);
+  if (config?.signer1_company) out.push(`empresa Schwaben: ${config.signer1_company}`);
+  if (config?.signer2_name) out.push(`assinante do cliente: ${config.signer2_name}`);
+  if (config?.signer2_company) out.push(`empresa do cliente: ${config.signer2_company}`);
+  if (config?.formats) out.push(`arquivos: ${config.formats.map((f) => FORMAT_LABELS[f] ?? f).join(" + ")}`);
+  return out;
+}
+
 /** Pedido de geração personalizada agendado — ainda não é rascunho. */
 function CustomRequestCard({ request }: { request: CustomRequestItem }) {
   const remove = useAutoGenerationStore((s) => s.deleteCustomRequest);
+  const config = useAutoGenerationStore((s) => s.config);
+  const schedule = useAutoGenerationStore((s) => s.schedule);
+  const [showConfig, setShowConfig] = useState(false);
   const failed = request.status === "erro";
+  const unit: CustomUnit = request.package_unit ?? "projeto";
+  const configKey = JSON.stringify(request.config ?? {});
+  const rule = useMemo<ProjectRule>(() => ({ ...JSON.parse(configKey), mode: unit }), [configKey, unit]);
+  const chips = ownConfigChips(request.config);
+  const name = request.title || "Geração personalizada";
+  const generatesAt = schedule?.enabled && schedule.target === request.competence
+    ? `${formatScheduleAt(schedule.next_at)}, junto com os automáticos`
+    : `quando a rodada de ${competenceLabel(request.competence)} rodar`;
   const cancel = async () => {
     const ok = await confirmDialog({
-      title: "Cancelar este pedido?", message: `"${request.title || request.summary || request.label}" deixa de ser gerado na rodada do mês.`,
+      title: "Cancelar este pedido?", message: `"${name}" (${request.summary || request.label}) deixa de ser gerado na rodada do mês.`,
       confirmLabel: "Cancelar pedido", cancelLabel: "Manter", danger: true,
     });
     if (ok) void remove(request);
   };
   return (
-    <article className={`card auto-card auto-request ${failed ? "auto-request-error" : ""}`} aria-label={request.title || request.summary || "Pedido agendado"}>
+    <article className={`card auto-card auto-request ${failed ? "auto-request-error" : ""}`} aria-label={name}>
       <div className="auto-card-row">
         <div className="auto-card-main">
           <div className="auto-card-title">
-            <h3>{request.title || request.summary || "Recorte personalizado"}</h3>
-            <span className="muted auto-custom-scope">{request.label}{request.title && request.summary ? ` · ${request.summary}` : ""}</span>
+            <h3>{name}</h3>
+            <span className="muted auto-custom-scope">{request.label}</span>
           </div>
+          {request.blocks?.length ? <CustomBlocksList blocks={request.blocks} /> : <p className="muted auto-custom-scope">{request.summary}</p>}
           <div className="auto-badges">
             <span className="auto-badge auto-badge-custom">personalizado</span>
-            {request.split_by && request.split_by !== "nenhum" && (
-              <span className="auto-badge">um item por {request.split_by}</span>
-            )}
-            {request.package_unit && (
-              <span className="auto-badge">um relatório por {request.package_unit === "projeto" ? "projeto" : "pacote de trabalho"}</span>
-            )}
-            {request.reviewer_name && <span className="auto-badge">revisor: {request.reviewer_name}</span>}
+            {chips.map((chip) => <span key={chip} className="auto-badge" title="Configuração própria deste pedido">{chip}</span>)}
           </div>
           {failed && request.error && <p className="error-text auto-error">A última rodada não gerou: {request.error} A próxima rodada tenta de novo.</p>}
+        </div>
+        <div className="auto-card-data">
+          <dl className="auto-card-facts">
+            <div><dt>Período</dt><dd>{request.label}</dd></div>
+            <div><dt>Lista</dt><dd>{SPLIT_LABELS[request.split_by ?? "nenhum"]}</dd></div>
+            <div><dt>Relatório</dt><dd>{MODE_LABELS[unit]}</dd></div>
+            <div><dt>Revisor</dt><dd>{request.reviewer_name ?? "o do projeto, se houver"}</dd></div>
+            <div><dt>Agendado</dt><dd>{request.created_by_name ?? "—"}{request.created_at ? ` · ${fmtDate(request.created_at)}` : ""}</dd></div>
+            <div><dt>Gera em</dt><dd>{generatesAt}</dd></div>
+          </dl>
         </div>
         <div className="auto-card-side">
           <span className={`auto-status-pill ${failed ? "auto-status-erro" : "auto-status-em_revisao"}`}>{failed ? "Erro na rodada" : "Agendado"}</span>
@@ -413,9 +475,20 @@ function CustomRequestCard({ request }: { request: CustomRequestItem }) {
               title="Cancela o pedido — nada foi gerado ainda">
               <Trash2 size={14} strokeWidth={2} /> Cancelar
             </button>
+            <button type="button" className="btn-secondary auto-config-toggle" aria-expanded={showConfig} onClick={() => setShowConfig((v) => !v)}>
+              <SlidersHorizontal size={14} strokeWidth={2} /> Configuração <ChevronDown size={14} className={showConfig ? "flipped" : ""} />
+            </button>
           </div>
         </div>
       </div>
+      {showConfig && (
+        <ProjectConfig familyKey="" rule={rule} effective={(config?.effective ?? {}) as unknown as EffectiveConfig}
+          custom={{
+            unit,
+            onSave: (form) => useAutoGenerationStore.getState().saveCustomConfig({ requestId: request.id, unit }, form),
+            savedMessage: "Salvo. Vale quando este pedido for gerado.",
+          }} />
+      )}
     </article>
   );
 }
@@ -466,6 +539,10 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
   const hasRule = Object.keys(rule ?? {}).length > 0;
   // personalizado: recorte livre, sem família (nada de configuração individual nem "modo desatualizado")
   const isCustom = item?.kind === "avulso";
+  // configuração própria do personalizado (memoizada: o formulário do painel se reinicia quando `rule` muda)
+  const customUnit: CustomUnit = item?.scope_json?.package_unit ?? item?.badges?.mode ?? "projeto";
+  const customConfigKey = JSON.stringify(item?.scope_json?.config ?? {});
+  const customRule = useMemo<ProjectRule>(() => ({ ...JSON.parse(customConfigKey), mode: customUnit }), [customConfigKey, customUnit]);
   // o bloco mostra como o rascunho FOI gerado; a configuração pode ter mudado depois
   const draftMode = item ? badges.mode ?? effective.mode : effective.mode;
   const modeOutdated = !isCustom && Boolean(item && badges.mode && badges.mode !== effective.mode);
@@ -498,6 +575,7 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
                 {item.scope_json.label}{item.scope_json.summary ? ` · ${item.scope_json.summary}` : ""}
               </span>
             )}
+            {isCustom && (item?.scope_json?.blocks?.length ?? 0) > 0 && <CustomBlocksList blocks={item!.scope_json!.blocks!} />}
           </div>
           <div className="auto-badges">
             {isCustom && <span className="auto-badge auto-badge-custom" title="Recorte livre, fora da rodada mensal">personalizado</span>}
@@ -632,7 +710,7 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
                 <Trash2 size={14} strokeWidth={2} /> Apagar
               </button>
             )}
-            {!onToggleSelect && !isCustom && (
+            {!onToggleSelect && (
               <button type="button" className="btn-secondary auto-config-toggle" aria-expanded={showConfig} onClick={() => setShowConfig((v) => !v)}>
                 <SlidersHorizontal size={14} strokeWidth={2} /> Configuração <ChevronDown size={14} className={showConfig ? "flipped" : ""} />
               </button>
@@ -654,6 +732,14 @@ function ProjectCard({ title, client, familyKey, rule, effective, item, preview,
           }} />
       )}
       {showSend && item && <AutoSendModal item={item} onClose={() => setShowSend(false)} />}
+      {showConfig && !onToggleSelect && isCustom && item && (
+        <ProjectConfig familyKey="" rule={customRule} effective={effective} item={item} onRegenerate={editable ? confirmRegenerate : undefined}
+          custom={{
+            unit: customUnit,
+            onSave: (form) => useAutoGenerationStore.getState().saveCustomConfig({ reportId: item.id, unit: customUnit }, form),
+            savedMessage: "Salvo. O rascunho não muda sozinho: regenere pra aplicar.",
+          }} />
+      )}
       {showConfig && !onToggleSelect && !isCustom && <ProjectConfig familyKey={familyKey} rule={rule} effective={effective} item={item} onRegenerate={item && editable ? confirmRegenerate : undefined} />}
     </article>
   );
@@ -885,8 +971,11 @@ function NumberInput({ label, value, suggested, pattern, model, disabled, onComm
 /** Configuração individual do projeto — só o que difere do padrão geral
  * (campo vazio = usa o padrão). Guardada pela família: vale também nos
  * próximos meses do mesmo trabalho ("… Estribo 08.2026" → "… 09.2026"). */
-function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
+function ProjectConfig({ familyKey, rule, effective, item, onRegenerate, custom }: {
   familyKey: string; rule: ProjectRule; effective: EffectiveConfig; item?: AutoItem; onRegenerate?: () => void;
+  // configuração PRÓPRIA de um personalizado (pedido agendado ou já gerado): sem "Gerar relatório
+  // deste projeto", "Relatório" = o `package_unit`, e o que fica em branco herda o projeto e, sem ele, o padrão geral
+  custom?: { unit: CustomUnit; onSave: (form: ProjectRule) => Promise<void>; savedMessage: string };
 }) {
   const saveRule = useAutoGenerationStore((s) => s.saveRule);
   const [form, setForm] = useState<ProjectRule>(rule ?? {});
@@ -905,15 +994,22 @@ function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
   const inherited = (key: keyof ProjectRule) => (rule && key in rule ? undefined : effective[key]);
   const placeholder = (key: "signer1_name" | "signer1_company" | "signer2_name" | "signer2_company") => {
     const value = inherited(key) as string | undefined;
+    if (custom) return value ? `Do projeto ou padrão: ${value}` : "Do projeto ou do padrão geral";
     return value ? `Padrão: ${value}` : key.endsWith("name") ? "Padrão: último relatório aprovado" : "Padrão";
   };
+  const fallback = custom ? "Do projeto ou padrão" : "Padrão";
   const formatsValue = form.formats ? form.formats.slice().sort().join("+") : "";
 
   const save = async () => {
     setStatus("Salvando...");
     try {
-      await saveRule(familyKey, form);
-      setStatus("Salvo. Vale pros próximos rascunhos deste projeto, inclusive nos próximos meses.");
+      if (custom) {
+        await custom.onSave(form);
+        setStatus(custom.savedMessage);
+      } else {
+        await saveRule(familyKey, form);
+        setStatus("Salvo. Vale pros próximos rascunhos deste projeto, inclusive nos próximos meses.");
+      }
       setSaved(true);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
@@ -923,14 +1019,21 @@ function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
   return (
     <div className="auto-config">
       <div className="auto-config-grid">
-        <label className="include-performance-checkbox auto-config-enabled">
-          <input type="checkbox" checked={form.enabled !== false} onChange={(e) => set("enabled", e.target.checked ? undefined : false)} />
-          <span>Gerar relatório deste projeto</span>
-        </label>
+        {custom ? (
+          <p className="auto-field-hint auto-config-hint">
+            Campo em branco: vale a configuração do projeto e, sem ela, o padrão geral.
+          </p>
+        ) : (
+          <label className="include-performance-checkbox auto-config-enabled">
+            <input type="checkbox" checked={form.enabled !== false} onChange={(e) => set("enabled", e.target.checked ? undefined : false)} />
+            <span>Gerar relatório deste projeto</span>
+          </label>
+        )}
         <label>Relatório
-          <Select ariaLabel="Relatório" value={form.mode ?? ""} onChange={(v) => set("mode", (v || undefined) as ProjectRule["mode"])}
+          <Select ariaLabel="Relatório" value={custom ? form.mode ?? custom.unit : form.mode ?? ""}
+            onChange={(v) => set("mode", (v || undefined) as ProjectRule["mode"])}
             options={[
-              { value: "", label: `Padrão (${MODE_LABELS[(inherited("mode") as "projeto" | "pacote") ?? "projeto"] ?? "—"})` },
+              ...(custom ? [] : [{ value: "", label: `Padrão (${MODE_LABELS[(inherited("mode") as "projeto" | "pacote") ?? "projeto"] ?? "—"})` }]),
               { value: "projeto", label: MODE_LABELS.projeto },
               { value: "pacote", label: MODE_LABELS.pacote },
             ]} />
@@ -939,7 +1042,7 @@ function ProjectConfig({ familyKey, rule, effective, item, onRegenerate }: {
           <Select ariaLabel="Arquivos" value={formatsValue}
             onChange={(v) => set("formats", v ? (v.split("+") as Array<"xlsx" | "pdf">) : undefined)}
             options={[
-              { value: "", label: `Padrão (${((inherited("formats") as string[] | undefined) ?? ["xlsx"]).map((f) => f.toUpperCase()).join(" + ")})` },
+              { value: "", label: `${fallback} (${((inherited("formats") as string[] | undefined) ?? ["xlsx"]).map((f) => f.toUpperCase()).join(" + ")})` },
               { value: "xlsx", label: "XLSX" },
               { value: "pdf", label: "PDF" },
               { value: "pdf+xlsx", label: "XLSX + PDF" },

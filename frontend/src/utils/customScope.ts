@@ -98,6 +98,20 @@ export function buildCustomScope(input: {
   };
 }
 
+/** Um recorte do pedido em NOMES, como o backend devolve (`describe_blocks`). */
+export type CustomBlockView = { clients: string[]; projects: string[]; packages: string[]; employees: string[] };
+
+/** O recorte numa linha só: "MERCEDES · todos os projetos · colaborador: Lucca". */
+export function describeBlockView(block: CustomBlockView): string {
+  const parts: string[] = [];
+  if (block.clients.length) parts.push(block.clients.join(", "));
+  if (block.projects.length) parts.push(block.projects.join(", "));
+  else parts.push(block.clients.length ? "todos os projetos" : "qualquer cliente e projeto");
+  if (block.packages.length) parts.push(`${block.packages.length === 1 ? "pacote" : "pacotes"}: ${block.packages.join(", ")}`);
+  if (block.employees.length) parts.push(`${block.employees.length === 1 ? "colaborador" : "colaboradores"}: ${block.employees.join(", ")}`);
+  return parts.join(" · ");
+}
+
 /** Uma frase do bloco pra tela ("Mercedes · 2 projetos · Lucca"). */
 export function describeBlock(
   block: BlockDraft, employeeName: (id: string) => string, projectName: (id: string) => string,

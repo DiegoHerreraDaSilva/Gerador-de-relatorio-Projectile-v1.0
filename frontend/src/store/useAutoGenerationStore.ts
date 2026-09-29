@@ -6,6 +6,7 @@ import { draftToEditor, editorToDraft, type AutoDraft } from "../utils/autoDraft
 import { buildGeneratePayload } from "../utils/generatePayload";
 import { api, ApiError } from "../utils/autoApi";
 import type { ScheduleInfo } from "../utils/autoSchedule";
+import type { CustomBlockView } from "../utils/customScope";
 import { useMyReviewsStore } from "./useMyReviewsStore";
 import type { ReportHeader, RowIssue, WorkPackage } from "../api/types";
 
@@ -66,8 +67,10 @@ export type AutoItem = {
   id: string;
   // "avulso" = geração personalizada (recorte livre, período qualquer)
   kind?: "mensal" | "avulso";
-  // só o período e o resumo do recorte (o recorte inteiro é do backend)
-  scope_json?: { label: string; summary: string } | null;
+  // o período, o resumo e a configuração PRÓPRIA do recorte (o recorte inteiro é do backend)
+  scope_json?: {
+    label: string; summary: string; package_unit?: CustomUnit | null; config?: CustomConfigValues; blocks?: CustomBlockView[];
+  } | null;
   competence: string;
   project_id: string;
   family_key: string;
@@ -195,6 +198,12 @@ export type CustomScopeInput = {
 /** Pedido de geração personalizada AGENDADO: ainda não virou rascunho — nasce
  * junto com os da rodada da competência. `erro` = a rodada tentou e falhou
  * (ex.: recorte sem horas); `error` traz o motivo e a próxima rodada tenta de novo. */
+/** A configuração própria de um personalizado — os mesmos campos da de um projeto
+ * (o "Relatório" é o `package_unit`). Vazio = herda a do projeto e, sem ela, o padrão geral. */
+export type CustomConfigValues = Partial<Pick<ProjectRule, "signer1_name" | "signer1_company" | "signer2_name" | "signer2_company" | "formats">>;
+
+export type CustomConfigTarget = { requestId: string; unit: CustomUnit } | { reportId: string; unit: CustomUnit };
+
 export type CustomRequestItem = {
   id: string;
   competence: string;
@@ -203,6 +212,9 @@ export type CustomRequestItem = {
   title: string | null;
   split_by: CustomSplit | null;
   package_unit: CustomUnit | null;
+  config: CustomConfigValues;
+  // os recortes em nomes (clientes, projetos, pacotes, colaboradores)
+  blocks: CustomBlockView[];
   reviewer_name: string | null;
   status: "agendado" | "erro";
   error: string | null;
@@ -269,6 +281,7 @@ interface AutoGenerationState {
   previewCustom: (scope: CustomScopeInput) => Promise<CustomPreview>;
   scheduleCustom: (scope: CustomScopeInput) => Promise<CustomRequestItem>;
   deleteCustomRequest: (request: CustomRequestItem) => Promise<void>;
+  saveCustomConfig: (target: CustomConfigTarget, form: ProjectRule) => Promise<void>;
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -664,6 +677,22 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     // o pedido agendado aparece na aba "Personalizados"; o rascunho só nasce na rodada do mês
     await get().select(CUSTOM_KEY);
     return result.request;
+  },
+
+  saveCustomConfig: async (target, form) => {
+    const { mode, ...rest } = form;
+    const config: Record<string, unknown> = {};
+    for (const key of ["signer1_name", "signer1_company", "signer2_name", "signer2_company", "formats"] as const) {
+      if (rest[key] !== undefined) config[key] = rest[key];
+    }
+    const url = "requestId" in target
+      ? `/auto-generation/custom/requests/${target.requestId}/config`
+      : `/auto-generation/custom/${target.reportId}/config`;
+    await api(url, {
+      method: "PUT",
+      body: JSON.stringify({ package_unit: mode ?? target.unit, config: Object.keys(config).length ? config : null }),
+    });
+    await get().refresh();
   },
 
   deleteCustomRequest: async (request) => {

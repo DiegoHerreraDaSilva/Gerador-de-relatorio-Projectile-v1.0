@@ -267,6 +267,28 @@ describe("aba Personalizados", () => {
     vi.unstubAllGlobals();
   });
 
+  it("salvar a configuração do personalizado manda o Relatório como package_unit e só o que foi preenchido", async () => {
+    const bodies: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") bodies.push({ url, body: JSON.parse(String(init.body)) });
+      const body = url === "/auto-generation/custom" ? { items: [], counts: {}, requests: [] }
+        : url === "/auto-generation/config" ? { defaults: {}, config: {}, rules: [], effective: {} } : {};
+      return { ok: true, json: async () => body } as Response;
+    }));
+    const { useAutoGenerationStore, CUSTOM_KEY } = await import("../useAutoGenerationStore");
+    useAutoGenerationStore.setState({ _loadedForLogin: null, selected: CUSTOM_KEY });
+    const store = useAutoGenerationStore.getState();
+    // pedido agendado: "Relatório" = pacote, assinante e arquivos preenchidos, o resto em branco
+    await store.saveCustomConfig({ requestId: "Q1", unit: "projeto" }, { mode: "pacote", signer1_name: "Diego", formats: ["pdf"] });
+    // relatório já gerado: nada escolhido = mantém a unidade e manda config nula (volta a herdar)
+    await store.saveCustomConfig({ reportId: "C1", unit: "pacote" }, {});
+    expect(bodies).toEqual([
+      { url: "/auto-generation/custom/requests/Q1/config", body: { package_unit: "pacote", config: { signer1_name: "Diego", formats: ["pdf"] } } },
+      { url: "/auto-generation/custom/C1/config", body: { package_unit: "pacote", config: null } },
+    ]);
+    vi.unstubAllGlobals();
+  });
+
   it("apagar chama DELETE, fecha a guia aberta do relatório e recarrega a lista", async () => {
     const calls: string[] = [];
     stubApi(calls);
