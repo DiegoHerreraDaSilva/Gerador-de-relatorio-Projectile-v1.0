@@ -58,6 +58,8 @@ _MANAGER_ONLY = {
     ("POST", "/auto-generation/custom"),
     ("DELETE", "/auto-generation/custom/{report_id}"),
     ("DELETE", "/auto-generation/custom/requests/{request_id}"),
+    ("PUT", "/auto-generation/custom/requests/{request_id}/config"),
+    ("PUT", "/auto-generation/custom/{report_id}/config"),
 }
 
 

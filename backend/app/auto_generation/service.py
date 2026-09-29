@@ -451,7 +451,12 @@ def _public(item: dict) -> dict:
     saved = out.get("scope_json")
     if saved:
         # o recorte inteiro (ids de colaborador, blocos) é do gerente — quem revisa só vê o período e o resumo
-        out["scope_json"] = {k: saved.get(k) for k in ("label", "summary")}
+        inner = saved.get("scope") or {}
+        out["scope_json"] = {
+            "label": saved.get("label"), "summary": saved.get("summary"),
+            "package_unit": inner.get("package_unit"), "config": inner.get("config") or {},
+            "blocks": saved.get("blocks") or [],
+        }
     return out
 
 
@@ -584,7 +589,11 @@ def regenerate(report_id: str, actor: dict) -> None:
 def _custom_scope(request: dict) -> dict:
     """O que fica guardado (e o que o "Regenerar" relê): só o recorte —
     o revisor escolhido é uma ação da criação, não parte dele."""
-    return {k: v for k, v in request.items() if k != "reviewer_login"}
+    scope = {k: v for k, v in request.items() if k != "reviewer_login"}
+    config = custom.clean_config(scope.pop("config", None))
+    if config:
+        scope["config"] = config
+    return scope
 
 
 def _custom_plan(scope: dict) -> tuple[custom.Resolved, list[custom.CustomReport], list[str]]:
@@ -593,8 +602,7 @@ def _custom_plan(scope: dict) -> tuple[custom.Resolved, list[custom.CustomReport
     try:
         resolved = custom.resolve(scope)
         rows, warnings = custom.collect(resolved)
-        config = rules.effective(store.get_config(), None)
-        reports = custom.build_reports(resolved, rows, config, date.today())
+        reports = custom.build_reports(resolved, rows, store.get_config(), date.today())
     except custom.InvalidScope as e:
         raise InvalidRequest(str(e)) from e
     warnings = [*resolved.warnings, *warnings]
@@ -602,6 +610,7 @@ def _custom_plan(scope: dict) -> tuple[custom.Resolved, list[custom.CustomReport
     for report in reports:
         if report.draft["packages"]:
             usable.append(report)
+            warnings.extend(f"\"{report.title}\": {note}" for note in report.notes)
         else:  # só linhas sem descrição: não há o que revisar
             warnings.append(
                 f"\"{report.title}\" só tem horas sem descrição ({str(round(report.hours, 1)).replace('.', ',')} h) e não gerou relatório."
@@ -634,6 +643,7 @@ def create_custom(request: dict, actor: dict) -> dict:
     reviewer = _resolve_reviewer(login) if login else None
     scope = _custom_scope(request)
     resolved, reports, warnings = _custom_plan(scope)
+    blocks_view = custom.describe_blocks(scope, resolved.employees)
     created = []
     with store.write_session() as s:
         for report in reports:
@@ -641,7 +651,7 @@ def create_custom(request: dict, actor: dict) -> dict:
             row = {
                 "id": report_id, "run_id": None, "kind": store.KIND_CUSTOM,
                 "scope_json": {"scope": scope, "part": report.key, "label": resolved.label,
-                               "summary": custom.scope_summary(resolved)},
+                               "summary": custom.scope_summary(resolved), "blocks": blocks_view},
                 "competence": resolved.end_competence,
                 "project_id": f"custom:{report_id}", "family_key": f"custom:{report_id}",
                 "project_name": report.title, "client": report.client or None,
@@ -649,8 +659,10 @@ def create_custom(request: dict, actor: dict) -> dict:
                 "source_hours": report.hours,
                 "badges_json": _badges(report.draft, report.hours, {"custom": True, "partial": report.partial}),
             }
-            if reviewer:
-                row["reviewer_login"], row["reviewer_name"] = reviewer["login"][:100], reviewer["name"][:255]
+            # revisor escolhido no pedido; sem ele, o do projeto (configuração ou último aprovado)
+            chosen = reviewer or ({"login": report.reviewer_login, "name": report.reviewer_name} if report.reviewer_login else None)
+            if chosen:
+                row["reviewer_login"], row["reviewer_name"] = chosen["login"][:100], (chosen["name"] or chosen["login"])[:255]
             s.insert_report(row)
             s.add_event(report_id, "generated", actor, None, {"custom": True, "label": resolved.label})
             created.append({"id": report_id, "title": report.title})
@@ -673,6 +685,7 @@ def _public_request(competence: str, entry: dict) -> dict:
         "id": entry["id"], "competence": competence, "label": entry.get("label"), "summary": entry.get("summary"),
         "title": entry.get("title"), "split_by": (entry.get("scope") or {}).get("split_by"),
         "package_unit": (entry.get("scope") or {}).get("package_unit"),
+        "config": (entry.get("scope") or {}).get("config") or {}, "blocks": entry.get("blocks") or [],
         "reviewer_name": entry.get("reviewer_name"), "status": entry.get("status", "agendado"),
         "error": entry.get("error"), "created_by_name": entry.get("created_by_name"), "created_at": entry.get("created_at"),
     }
@@ -701,6 +714,7 @@ def schedule_custom(request: dict, actor: dict) -> dict:
         "id": str(ULID()), "scope": scope, "title": resolved.title or None,
         "reviewer_login": reviewer["login"] if reviewer else None, "reviewer_name": reviewer["name"] if reviewer else None,
         "label": resolved.label, "summary": custom.scope_summary(resolved), "status": "agendado", "error": None,
+        "blocks": custom.describe_blocks(scope, resolved.employees),
         "created_by": actor.get("login"), "created_by_name": actor.get("name"), "created_at": store.utcnow().isoformat(),
     }
     with store.write_session() as s:
@@ -712,6 +726,50 @@ def schedule_custom(request: dict, actor: dict) -> dict:
                   "package_unit": resolved.package_unit},
     )
     return _public_request(current, entry)
+
+
+def update_custom_request_config(request_id: str, package_unit: str, config: dict | None, actor: dict) -> dict:
+    """Muda a configuração de um pedido AGENDADO (Relatório, arquivos, assinantes,
+    empresas) — vale quando a rodada gerar o pedido."""
+    for competence, entries in store.get_custom_requests().items():
+        if not any(e.get("id") == request_id for e in entries):
+            continue
+        with store.write_session() as s:
+            current = s.custom_requests(competence)
+            entry = next((e for e in current if e.get("id") == request_id), None)
+            if entry is None:
+                raise NotFound(request_id)
+            scope = {k: v for k, v in (entry.get("scope") or {}).items() if k != "config"}
+            scope["package_unit"] = package_unit
+            cleaned = custom.clean_config(config)
+            if cleaned:
+                scope["config"] = cleaned
+            updated = {**entry, "scope": scope}
+            s.set_custom_requests(competence, [updated if e.get("id") == request_id else e for e in current])
+        return _public_request(competence, updated)
+    raise NotFound(request_id)
+
+
+def update_custom_config(report_id: str, package_unit: str, config: dict | None, actor: dict) -> None:
+    """Muda a configuração guardada de um personalizado JÁ GERADO. O rascunho não
+    muda sozinho (a tela oferece "Regenerar" pra aplicar); aprovado/enviado
+    precisa ser reaberto antes, como pra apagar."""
+    with store.write_session() as s:
+        report = s.get_report_for_update(report_id)
+        if report is None:
+            raise NotFound(report_id)
+        if report.get("kind") != store.KIND_CUSTOM:
+            raise WorkflowError("Só um relatório personalizado tem configuração própria.")
+        if report["status"] in (STATUS_APPROVED, STATUS_SENT):
+            raise WorkflowError(f"Um relatório {report['status']} não muda de configuração — reabra antes.")
+        saved = dict(report.get("scope_json") or {})
+        scope = {k: v for k, v in (saved.get("scope") or {}).items() if k != "config"}
+        scope["package_unit"] = package_unit
+        cleaned = custom.clean_config(config)
+        if cleaned:
+            scope["config"] = cleaned
+        s.update_report(report_id, scope_json={**saved, "scope": scope})
+        s.add_event(report_id, "config", actor, None, {"package_unit": package_unit, "config": cleaned})
 
 
 def delete_custom_request(request_id: str, actor: dict) -> None:
@@ -763,9 +821,31 @@ def generate_custom_requests(competence: str, actor: dict) -> int:
     return len(done)
 
 
+def _backfill_request_blocks() -> None:
+    """Pedido agendado ANTES de `blocks` existir: completa uma vez (nomes de
+    projeto e de colaborador) e grava. Falha (colaborador que saiu, Projectile
+    fora do ar) não atrapalha a lista — o cartão cai no resumo e tenta de novo depois."""
+    for competence, entries in store.get_custom_requests().items():
+        missing = [e for e in entries if "blocks" not in e and e.get("scope")]
+        if not missing:
+            continue
+        filled: dict[str, list[dict]] = {}
+        for entry in missing:
+            try:
+                filled[entry["id"]] = custom.describe_blocks(entry["scope"], custom.resolve(entry["scope"]).employees)
+            except Exception:  # noqa: BLE001
+                logger.warning("Não deu pra completar os recortes do pedido %s", entry.get("id"), exc_info=True)
+        if filled:
+            with store.write_session() as s:
+                s.set_custom_requests(competence, [
+                    {**e, "blocks": filled[e["id"]]} if e.get("id") in filled else e for e in s.custom_requests(competence)
+                ])
+
+
 def custom_view() -> dict:
     """A aba "Personalizados": os pedidos agendados (ainda sem rascunho) e os
     relatórios já gerados."""
+    _backfill_request_blocks()
     out = [{**_public(item), "badges": item.get("badges_json") or {}} for item in store.list_custom()]
     _attach_activity(out)
     requests = [
@@ -942,7 +1022,7 @@ def my_reviews(user: dict, competence_from: str | None = None) -> dict:
         [i["id"] for i in items if i["status"] in (STATUS_REVIEWED, STATUS_RETURNED)], ("submitted", "returned"),
     )
     out = [
-        {**_public(i), "badges": i.get("badges_json") or {}, "last_comment": comments.get(i["id"])}
+        {**_without_blocks(_public(i)), "badges": i.get("badges_json") or {}, "last_comment": comments.get(i["id"])}
         for i in items
     ]
     done = [i for i in out if i["status"] in (STATUS_APPROVED, STATUS_SENT)]
@@ -966,9 +1046,18 @@ def review_summary(user: dict, is_manager: bool, competence_from: str | None = N
     }
 
 
+def _without_blocks(item: dict) -> dict:
+    """Os recortes (clientes, projetos, PESSOAS escolhidas) são do gerente: o
+    revisor vê o período e o resumo, não a lista de quem entrou no recorte."""
+    saved = item.get("scope_json")
+    if saved:
+        item = {**item, "scope_json": {k: v for k, v in saved.items() if k != "blocks"}}
+    return item
+
+
 def review_detail(report_id: str, user: dict, competence_from: str | None = None) -> dict:
     _load_assigned(report_id, user, competence_from)
-    return detail(report_id)
+    return _without_blocks(detail(report_id))
 
 
 def _keep_manager_fields(data: dict, current: dict) -> dict:

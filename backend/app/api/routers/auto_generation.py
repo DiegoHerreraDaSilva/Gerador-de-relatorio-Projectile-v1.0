@@ -18,6 +18,7 @@ from ...auto_generation.schemas import (
     CombinedSendRequest,
     CommentRequest,
     FamilyRequest,
+    CustomConfigRequest,
     CustomRequest,
     NumbersRequest,
     PlannedNumberRequest,
@@ -158,6 +159,22 @@ async def custom_schedule_endpoint(body: CustomRequest, _user: dict = Depends(re
     """AGENDA a geração personalizada do mês atual: os rascunhos nascem junto
     com os da rodada dessa competência, não agora."""
     return {"request": await run_in_threadpool(_call, service.schedule_custom, body.model_dump(), _user)}
+
+
+@router.put("/auto-generation/custom/requests/{request_id}/config")
+async def custom_request_config_endpoint(request_id: str, body: CustomConfigRequest, _user: dict = Depends(require_manager)):
+    """Configuração própria (Relatório, arquivos, assinantes, empresas) de um pedido agendado."""
+    config = body.config.model_dump() if body.config else None
+    return {"request": await run_in_threadpool(
+        _call, service.update_custom_request_config, request_id, body.package_unit, config, _user)}
+
+
+@router.put("/auto-generation/custom/{report_id}/config")
+async def custom_config_endpoint(report_id: str, body: CustomConfigRequest, _user: dict = Depends(require_manager)):
+    """Configuração própria de um personalizado já gerado (vale ao regenerar)."""
+    config = body.config.model_dump() if body.config else None
+    await run_in_threadpool(_call, service.update_custom_config, report_id, body.package_unit, config, _user)
+    return {"ok": True}
 
 
 @router.delete("/auto-generation/custom/requests/{request_id}")

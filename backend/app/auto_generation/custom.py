@@ -25,7 +25,7 @@ from datetime import date, timedelta
 
 from .. import projectile_db
 from ..services import auto_generation_store as store
-from . import builder, families
+from . import builder, families, rules
 
 # marcador do `pacote_scope` de um relatório que NÃO cobre o projeto/pacote
 # inteiro (filtrou colaborador ou só alguns pacotes). O Diagnóstico só marca
@@ -69,6 +69,8 @@ class Resolved:
     split_by: str
     package_unit: str
     title: str
+    # configuração PRÓPRIA do pedido (assinantes, empresas, arquivos): vale por cima da do projeto
+    config: dict
     employees: dict[str, str]  # id → nome, só os pedidos
     warnings: list[str] = field(default_factory=list)
 
@@ -82,6 +84,11 @@ class CustomReport:
     draft: dict
     partial: bool
     project_names: list[str]
+    # revisor herdado da configuração do projeto (ou do que revisou o último aprovado)
+    reviewer_login: str | None = None
+    reviewer_name: str | None = None
+    # avisos deste relatório (ex.: projetos com configurações diferentes)
+    notes: list[str] = field(default_factory=list)
 
 
 # --- validação e resolução do recorte -------------------------------------------
@@ -174,8 +181,24 @@ def resolve(scope: dict) -> Resolved:
     return Resolved(
         start_competence=start, end_competence=end, start_date=start_date, end_date=end_date,
         label=builder.period_label(start, end), blocks=blocks, split_by=split_by, package_unit=unit,
-        title=str(scope.get("title") or "").strip()[:200], employees=employees, warnings=warnings,
+        title=str(scope.get("title") or "").strip()[:200], config=clean_config(scope.get("config")),
+        employees=employees, warnings=warnings,
     )
+
+
+CONFIG_FIELDS = ("signer1_name", "signer1_company", "signer2_name", "signer2_company", "formats")
+
+
+def clean_config(config: dict | None) -> dict:
+    """Só os campos conhecidos e preenchidos: vazio/`None` é "herda"."""
+    out: dict = {}
+    for key in CONFIG_FIELDS:
+        value = (config or {}).get(key)
+        if isinstance(value, str):
+            value = value.strip()
+        if value:
+            out[key] = value
+    return out
 
 
 # --- coleta das horas --------------------------------------------------------------
@@ -288,13 +311,69 @@ def _title(resolved: Resolved, part: str | None, rows: list[dict], infos: dict[s
     return base
 
 
-def build_reports(resolved: Resolved, rows: list[dict], config: dict, today: date) -> list[CustomReport]:
-    """Divide as linhas por `split_by` e monta o rascunho de cada relatório."""
+# o que o relatório personalizado herda da configuração do PROJETO (a mesma dos
+# relatórios mensais, `auto_rules` por família): assinantes, arquivos e revisor
+_INHERITED = (
+    ("signer1_name", "assinante Schwaben"), ("signer1_company", "empresa Schwaben"),
+    ("signer2_name", "assinante do cliente"), ("signer2_company", "empresa do cliente"),
+    ("formats", "arquivos"),
+)
+
+
+def _reviewer_of(family_key: str, effective: dict, memories: dict[str, dict]) -> tuple[str, str] | None:
+    """Revisor do projeto: o da configuração dele; sem ele, quem revisou o último
+    relatório aprovado da família (mesma prioridade da rodada mensal)."""
+    if effective.get("reviewer_login"):
+        return effective["reviewer_login"], effective.get("reviewer_name") or effective["reviewer_login"]
+    remembered = (memories.get(family_key) or {}).get("reviewer") or {}
+    if remembered.get("login"):
+        return remembered["login"], remembered.get("name") or remembered["login"]
+    return None
+
+
+def _config_for(group: list[dict], infos: dict[str, dict], overrides: dict[str, str], global_config: dict,
+                family_rules: dict[str, dict], memories: dict[str, dict],
+                own: dict | None = None) -> tuple[dict, tuple[str, str] | None, list[str]]:
+    """Configuração de UM relatório: a do projeto (família) quando o relatório
+    tem um projeto só — ou vários com a MESMA configuração; com projetos de
+    configurações diferentes vale o padrão geral e o relatório leva um aviso."""
+    own = own or {}
+    default = {**rules.effective(global_config, None), **own}
+    keys = sorted({
+        overrides.get(pid) or families.family_key(infos[pid]["client"], infos[pid]["name"])
+        for pid in (str(r.get("project_id") or "") for r in group) if pid in infos
+    })
+    if not keys:
+        return default, None, []
+    effective = {key: {**rules.effective(global_config, family_rules.get(key)), **own} for key in keys}
+    reviewers = {key: _reviewer_of(key, effective[key], memories) for key in keys}
+    first = keys[0]
+    # o que o pedido define ele mesmo vale pra todos os projetos: não é diferença
+    differing = [label for field_name, label in _INHERITED
+                 if field_name not in own and len({repr(effective[k].get(field_name)) for k in keys}) > 1]
+    if len({reviewers[k] for k in keys}) > 1:
+        differing.append("revisor")
+    if not differing:
+        return effective[first], reviewers[first], []
+    return default, None, [
+        f"os projetos deste relatório têm configurações diferentes ({', '.join(differing)}): valeu o padrão geral."
+    ]
+
+
+def build_reports(resolved: Resolved, rows: list[dict], global_config: dict, today: date) -> list[CustomReport]:
+    """Divide as linhas por `split_by` e monta o rascunho de cada relatório.
+    `global_config` é a configuração GUARDADA do padrão geral (`auto_settings`);
+    a de cada projeto (assinantes, arquivos, revisor) vem das regras da família."""
     if not rows:
         raise InvalidScope("Nenhuma hora encontrada nesse recorte e período.")
     infos = _project_infos(rows)
     multi_month = resolved.start_competence != resolved.end_competence
-    overrides = _family_overrides() if multi_month else {}
+    overrides = _family_overrides()
+    family_rules = store.get_rules()
+    all_keys = sorted({
+        overrides.get(pid) or families.family_key(info["client"], info["name"]) for pid, info in infos.items()
+    })
+    memories = store.get_memories(all_keys) if all_keys else {}
 
     def project_key(row: dict) -> str:
         """Chave do "projeto" do relatório: o `project_id`, ou a FAMÍLIA em
@@ -334,6 +413,9 @@ def build_reports(resolved: Resolved, rows: list[dict], config: dict, today: dat
         # as linhas pela chave do projeto (família em vários meses)
         keyed = [{**r, "project_id": project_key(r)} for r in group]
         names = {project_key(r): project_label(r) for r in group}
+        config, reviewer, config_notes = _config_for(
+            group, infos, overrides, global_config, family_rules, memories, resolved.config,
+        )
         draft = builder.build_custom_draft(keyed, names, resolved.label, resolved.package_unit, config, today)
         partial_keys = _partial_keys(resolved, group, keyed)
         for package in draft["packages"]:
@@ -349,6 +431,9 @@ def build_reports(resolved: Resolved, rows: list[dict], config: dict, today: dat
             draft=draft,
             partial=bool(partial_keys),
             project_names=sorted({names[k] for k in names}),
+            reviewer_login=reviewer[0] if reviewer else None,
+            reviewer_name=reviewer[1] if reviewer else None,
+            notes=config_notes,
         ))
     reports.sort(key=lambda r: r.title.casefold())
     return reports
@@ -370,8 +455,6 @@ def _partial_keys(resolved: Resolved, group: list[dict], keyed: list[dict]) -> s
 
 
 def _family_overrides() -> dict[str, str]:
-    # só em período de vários meses o relatório junta por família; um mês só
-    # não precisa ler o banco
     return store.get_family_overrides()
 
 
@@ -384,6 +467,24 @@ def summarize(resolved: Resolved, reports: list[CustomReport]) -> list[dict]:
             "issues": len(r.draft.get("issues", [])), "projects": r.project_names,
         }
         for r in reports
+    ]
+
+
+def describe_blocks(scope: dict, employees: dict[str, str]) -> list[dict]:
+    """Os recortes do pedido em NOMES (o que a tela mostra): clientes, projetos
+    escolhidos, pacotes e colaboradores. Só o que foi escolhido de fato — um
+    bloco só com o cliente não lista os projetos dele."""
+    raw = scope.get("blocks") or []
+    ids = sorted({str(p) for block in raw for p in (block.get("project_ids") or [])})
+    details = projectile_db.fetch_project_details(ids) if ids else {}
+    return [
+        {
+            "clients": [str(c) for c in block.get("clients") or []],
+            "projects": [families.clean((details.get(str(p)) or {}).get("name")) or str(p) for p in block.get("project_ids") or []],
+            "packages": [str(p) for p in block.get("packages") or []],
+            "employees": [employees.get(str(e), str(e)) for e in block.get("employee_ids") or []],
+        }
+        for block in raw
     ]
 
 

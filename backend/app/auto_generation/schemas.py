@@ -153,6 +153,23 @@ class CustomPeriod(_Strict):
     end: str = Field(max_length=7)
 
 
+class CustomConfig(_Strict):
+    """A configuração PRÓPRIA de uma geração personalizada — os mesmos campos da
+    configuração de um projeto (assinantes, empresas, arquivos). Vazio = herda
+    a do projeto (família) e, sem ela, o padrão geral. O "Relatório" (um por
+    projeto ou por pacote de trabalho) é o `package_unit` do pedido."""
+    signer1_name: str | None = Field(default=None, max_length=200)
+    signer1_company: str | None = Field(default=None, max_length=200)
+    signer2_name: str | None = Field(default=None, max_length=200)
+    signer2_company: str | None = Field(default=None, max_length=200)
+    formats: list[Literal["xlsx", "pdf"]] | None = Field(default=None, min_length=1, max_length=2)
+
+
+class CustomConfigRequest(_Strict):
+    package_unit: Literal["projeto", "pacote"]
+    config: CustomConfig | None = None
+
+
 class CustomRequest(_Strict):
     period: CustomPeriod
     blocks: list[CustomBlock] = Field(min_length=1, max_length=20)
@@ -162,6 +179,7 @@ class CustomRequest(_Strict):
     package_unit: Literal["projeto", "pacote"] = "projeto"
     title: str | None = Field(default=None, max_length=200)
     reviewer_login: str | None = Field(default=None, max_length=100)
+    config: CustomConfig | None = None
 
 
 class FamilyRequest(_Strict):

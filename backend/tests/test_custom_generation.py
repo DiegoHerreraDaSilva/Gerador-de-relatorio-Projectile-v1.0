@@ -324,14 +324,18 @@ def test_quem_revisa_so_ve_o_periodo_e_o_resumo_do_recorte(custom_db):
     scope = _scope([{"clients": ["Mercedes"], "employee_ids": ["10"]}], reviewer_login="lucca")
     [created] = service.create_custom(scope, _MANAGER)["created"]
     manager_view = service.custom_view()["items"][0]
-    assert set(manager_view["scope_json"]) == {"label", "summary"}
+    exposed = {"label", "summary", "package_unit", "config", "blocks"}
+    assert set(manager_view["scope_json"]) == exposed
     assert manager_view["scope_json"]["summary"] == "Mercedes · Lucca Silva"
     reviewer = {"name": "Lucca Silva", "login": "lucca", "email": "l@x"}
     listed = _client(reviewer).get("/my-reviews").json()["to_review"]
     assert [i["id"] for i in listed] == [created["id"]]
-    assert set(listed[0]["scope_json"]) == {"label", "summary"}
+    for_reviewer = exposed - {"blocks"}                 # quem entrou no recorte é do gerente
+    assert set(listed[0]["scope_json"]) == for_reviewer
     detail = _client(reviewer).get(f"/my-reviews/{created['id']}").json()
-    assert set(detail["scope_json"]) == {"label", "summary"} and "employee" not in str(detail["scope_json"]).lower()
+    # o recorte em si (blocos, ids de colaborador) nunca vai pro revisor
+    assert set(detail["scope_json"]) == for_reviewer and "employee" not in str(detail["scope_json"]).lower()
+    assert "blocks" not in str(detail["scope_json"])
 
 
 def test_editar_e_salvar_o_rascunho_usa_o_fluxo_de_sempre(custom_db):
@@ -378,6 +382,260 @@ def test_regenerar_com_a_parte_que_sumiu_do_recorte(custom_db, monkeypatch):
     monkeypatch.setattr(projectile_db, "fetch_custom_hours", lambda *a, **k: [dict(r) for r in only_acme])
     with pytest.raises(service.WorkflowError):
         service.regenerate(a["id"] if "Estribo" in a["title"] else b["id"], _MANAGER)
+
+
+# --- configuração do projeto: a mesma dos relatórios mensais --------------------------------------
+
+
+def _family(project_id):
+    from backend.app.auto_generation import families
+
+    return families.family_key(_DETAILS[project_id]["client"], _DETAILS[project_id]["name"])
+
+
+def _rule(project_id, **rule):
+    with store.write_session() as s:
+        s.set_rule(_family(project_id), rule, "teste")
+
+
+def test_relatorio_de_um_projeto_herda_assinantes_arquivos_e_revisor_dele(custom_db):
+    _rule("E8", signer1_name="Diego", signer2_name="Cliente MBB", formats=["pdf"], reviewer_login="ana", reviewer_name="Ana Souza")
+    _resolved, [report], warnings = _plan(_scope([{"project_ids": ["E8"]}]))
+    header = report.draft["header"]
+    assert (header["signer1_name"], header["signer2_name"]) == ("Diego", "Cliente MBB")
+    assert report.draft["formats"] == ["pdf"]
+    assert (report.reviewer_login, report.reviewer_name) == ("ana", "Ana Souza")
+    assert not any("configurações diferentes" in w for w in warnings)
+
+
+def test_projeto_sem_regra_usa_o_padrao_geral(custom_db):
+    with store.write_session() as s:
+        s.set_config({"signer1_name": "Padrão", "formats": ["xlsx", "pdf"]})
+    _resolved, [report], _w = _plan(_scope([{"project_ids": ["P1"]}]))
+    assert report.draft["header"]["signer1_name"] == "Padrão" and report.draft["formats"] == ["xlsx", "pdf"]
+    assert report.reviewer_login is None
+
+
+def test_varios_projetos_com_a_mesma_configuracao_usam_ela(custom_db):
+    for project in ("E8", "P1"):
+        _rule(project, signer1_name="Diego", formats=["pdf"])
+    _resolved, [report], warnings = _plan(_scope([{"project_ids": ["E8", "P1"]}]))
+    assert report.draft["header"]["signer1_name"] == "Diego" and report.draft["formats"] == ["pdf"]
+    assert not any("configurações diferentes" in w for w in warnings)
+
+
+def test_projetos_com_configuracoes_diferentes_usam_o_padrao_geral_e_avisam(custom_db):
+    with store.write_session() as s:
+        s.set_config({"signer1_name": "Padrão"})
+    _rule("E8", signer1_name="Diego", reviewer_login="ana", reviewer_name="Ana Souza")
+    _rule("P1", signer1_name="Outro", formats=["pdf"])
+    _resolved, [report], warnings = _plan(_scope([{"project_ids": ["E8", "P1"]}]))
+    assert report.draft["header"]["signer1_name"] == "Padrão" and report.draft["formats"] == ["xlsx"]
+    assert report.reviewer_login is None
+    aviso = next(w for w in warnings if "configurações diferentes" in w)
+    assert "assinante Schwaben" in aviso and "arquivos" in aviso and "revisor" in aviso and "padrão geral" in aviso
+
+
+def test_dividido_por_projeto_cada_relatorio_leva_a_configuracao_do_seu_projeto(custom_db):
+    _rule("E8", signer1_name="Diego")
+    _rule("P1", signer1_name="Outro")
+    _resolved, reports, warnings = _plan(_scope([{"project_ids": ["E8", "P1"]}], split_by="projeto"))
+    signers = {r.title: r.draft["header"]["signer1_name"] for r in reports}
+    assert signers == {_DETAILS["E8"]["name"]: "Diego", "Projeto Um": "Outro"}
+    assert not any("configurações diferentes" in w for w in warnings)
+
+
+def test_configuracao_vale_pela_familia_inclusive_em_varios_meses(custom_db):
+    _rule("E8", signer1_name="Diego")                      # a regra é da FAMÍLIA: E9 é o mesmo trabalho
+    _resolved, [report], _w = _plan(_scope([{"clients": ["Mercedes"]}], start="2026-08", end="2026-09"))
+    assert report.draft["header"]["signer1_name"] == "Diego"
+
+
+def test_associacao_manual_de_familia_tambem_vale(custom_db):
+    _rule("E8", signer1_name="Diego")
+    with store.write_session() as s:
+        s.set_family_override("P1", _family("E8"), "teste")   # o P1 passou a ser da família do E8
+    _resolved, [report], _w = _plan(_scope([{"project_ids": ["P1"]}]))
+    assert report.draft["header"]["signer1_name"] == "Diego"
+
+
+def test_revisor_lembrado_na_memoria_vale_sem_regra(custom_db):
+    with store.write_session() as s:
+        s.set_memory(_family("E8"), {"reviewer": {"login": "lucca", "name": "Lucca Silva"}}, "R0")
+    _resolved, [report], _w = _plan(_scope([{"project_ids": ["E8"]}]))
+    assert (report.reviewer_login, report.reviewer_name) == ("lucca", "Lucca Silva")
+    # a regra do projeto vence a memória
+    _rule("E8", reviewer_login="ana", reviewer_name="Ana Souza")
+    assert _plan(_scope([{"project_ids": ["E8"]}]))[1][0].reviewer_login == "ana"
+
+
+def test_criar_grava_o_revisor_do_projeto_e_o_do_pedido_vence(custom_db):
+    _rule("E8", reviewer_login="ana", reviewer_name="Ana Souza")
+    [created] = service.create_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)["created"]
+    assert service.detail(created["id"])["reviewer_login"] == "ana"
+    service.delete_custom(created["id"], _MANAGER)
+    [chosen] = service.create_custom(_scope([{"project_ids": ["E8"]}], reviewer_login="lucca"), _MANAGER)["created"]
+    detail = service.detail(chosen["id"])
+    assert (detail["reviewer_login"], detail["reviewer_name"]) == ("lucca", "Lucca Silva")
+
+
+def test_a_rodada_leva_a_configuracao_do_projeto_pros_pedidos(custom_db):
+    _rule("E8", signer1_name="Diego", formats=["pdf"], reviewer_login="ana", reviewer_name="Ana Souza")
+    service.schedule_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)
+    service.start_run("2026-08", _MANAGER, background=False)
+    [item] = service.custom_view()["items"]
+    draft = service.detail(item["id"])["draft"]
+    assert draft["header"]["signer1_name"] == "Diego" and draft["formats"] == ["pdf"] and item["reviewer_login"] == "ana"
+
+
+def test_previa_mostra_o_aviso_de_configuracoes_diferentes(custom_db):
+    _rule("E8", signer1_name="Diego")
+    _rule("P1", signer1_name="Outro")
+    preview = service.preview_custom(_scope([{"project_ids": ["E8", "P1"]}]))
+    assert any("configurações diferentes" in w and "Personalizado" in w for w in preview["warnings"])
+
+
+# --- configuração PRÓPRIA do pedido (o painel "Configuração" dos personalizados) -----------------------
+
+
+OWN = {"signer1_name": "Própria", "signer2_company": "Cliente Próprio", "formats": ["pdf"]}
+
+
+def test_configuracao_do_pedido_vale_por_cima_da_do_projeto(custom_db):
+    _rule("E8", signer1_name="Do projeto", signer1_company="Empresa do projeto", formats=["xlsx"])
+    _resolved, [report], _w = _plan(_scope([{"project_ids": ["E8"]}], config=OWN))
+    header = report.draft["header"]
+    assert header["signer1_name"] == "Própria" and header["signer2_company"] == "Cliente Próprio"
+    assert report.draft["formats"] == ["pdf"]
+    assert header["signer1_company"] == "Empresa do projeto"        # o que o pedido não define, herda do projeto
+
+
+def test_config_do_pedido_nao_gera_aviso_de_configuracoes_diferentes(custom_db):
+    _rule("E8", signer1_name="Diego")
+    _rule("P1", signer1_name="Outro")
+    _resolved, [report], warnings = _plan(_scope([{"project_ids": ["E8", "P1"]}], config={"signer1_name": "Única"}))
+    assert report.draft["header"]["signer1_name"] == "Única"
+    assert not any("configurações diferentes" in w for w in warnings)
+
+
+def test_campo_vazio_na_config_herda(custom_db):
+    _rule("E8", signer1_name="Diego")
+    _resolved, [report], _w = _plan(_scope([{"project_ids": ["E8"]}], config={"signer1_name": "  ", "formats": None}))
+    assert report.draft["header"]["signer1_name"] == "Diego"
+
+
+def test_pedido_agendado_guarda_a_config_e_a_rodada_aplica(custom_db):
+    service.schedule_custom(_scope([{"project_ids": ["E8"]}], config=OWN), _MANAGER)
+    [request] = service.custom_view()["requests"]
+    assert request["config"] == OWN and request["package_unit"] == "projeto"
+    service.start_run("2026-08", _MANAGER, background=False)
+    [item] = service.custom_view()["items"]
+    draft = service.detail(item["id"])["draft"]
+    assert draft["header"]["signer1_name"] == "Própria" and draft["formats"] == ["pdf"]
+
+
+def test_editar_a_configuracao_do_pedido_agendado(custom_db):
+    entry = service.schedule_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)
+    manager = _client()
+    saved = manager.put(f"/auto-generation/custom/requests/{entry['id']}/config",
+                        json={"package_unit": "pacote", "config": {"signer1_name": "Nova", "formats": ["xlsx", "pdf"]}})
+    assert saved.status_code == 200
+    body = saved.json()["request"]
+    assert body["package_unit"] == "pacote" and body["config"] == {"signer1_name": "Nova", "formats": ["xlsx", "pdf"]}
+    service.start_run("2026-08", _MANAGER, background=False)
+    [item] = service.custom_view()["items"]
+    draft = service.detail(item["id"])["draft"]
+    assert draft["mode"] == "pacote" and draft["header"]["signer1_name"] == "Nova"
+    # limpar tudo volta a herdar
+    entry2 = service.schedule_custom(_scope([{"project_ids": ["P1"]}], config=OWN), _MANAGER)
+    cleared = manager.put(f"/auto-generation/custom/requests/{entry2['id']}/config", json={"package_unit": "projeto", "config": None})
+    assert cleared.json()["request"]["config"] == {}
+    assert manager.put("/auto-generation/custom/requests/inexistente/config", json={"package_unit": "projeto"}).status_code == 404
+
+
+def test_editar_a_configuracao_de_um_personalizado_gerado_e_regenerar(custom_db):
+    [created] = service.create_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)["created"]
+    manager = _client()
+    saved = manager.put(f"/auto-generation/custom/{created['id']}/config",
+                        json={"package_unit": "pacote", "config": {"signer1_name": "Nova", "formats": ["pdf"]}})
+    assert saved.status_code == 200
+    view = next(i for i in service.custom_view()["items"] if i["id"] == created["id"])
+    assert view["scope_json"]["package_unit"] == "pacote" and view["scope_json"]["config"]["signer1_name"] == "Nova"
+    # o rascunho NÃO muda sozinho…
+    assert service.detail(created["id"])["draft"]["header"]["signer1_name"] == ""
+    # …muda ao regenerar
+    service.regenerate(created["id"], _MANAGER)
+    draft = service.detail(created["id"])["draft"]
+    assert draft["header"]["signer1_name"] == "Nova" and draft["formats"] == ["pdf"] and draft["mode"] == "pacote"
+
+
+def test_aprovado_e_enviado_nao_mudam_de_configuracao_e_mensal_nao_tem(custom_db):
+    [created] = service.create_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)["created"]
+    _approve(created["id"])
+    manager = _client()
+    blocked = manager.put(f"/auto-generation/custom/{created['id']}/config", json={"package_unit": "projeto", "config": None})
+    assert blocked.status_code == 409 and "reabra antes" in blocked.json()["detail"]
+    service.start_run("2026-08", _MANAGER, background=False)
+    monthly = service.competence_view("2026-08")["items"][0]
+    refused = manager.put(f"/auto-generation/custom/{monthly['id']}/config", json={"package_unit": "projeto", "config": None})
+    assert refused.status_code == 409 and "personalizado" in refused.json()["detail"]
+
+
+def test_config_invalida_e_recusada(custom_db):
+    entry = service.schedule_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)
+    manager = _client()
+    url = f"/auto-generation/custom/requests/{entry['id']}/config"
+    assert manager.put(url, json={"package_unit": "projeto", "config": {"formats": []}}).status_code == 422
+    assert manager.put(url, json={"package_unit": "projeto", "config": {"formats": ["doc"]}}).status_code == 422
+    assert manager.put(url, json={"package_unit": "projeto", "config": {"desconhecido": 1}}).status_code == 422
+    assert manager.put(url, json={"package_unit": "xyz"}).status_code == 422
+    assert manager.put(url, json={"package_unit": "projeto", "config": {"signer1_name": "x" * 201}}).status_code == 422
+
+
+def test_so_o_gerente_muda_a_configuracao(custom_db):
+    entry = service.schedule_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)
+    [created] = service.create_custom(_scope([{"project_ids": ["P1"]}]), _MANAGER)["created"]
+    colab = _client(_COLLABORATOR)
+    body = {"package_unit": "projeto", "config": None}
+    assert colab.put(f"/auto-generation/custom/requests/{entry['id']}/config", json=body).status_code == 403
+    assert colab.put(f"/auto-generation/custom/{created['id']}/config", json=body).status_code == 403
+
+
+# --- o que o cartão do pedido mostra ---------------------------------------------------------------------
+
+
+def test_pedido_guarda_os_recortes_em_nomes(custom_db):
+    blocks = [
+        {"clients": ["Mercedes"], "project_ids": ["E8"], "packages": [_PKG_A8], "employee_ids": ["10"]},
+        {"clients": ["ACME"]},
+    ]
+    entry = service.schedule_custom(_scope(blocks), _MANAGER)
+    assert entry["blocks"] == [
+        {"clients": ["Mercedes"], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [_PKG_A8], "employees": ["Lucca Silva"]},
+        # bloco só com o cliente: não lista os projetos dele
+        {"clients": ["ACME"], "projects": [], "packages": [], "employees": []},
+    ]
+    assert service.custom_view()["requests"][0]["blocks"] == entry["blocks"]
+
+
+def test_pedido_antigo_sem_recortes_e_completado_ao_listar(custom_db):
+    entry = service.schedule_custom(_scope([{"project_ids": ["E8"], "employee_ids": ["10"]}]), _MANAGER)
+    with store.write_session() as s:                           # simula um pedido de antes do campo existir
+        old = [{k: v for k, v in e.items() if k != "blocks"} for e in s.custom_requests("2026-08")]
+        s.set_custom_requests("2026-08", old)
+    assert "blocks" not in store.get_custom_requests()["2026-08"][0]
+    [request] = service.custom_view()["requests"]
+    assert request["id"] == entry["id"]
+    assert request["blocks"] == [{"clients": [], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [], "employees": ["Lucca Silva"]}]
+    assert store.get_custom_requests()["2026-08"][0]["blocks"] == request["blocks"]       # gravado: não refaz
+
+
+def test_relatorio_gerado_expoe_os_recortes_em_nomes(custom_db):
+    service.create_custom(_scope([{"project_ids": ["E8"], "employee_ids": ["20"]}]), _MANAGER)
+    [item] = service.custom_view()["items"]
+    assert item["scope_json"]["blocks"] == [
+        {"clients": [], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [], "employees": ["Ana Souza"]},
+    ]
 
 
 # --- apagar --------------------------------------------------------------------------------------
