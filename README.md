@@ -118,6 +118,8 @@ Só gerentes. Gera, de uma vez, os **rascunhos de todos os projetos com horas** 
 
 - **Geração automática do mês:** no **dia 1, às 06:00** (horário de São Paulo), o sistema gera sozinho os rascunhos do mês que fechou — e os pedidos da geração personalizada — sem você precisar clicar. **Só gera rascunhos: nunca envia nada.** O cabeçalho da aba mostra a próxima geração, e o "Padrão geral" tem o interruptor, o dia (1 a 28) e a hora. Se o servidor estiver desligado no horário, a geração roda quando ele voltar; se o Projectile estiver fora do ar, o sistema tenta de novo de hora em hora (até 5 vezes). Rodar pelo botão continua funcionando, e o que já existe nunca é duplicado. `AUTO_GENERATION_ENABLED=false` no `.env` para tudo por fora.
 
+- **Avisos por e-mail:** o revisor recebe um e-mail quando um relatório é atribuído a ele ou devolvido com comentário; os gerentes recebem quando um relatório fica aguardando aprovação. O destinatário vem do cadastro do Projectile e o link abre direto o relatório no editor; o título da aba mostra `(n)` pendências. Dá para desligar em "Padrão geral" → "Avisar por e-mail" (ver `APP_BASE_URL` e a seção Microsoft Graph).
+
 Próxima etapa: preferências de IA.
 
 ### Chat analítico
@@ -475,6 +477,12 @@ Acesse `http://localhost:8011`.
 | `ALBERTO_EMAIL` | automação de e-mail | um ou mais remetentes separados por vírgula |
 | `EMAIL_POLL_INTERVAL_SECONDS` | automação de e-mail | `30` |
 | `REPORT_PROTECTION_PASSWORD` | proteção da planilha | vazia mantém a proteção sem senha |
+| `SESSIONS_BACKEND` | sessões/rate-limit | `memory` (default) ou `redis` (containers; exige `REDIS_URL`) |
+| `REDIS_URL` | Redis das sessões/trava de envio | sem default; obrigatória com `SESSIONS_BACKEND=redis` |
+| `PROCESS_ROLE` | topologia de processos | `all` (default, NSSM), `web` (só HTTP) ou `worker` (só background) |
+| `APP_BASE_URL` | links dos avisos por e-mail | `http://localhost:8011` |
+| `PROJECTILE_DB_PASSWORD` / `REPORTS_DB_PASSWORD` | senhas em container | prioridade sobre o Credential Manager (containers não têm keyring) |
+| `PIP_EXTRA_ARGS` / `NPM_CI_ARGS` | build da imagem em rede com proxy SSL | vazios; ver "Produção em containers" |
 
 O app registration do Azure precisa de permissões de aplicação `Mail.Read` e `Mail.Send` com consentimento administrativo. Restrinja o escopo com Exchange Application Access Policy no ambiente real.
 
@@ -483,20 +491,25 @@ O app registration do Azure precisa de permissões de aplicação `Mail.Read` e 
 | Comando | O que faz |
 |---|---|
 | `python -m pytest backend/tests -v` | executa os testes do backend (testes de `reports_db` pulam sem Docker) |
+| `cd backend && ruff check app tests` | lint do backend (config em `backend/pyproject.toml`) |
+| `cd backend && ruff format --check app tests` | checagem de formatação do backend |
+| `cd backend && mypy` | typecheck dos módulos cobertos (ver `[tool.mypy].files`) |
 | `docker compose up -d reports-mysql` | sobe o container do histórico de relatórios |
 | `alembic upgrade head` | aplica as migrations pendentes do `reports_db` |
 | `alembic revision --autogenerate -m "..."` | gera uma nova migration a partir de `reports_schema.py` |
 | `npm --prefix frontend test` | executa os testes Vitest |
 | `npm --prefix frontend run lint` | checa tipos com `tsc --noEmit` |
+| `npm --prefix frontend run format:check` | checagem de formatação (Prettier; `npm run format` escreve) |
 | `npm --prefix frontend run build` | checa tipos e gera `frontend/dist` |
 | `npm --prefix frontend run dev` | inicia Vite com HMR |
 | `npm --prefix frontend run preview` | serve o build do Vite em `:5173` |
+| `python -m backend.app.worker` | roda só os loops de background (topologia worker) |
 
-Não há ESLint ou Prettier configurado; o script `lint` é uma checagem TypeScript.
+Backend: ruff (lint + format) e mypy rodam no CI (job `backend-lint`); frontend: `tsc`, Prettier e build no `frontend-build`.
 
 ## API
 
-Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login`.
+Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login` e `GET /health`.
 
 ### Autenticação
 
@@ -505,6 +518,13 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login`.
 | `POST /auth/login` | autentica no Projectile e cria sessão |
 | `GET /auth/me` | recupera a sessão atual |
 | `POST /auth/logout` | encerra a sessão |
+
+### Saúde do sistema
+
+| Método e rota | Função |
+|---|---|
+| `GET /health` | público, sem login: `{status: "ok"\|"degraded"}` com 200/503, sem detalhe — pro monitor externo alertar quando `reports_db` ou o Projectile caem |
+| `GET /health/details` | só gerente: check por check (`reports_db`, `projectile`, `scheduler`) com latência e motivo da falha, pra investigar |
 
 ### Relatórios e dashboard pessoal
 
@@ -544,6 +564,7 @@ Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios
 | `POST /management/kpis/check-emails` | executa a ingestão de e-mails sob demanda |
 | `PUT /management/kpis/{month}` | atualiza entrada manual mensal legada |
 | `GET /analytics/summary` | métricas agregadas: horas por competência/grupo/projeto, tempo médio de geração, taxa de falha, relatórios por mês, responsáveis |
+| `GET /analytics/health` | saúde do sistema: geração dos últimos 30 dias (tentativas, falhas, tempo médio/p95, última falha), artefatos em disco, última rodada automática e mensagens ignoradas pelo polling |
 | `POST /analytics/chat` | chat analítico: pergunta em português → `{reply, visualizations, tables, metadata, context}`. Consulta cruzada sobre um catálogo fixo (nunca SQL gerado por IA); Jev classifica e o Claude só planeja/explica |
 | `POST /analytics/chat/export` | tabela já exibida no chat → `.xlsx` (não consulta nada) |
 | `GET/PUT /auto-generation/config`, `PUT/DELETE /auto-generation/rules/{family_key}`, `PUT /auto-generation/families/{project_id}` | configuração da geração automática (padrão e por família de projeto) |
@@ -599,6 +620,106 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 
 **Primeira atualização depois da migração dos dados de gerência:** a importação roda uma única vez e renomeia o JSON pra `management_kpi.json.migrated-<data>` (backup, nunca apagado). Evite editar o Diagnóstico/Painel de Gerência durante a atualização: até o restart, o backend antigo ainda grava no JSON. Sem NSSM configurado, reinicie o backend logo depois do script terminar, antes de alguém usar o sistema.
 
+## Produção em containers (Docker)
+
+Topologia recomendada a partir de 2026-09-29 (`docker-compose.prod.yml`): a mesma imagem roda dois processos — **web** (HTTP, `PROCESS_ROLE=web`) e **worker** (agendador da geração automática + polling de e-mail, `PROCESS_ROLE=worker`) — ao lado do **reports-mysql** e do **redis**.
+
+- **Sessões/rate-limit e a trava de envio** ficam no Redis (`SESSIONS_BACKEND=redis`): reiniciar o backend não desloga ninguém e os dois processos enxergam o mesmo estado. Sem `REDIS_URL` o backend falha alto — não há queda silenciosa pra memória em produção.
+- **Segredos:** não existe Windows Credential Manager dentro do container. Defina `PROJECTILE_DB_PASSWORD` e `REPORTS_DB_PASSWORD` no `.env` do servidor (têm prioridade sobre o keyring, ver `backend/app/db_credentials.py`).
+- **Primeira subida** (uma vez):
+  ```powershell
+  docker compose -f docker-compose.prod.yml up -d --build
+  docker compose -f docker-compose.prod.yml run --rm --no-deps web alembic upgrade head
+  ```
+- **Atualizações** (mantém a regra de ouro: nunca sobe com migration falhando):
+  ```powershell
+  .\scripts\atualizar-servidor-docker.bat
+  ```
+  O script faz `git pull`, builda com tag de data/hora (`IMAGE_TAG`), sobe banco + Redis, aplica `alembic upgrade head`, sobe web + worker e imprime o `docker compose ps`. A tag anterior fica em `.last_image_tag.bak`.
+- **Rollback:** `set IMAGE_TAG=<tag anterior>` e `docker compose -f docker-compose.prod.yml up -d` (sem rebuild).
+- **Staging na mesma máquina:** crie um `.env.staging` (mesmas chaves, portas diferentes — ex. `8011` do compose é a única porta publicada) e rode com projeto/volumes separados:
+  ```powershell
+  docker compose -f docker-compose.prod.yml -p relatorio-staging --env-file .env.staging up -d --build
+  ```
+- **Monitoração:** o `web` tem healthcheck no `/health`; um monitor externo (Uptime Kuma etc.) pode apontar pro mesmo endereço. Erros vão pro Sentry/GlitchTip self-hosted — ver "Observabilidade (logs e erros)".
+- **Redes com inspeção de SSL (proxy corporativo):** o `pip` e o `npm` de dentro do container não conhecem a CA da empresa e o build falha com `CERTIFICATE_VERIFY_FAILED`/`SELF_SIGNED_CERT_IN_CHAIN`. Duas saídas: injetar a CA corporativa na imagem (ideal) ou, para destravar, apontar no `.env` do build:
+  ```powershell
+  $env:PIP_EXTRA_ARGS="--trusted-host pypi.org --trusted-host files.pythonhosted.org"
+  $env:NPM_CI_ARGS="--strict-ssl=false"
+  ```
+  O `docker-compose.prod.yml` repassa as duas como build args (vazias por padrão — nada inseguro é fixado na imagem).
+
+O fluxo antigo (Python nativo + NSSM, `atualizar-servidor.bat`) continua funcionando durante a transição; migre quando o servidor tiver Docker rodando os quatro serviços.
+
+## Backup e restore (reports_db)
+
+O `reports_db` é dado primário (histórico de relatórios, correções manuais do Diagnóstico, geração automática, artefatos) e não tem redundância própria — o backup é o que existe entre um problema no banco/disco e a perda definitiva. Dois scripts cobrem isso:
+
+```powershell
+# Backup: dump .sql.gz + copia incremental dos artefatos
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-reports-db.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-reports-db.ps1 -Dest "D:\Backups\relatorio" -RetentionDays 60
+
+# Restore (banco novo; num banco existente exige -Force + digitar RESTAURAR)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore-reports-db.ps1 -DumpFile "D:\Backups\relatorio\reports_db_2026-09-29_060000.sql.gz"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore-reports-db.ps1 -DumpFile "...\reports_db_2026-09-29_060000.sql.gz" -ArtifactsSource "D:\Backups\relatorio\artifacts"
+```
+
+- O dump (`reports_db_<data-hora>.sql.gz`) é feito com `mysqldump --single-transaction` **dentro do container** — a senha do banco nunca passa pela linha de comando do host. O restore imprime a contagem de linhas das tabelas principais pra conferir.
+- Os artefatos vão para `<Dest>\artifacts` por cópia incremental: coisa apagada no servidor **não** é apagada do backup (proteção contra apagar por engano). Por isso a pasta só cresce; limpe manualmente se precisar.
+- Retenção apaga só dumps mais antigos que `-RetentionDays` (padrão 30); artefatos nunca são removidos pelos scripts.
+- **Agendador de Tarefas (Windows):** crie uma tarefa diária com `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<repo>\scripts\backup-reports-db.ps1" -Dest "<pasta>"`, rodando como um usuário com acesso ao Docker e à pasta de destino (não use a conta SYSTEM sem informar `-Dest`).
+- **Restore em produção:** pare o backend antes (o que for gravado durante o restore se perde) e guarde o banco atual antes de usar `-Force`. O restore num banco de teste descartável é a forma de validar o procedimento sem risco.
+
+## Observabilidade (logs e erros)
+
+- **Request-id:** toda resposta leva `X-Request-Id` (o cliente pode mandar o próprio — só ids simples de até 64 caracteres são aceitos; qualquer coisa estranha vira um id novo). O mesmo id aparece em toda linha de log daquela requisição, então um erro reportado pelo usuário (com o id no header) é rastreável no log.
+- **Formato do log:** `LOG_FORMAT=text` (padrão, legível) ou `LOG_FORMAT=json` (uma linha JSON por evento, pra coletor de log). `SLOW_REQUEST_MS` (padrão 3000) gera um aviso `Requisição lenta` acima do limiar; `0` loga toda requisição (depuração) e negativo desliga.
+- **Erro não tratado:** vira `500` JSON genérico com o request-id no header — o detalhe real (stack, mensagem) fica só no log e, se configurado, no Sentry. Nada de credencial ou dado pessoal é registrado.
+- **Sentry/GlitchTip self-hosted:** com `SENTRY_DSN` preenchido no `.env`, erros não tratados são enviados (o GlitchTip usa o mesmo protocolo do Sentry; `send_default_pii=False`, sem tracing de performance). Sem DSN, nada sai do servidor. Para testar: suba o GlitchTip, crie um projeto, copie o DSN pro `.env`, reinicie o backend e provoque um erro — o evento aparece com a tag `request_id`.
+
+Esboço do GlitchTip no mesmo host (stack em compose próprio, separado do compose do app; siga a documentação oficial para atualizações):
+
+```yaml
+# docker-compose.glitchtip.yml — suba com: docker compose -f docker-compose.glitchtip.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: glitchtip
+      POSTGRES_PASSWORD: troque-esta-senha
+      POSTGRES_DB: glitchtip
+    volumes: ["glitchtip_pg:/var/lib/postgresql/data"]
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+  web:
+    image: glitchtip/glitchtip
+    depends_on: [postgres, redis]
+    ports: ["8080:8080"]
+    environment: &glitchtip_env
+      DATABASE_URL: postgres://glitchtip:troque-esta-senha@postgres:5432/glitchtip
+      SECRET_KEY: troque-esta-chave
+      PORT: 8080
+      EMAIL_URL: consolemail://
+      GLITCHTIP_DOMAIN: http://localhost:8080
+      DEFAULT_FROM_EMAIL: glitchtip@localhost
+      CELERY_BROKER_URL: redis://redis:6379/0
+    volumes: ["glitchtip_uploads:/code/uploads"]
+    restart: unless-stopped
+  worker:
+    image: glitchtip/glitchtip
+    command: ./bin/run-celery-with-beat.sh
+    depends_on: [postgres, redis]
+    environment: *glitchtip_env
+    volumes: ["glitchtip_uploads:/code/uploads"]
+    restart: unless-stopped
+volumes:
+  glitchtip_pg:
+  glitchtip_uploads:
+```
+
 ## Troubleshooting
 
 - **Login ou dados não conectam:** confira variáveis `PROJECTILE_DB_*`, senha no Credential Manager e acesso à rede interna.
@@ -614,5 +735,6 @@ O script faz `git pull origin main`, instala dependências, sobe `reports-mysql`
 - **Template perde logo/desenhos:** não use `openpyxl.save()` na geração.
 - **`/generate` funciona mas nunca aparece `X-Report-Id` na resposta:** `reports-mysql` está fora do ar, `REPORTS_DB_ENABLED=false`, ou falta senha no keyring `reports_mysql` — isso é esperado ser silencioso (fail-open), não um erro; confira os logs do backend pra ver a causa.
 - **Painel de Gerência/Diagnóstico responde 502:** esses dados vivem no `reports_db` e, diferente do histórico, não têm fail-open — confira se o container `reports-mysql` está de pé (`docker compose ps`) e a senha no keyring `reports_mysql`.
+- **Algo caiu e não se sabe o quê:** `GET /health` (público) diz se o sistema está `ok` ou `degraded`; `GET /health/details` (gerente) mostra qual dependência falhou (reports_db, Projectile ou agendador), com latência e motivo. Use isso antes de abrir o log.
 - **Importação do JSON de gerência recusa com "já tem dados de gerência sem registro de importação":** o backend novo subiu antes da importação e o polling de e-mail recriou as amostras a partir dos e-mails — **sem** as correções manuais feitas no Diagnóstico, que só o JSON tem. Rode `python -m backend.app.tools.import_management_json --replace-existing`: o JSON prevalece e o que estava no banco fica guardado em `mgmt_meta`.
 - **`alembic upgrade head` falha com "tabela já existe":** o schema já tem tabelas de uma tentativa anterior sem `alembic_version` atualizada — confira `SELECT * FROM alembic_version` no `reports_db` antes de rodar de novo.

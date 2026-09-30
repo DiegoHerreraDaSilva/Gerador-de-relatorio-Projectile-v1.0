@@ -13,6 +13,13 @@ venv/
 # chave da API da Anthropic — nunca vai pro repo
 .env
 
+# override de ambiente do staging em container (segredos locais, não do repo)
+.env.staging
+
+# tag da última imagem publicada pelo scripts\atualizar-servidor-docker.bat
+.last_image_tag
+.last_image_tag.bak
+
 # cópias soltas do logo na raiz — as usadas pelo app ficam em frontend/public
 /logo.png
 /logo-light.png
