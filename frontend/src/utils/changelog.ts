@@ -35,6 +35,10 @@ export const CHANGELOG: ChangelogEntry[] = [
         roles: ["manager"],
       },
       { text: "Projeto ou cliente fechado no Diagnóstico sai sozinho da geração automática.", roles: ["manager"] },
+      {
+        text: "Novo no Padrão geral: lembretes por e-mail de relatório parado (desligado por padrão; você escolhe depois de quantos dias).",
+        roles: ["manager"],
+      },
     ],
   },
 ];

@@ -172,6 +172,30 @@ def tick(now: datetime | None = None) -> Decision | None:
 
 
 _last_purge_day: str | None = None
+_last_reminder_day: str | None = None
+REMINDER_HOUR = 8
+
+
+def remind_daily(now_local: datetime | None = None) -> dict | None:
+    """Lembretes de relatório parado (`reminders.run`): no máximo UMA rodada por dia útil, a partir das 8h de
+    São Paulo. Desligado (o padrão) não consome o dia: ligar às 9h roda no mesmo dia. Fail-open."""
+    global _last_reminder_day
+    now_local = (now_local or datetime.now(TIMEZONE)).astimezone(TIMEZONE)
+    if now_local.weekday() >= 5 or now_local.hour < REMINDER_HOUR:
+        return None
+    day = now_local.date().isoformat()
+    if _last_reminder_day == day:
+        return None
+    try:
+        from . import reminders
+
+        summary = reminders.run()
+    except Exception:  # noqa: BLE001
+        logger.warning("Não consegui rodar os lembretes de relatório parado", exc_info=True)
+        return None
+    if summary.get("reason") not in ("desligado", "sem e-mail"):
+        _last_reminder_day = day
+    return summary
 
 
 def purge_trash_daily(now: datetime | None = None) -> int:
@@ -206,6 +230,7 @@ async def loop() -> None:
             except Exception:  # noqa: BLE001 — o agendador nunca pode morrer por um ciclo ruim
                 logger.exception("Falha no ciclo do agendador da geração automática")
         await asyncio.to_thread(purge_trash_daily)
+        await asyncio.to_thread(remind_daily)
         record_tick()
         await asyncio.sleep(POLL_SECONDS)
 

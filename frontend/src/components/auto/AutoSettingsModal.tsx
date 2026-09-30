@@ -242,6 +242,38 @@ export function AutoSettingsModal({ onClose }: { onClose: () => void }) {
                   <span>Avisar por e-mail</span>
                 </label>
               </div>
+              <div className="auto-schedule-block">
+                <h3>Lembretes de relatório parado</h3>
+                <p className="muted">
+                  Desligado por padrão. Ligado, quem tem relatório esperando (revisão, devolvido ou aprovação) sem
+                  nenhuma ação recebe UM e-mail por dia útil com tudo o que está parado — no máximo 3 lembretes por
+                  relatório. Precisa dos avisos por e-mail ligados.
+                </p>
+                <label className="auto-schedule-toggle">
+                  <input
+                    type="checkbox"
+                    checked={form.reminders_enabled === true}
+                    onChange={(e) => setField("reminders_enabled", e.target.checked)}
+                  />
+                  <span>Lembrar de relatório parado</span>
+                </label>
+                {form.reminders_enabled === true && (
+                  <div className="auto-schedule-fields">
+                    <label>
+                      Lembrar depois de
+                      <Select
+                        ariaLabel="Dias sem ação até o lembrete"
+                        value={String(form.reminder_after_days ?? 3)}
+                        options={[1, 2, 3, 5, 7, 10].map((d) => ({
+                          value: String(d),
+                          label: d === 1 ? "1 dia" : `${d} dias`,
+                        }))}
+                        onChange={(v) => setField("reminder_after_days", Number(v))}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
             </section>
           )}
           {status && (

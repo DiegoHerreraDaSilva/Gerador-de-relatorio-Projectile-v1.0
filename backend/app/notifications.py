@@ -34,6 +34,16 @@ def _enabled() -> bool:
         return False
 
 
+def enabled() -> bool:
+    """Graph configurado e `notify_email` ligado — o mesmo critério de todos os avisos (usado pelos lembretes)."""
+    return _enabled()
+
+
+def system_sender() -> str | None:
+    """Caixa do agente (`GRAPH_MAILBOX`): remetente dos avisos que não vêm de uma pessoa."""
+    return (os.environ.get("GRAPH_MAILBOX") or "").strip() or None
+
+
 def _link(view: str, report_id: str) -> str:
     base = get_settings().app_base_url.rstrip("/")
     return f"{base}/?view={view}&report={report_id}"
@@ -56,13 +66,20 @@ def _emails_for(logins: list[str]) -> list[str]:
         return []
 
 
-def _send(sender: str, recipients: list[str], subject: str, body: str) -> None:
-    """Envia com o mesmo helper do relatório (sempre com o agente em cópia,
-    sem anexos). Erro aqui nunca sobe — só loga."""
+def send_checked(sender: str, recipients: list[str], subject: str, body: str) -> bool:
+    """Envia com o mesmo helper do relatório (sempre com o agente em cópia, sem anexos). Nunca levanta: devolve
+    se o Graph aceitou (quem precisa registrar o envio, como os lembretes, usa isto)."""
     try:
         email_ingest.send_report_email(sender_email=sender, to_email=recipients, subject=subject, body_text=body, attachments=[])
+        return True
     except Exception:
         logger.exception("Falha ao enviar notificação por e-mail (fail-open)")
+        return False
+
+
+def _send(sender: str, recipients: list[str], subject: str, body: str) -> None:
+    """Aviso imediato: erro aqui nunca sobe — só loga."""
+    send_checked(sender, recipients, subject, body)
 
 
 def notify_reviewer_assigned(report: dict, reviewer: dict, actor: dict) -> None:

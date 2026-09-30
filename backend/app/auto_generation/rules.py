@@ -39,6 +39,9 @@ DEFAULTS: dict = {
     "schedule_enabled": True,
     "schedule_day": 1,
     "schedule_time": "06:00",
+    # lembrete de revisão/aprovação parada (`reminders.py`): OPT-IN, desligado por padrão (manda e-mail sozinho)
+    "reminders_enabled": False,
+    "reminder_after_days": 3,
 }
 
 _Text = Field(default=None, max_length=200)
@@ -115,6 +118,9 @@ class GlobalConfig(FamilyRule):
     # 1–28: existe em todo mês (o "mês que fechou" é sempre o anterior)
     schedule_day: int | None = Field(default=None, ge=1, le=28)
     schedule_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    reminders_enabled: bool | None = None
+    # dias sem nenhuma ação até o 1º lembrete (e entre um lembrete e outro)
+    reminder_after_days: int | None = Field(default=None, ge=1, le=30)
 
     @field_validator("number_pattern")
     @classmethod
