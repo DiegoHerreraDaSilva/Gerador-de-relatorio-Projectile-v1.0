@@ -3,7 +3,7 @@
 # Build a partir da RAIZ do repo: docker build -f backend/Dockerfile .
 
 # --- estágio 1: build do frontend ------------------------------------------
-FROM node:20-alpine AS frontend-build
+FROM node:26-alpine AS frontend-build
 # redes com inspeção de SSL (proxy corporativo) podem precisar de
 # NPM_CI_ARGS=--strict-ssl=false no build (ver README "Produção em containers")
 ARG NPM_CI_ARGS=""
