@@ -14,7 +14,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- estágio 2: runtime ------------------------------------------------------
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 # redes com inspeção de SSL podem precisar de
