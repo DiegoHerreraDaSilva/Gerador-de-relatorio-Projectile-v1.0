@@ -135,7 +135,7 @@ Exemplos: "horas de cada colaborador por projeto no mês passado", "colaboradore
 
 Toda tabela tem ordenação por coluna, linha de total e botão **Baixar Excel**. O chat nunca executa consulta livre: a IA só escolhe entre medidas, dimensões e valores de um catálogo fixo, e todo número é calculado pelo backend — texto do Claude com número que não veio dos dados é descartado.
 
-Pergunta sem período usa os últimos 12 meses, com aviso. Ano fora da janela recebe uma resposta fixa, sem consulta. Faturado só existe nos meses em que chegaram relatórios de faturamento; nos outros, o chat avisa em vez de calcular performance. O Jev (via OpenRouter ou TypeSafe) classifica a pergunta; sem chave, ou sem confiança, o Claude classifica.
+Pergunta sem período usa os últimos 12 meses, com aviso. Ano fora da janela recebe uma resposta fixa, sem consulta. Faturado só existe nos meses em que chegaram relatórios de faturamento; nos outros, o chat avisa em vez de calcular performance. O Jev (API oficial da TypeSafe) classifica a pergunta; sem chave, ou sem confiança, o Claude classifica.
 
 ## Histórico de relatórios (reports_db)
 
@@ -202,7 +202,7 @@ Uploads são limitados a 25 MB e o conteúdo descomprimido do XLSX a 200 MB para
 | Configuração | pydantic-settings 2.7 (`backend/app/core/config.py`) |
 | Credenciais de banco | Windows Credential Manager via keyring 25.7.0 (Projectile e `reports_db`) |
 | Frontend | React 18, TypeScript 5.6, Vite 7.3.6, Zustand 4, immer 10 |
-| IA | Anthropic SDK 0.125 e truststore 0.10.4; Jev (TypeSafe AI, via OpenRouter ou direto) no chat analítico, por HTTP com `requests` |
+| IA | Anthropic SDK 0.125 e truststore 0.10.4; Jev (TypeSafe AI, API oficial) no chat analítico, por HTTP com `requests` |
 | Pool do Projectile | DBUtils 3.1 (`PooledDB`) |
 | E-mail | Microsoft Graph e MSAL 1.31 |
 | Testes | pytest 8.3.4 e Vitest 4.1.11 |
@@ -279,7 +279,7 @@ backend/
     analytics/             # chat analítico: catálogo, consulta cruzada, travas, gráficos, Excel
     auto_generation/       # geração automática: família, memória, rascunho, regras, fluxo
     integrations/
-      jev.py               # cliente HTTP do Jev (OpenRouter ou TypeSafe)
+      jev.py               # cliente HTTP do Jev (API oficial da TypeSafe)
     repositories/          # leituras do chat analítico (horas de engenharia, relatórios gerados)
     auth.py               # login Projectile, rate limit e sessões
     db_credentials.py     # leitura da senha no Windows Credential Manager (Projectile e reports_db)
@@ -371,7 +371,7 @@ CLAUDE.md
 - Windows para usar o Credential Manager no ambiente real
 - acesso de rede ao MySQL do Projectile
 - chave Anthropic somente para chat de edição, tradução e chat analítico
-- chave OpenRouter ou TypeSafe (opcional) para o Jev no chat analítico
+- chave da TypeSafe (opcional) para o Jev no chat analítico
 - credenciais Azure somente para leitura/envio de e-mail
 
 ### 1. Configuração
@@ -430,7 +430,7 @@ npm --prefix frontend run dev
 - FastAPI: `http://localhost:8011`
 - Vite: `http://localhost:5173`
 
-> O proxy atual do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate`, `/chat`, `/reports`, `/artifacts`, `/analytics`, `/auto-generation` e `/my-reviews`. As telas que chamam `/management/*`, `/my-hours`, `/send-report` ou `/translate-activities` devem ser testadas pelo build servido pelo FastAPI ou após ampliar explicitamente o proxy em `frontend/vite.config.ts`.
+> O proxy do Vite cobre `/auth`, `/parse`, `/parse-db*`, `/generate`, `/send-report`, `/chat`, `/translate-activities`, `/reports`, `/artifacts`, `/analytics`, `/auto-generation`, `/my-reviews`, `/my-hours`, `/management` e `/health`. Rota nova de API precisa entrar em `frontend/vite.config.ts`, senão o dev server devolve 404 (o build servido pelo FastAPI não tem esse problema).
 
 ### 5. Produção local
 
@@ -464,8 +464,7 @@ Acesse `http://localhost:8011`.
 | `TRANSLATE_ALLOWED_LOGINS` | tradução | lista CSV; fallback `dherrera` |
 | `ANTHROPIC_API_KEY` | chat de edição, tradução e chat analítico | sem default |
 | `ANTHROPIC_MODEL` | chat de edição e tradução | `claude-sonnet-5` |
-| `OPENROUTER_API_KEY` | Jev pelo OpenRouter (`openrouter.ai/api/v1/systemone`) | sem default; tem prioridade sobre `TYPESAFE_API_KEY`. Sem nenhuma das duas, o Claude classifica |
-| `TYPESAFE_API_KEY` | Jev direto na TypeSafe (`api.typesafe.ai/v1/systemone`) | sem default; sem nenhuma chave o Claude classifica (1 chamada a mais por pergunta). Com chave, a pergunta e as listas de clientes/colaboradores/projetos vão pro OpenRouter e/ou pra TypeSafe AI |
+| `TYPESAFE_API_KEY` | Jev pela API oficial da TypeSafe (`api.typesafe.ai/v1/systemone`) | sem default; sem chave o Claude classifica (1 chamada a mais por pergunta). Com chave, a pergunta e as listas de clientes/colaboradores/projetos vão pra TypeSafe AI |
 | `JEV_MODEL` | Jev | `jev-latest` |
 | `JEV_MIN_CONFIDENCE` / `JEV_MIN_CONFIDENCE_NONE` | confiança mínima do Jev | `0.60` / `0.40` ("nenhum"); calibrados contra o Jev real, não mude sem recalibrar |
 | `ANALYTICS_CHAT_MODEL` | Claude do chat analítico (sem thinking) | `claude-haiku-4-5-20251001`; o chat de edição continua em `ANTHROPIC_MODEL` |
@@ -706,11 +705,11 @@ volumes:
 - **403 em páginas gerenciais:** o login não está em `MANAGEMENT_PANEL_LOGINS` (ou em `COORDINATOR_LOGINS`, pro Diagnóstico); reinicie o backend após alterar `.env`.
 - **403 "Fora do período permitido" (coordenador ou colaborador):** quem não é gerente só vê e filtra os últimos 12 meses e o ano atual — na busca do Gerar relatório, no Diagnóstico, no Dashboard de horas, no Histórico e em Minhas revisões. A tela só oferece esses meses; o 403 aparece quando a chamada vai direto na API (ou numa guia antiga com um mês de fora).
 - **Chat analítico lento na 1ª pergunta (~20 s):** é a carga das horas da janela de 12 meses; as seguintes usam o cache de 15 minutos.
-- **Chat analítico sempre com `classifier: claude`:** falta `OPENROUTER_API_KEY`/`TYPESAFE_API_KEY`, ou o Jev está fora do ar ou sem confiança. Funciona igual, com uma chamada a mais ao Claude.
+- **Chat analítico sempre com `classifier: claude`:** falta `TYPESAFE_API_KEY`, ou o Jev está fora do ar ou sem confiança. Funciona igual, com uma chamada a mais ao Claude.
 - **403 na tradução:** o login não está em `TRANSLATE_ALLOWED_LOGINS`.
 - **Chat/tradução 500:** `ANTHROPIC_API_KEY` ausente ou modelo inválido.
 - **E-mail 400/502:** confira variáveis Azure/Graph, permissões e Application Access Policy.
-- **Vite retorna 404 em uma tela interna:** veja a limitação de proxy descrita na seção Desenvolvimento.
+- **Vite retorna 404 em uma tela interna:** a rota da API provavelmente falta no proxy de `frontend/vite.config.ts` (seção Desenvolvimento).
 - **Logo ausente no build:** confirme os arquivos em `frontend/public/` antes de compilar.
 - **Template perde logo/desenhos:** não use `openpyxl.save()` na geração.
 - **`/generate` funciona mas nunca aparece `X-Report-Id` na resposta:** `reports-mysql` está fora do ar, `REPORTS_DB_ENABLED=false`, ou falta senha no keyring `reports_mysql` — isso é esperado ser silencioso (fail-open), não um erro; confira os logs do backend pra ver a causa.
