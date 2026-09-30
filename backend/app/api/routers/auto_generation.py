@@ -1,6 +1,7 @@
 """Rotas da aba "Geração automática" (`/auto-generation/*`) — todas só
 gerente (`require_manager`), classificadas em `_MANAGER_ONLY` da matriz de
 `test_coordinator_access.py`. Regra em `backend/app/auto_generation/`."""
+
 from __future__ import annotations
 
 import io
@@ -12,22 +13,22 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import ValidationError
 
+from ... import email_ingest
 from ...auto_generation import builder, scheduler, service
 from ...auto_generation.schemas import (
     ApproveRequest,
     CombinedSendRequest,
     CommentRequest,
-    FamilyRequest,
     CustomConfigRequest,
     CustomRequest,
+    FamilyRequest,
     NumbersRequest,
     PlannedNumberRequest,
     ReviewerRequest,
     RunRequest,
-    SendRequest,
     SaveDraftRequest,
+    SendRequest,
 )
-from ... import email_ingest
 from ...projectile_db import ProjectileDbError
 from ...services.auto_generation_store import VersionConflict
 from ...services.report_files import FORMAT_MEDIA_TYPES
@@ -45,8 +46,7 @@ def _call(fn, *args, **kwargs):
     except service.NotFound:
         raise HTTPException(404, "Relatório automático não encontrado.")
     except VersionConflict as e:
-        raise HTTPException(409, {"message": "O rascunho foi alterado em outro lugar — recarregue.",
-                                  "current_version": e.current_version})
+        raise HTTPException(409, {"message": "O rascunho foi alterado em outro lugar — recarregue.", "current_version": e.current_version})
     except service.RunInProgress:
         raise HTTPException(409, "Já existe uma geração em andamento pra essa competência.")
     except service.WorkflowError as e:
@@ -124,9 +124,7 @@ async def preview_endpoint(competence: str, _user: dict = Depends(require_manage
 
 
 @router.put("/auto-generation/competences/{competence}/numbers/{project_id}")
-async def planned_number_endpoint(
-    competence: str, project_id: str, body: PlannedNumberRequest, _user: dict = Depends(require_manager),
-):
+async def planned_number_endpoint(competence: str, project_id: str, body: PlannedNumberRequest, _user: dict = Depends(require_manager)):
     """Número do relatório digitado na PRÉVIA do mês (ainda sem rascunho) —
     aplicado quando o rascunho for gerado."""
     if len(project_id) > 100:
@@ -165,8 +163,7 @@ async def custom_schedule_endpoint(body: CustomRequest, _user: dict = Depends(re
 async def custom_request_config_endpoint(request_id: str, body: CustomConfigRequest, _user: dict = Depends(require_manager)):
     """Configuração própria (Relatório, arquivos, assinantes, empresas) de um pedido agendado."""
     config = body.config.model_dump() if body.config else None
-    return {"request": await run_in_threadpool(
-        _call, service.update_custom_request_config, request_id, body.package_unit, config, _user)}
+    return {"request": await run_in_threadpool(_call, service.update_custom_request_config, request_id, body.package_unit, config, _user)}
 
 
 @router.put("/auto-generation/custom/{report_id}/config")
@@ -257,9 +254,7 @@ async def send_defaults_endpoint(report_id: str, _user: dict = Depends(require_m
 @router.post("/auto-generation/reports/{report_id}/send")
 async def send_endpoint(report_id: str, body: SendRequest, _user: dict = Depends(require_manager)):
     """Envia ao cliente os arquivos aprovados, pela caixa de quem está logado."""
-    return await run_in_threadpool(
-        _call, service.send_report, report_id, body.to, body.cc, body.subject, body.message, _user, body.formats,
-    )
+    return await run_in_threadpool(_call, service.send_report, report_id, body.to, body.cc, body.subject, body.message, _user, body.formats)
 
 
 @router.get("/auto-generation/files")
@@ -270,16 +265,15 @@ async def bulk_files_endpoint(ids: list[str] = Query(default=[]), _user: dict = 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in files:
             zf.writestr(name, data)
-    return Response(buffer.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('Relatórios_Horas.zip')}"})
+    return Response(
+        buffer.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('Relatórios_Horas.zip')}"}
+    )
 
 
 @router.post("/auto-generation/send")
 async def combined_send_endpoint(body: CombinedSendRequest, _user: dict = Depends(require_manager)):
     """Vários relatórios aprovados num e-mail só (cada arquivo um anexo)."""
-    return await run_in_threadpool(
-        _call, service.send_reports, body.report_ids, body.to, body.cc, body.subject, body.message, _user, body.formats,
-    )
+    return await run_in_threadpool(_call, service.send_reports, body.report_ids, body.to, body.cc, body.subject, body.message, _user, body.formats)
 
 
 @router.get("/auto-generation/reports/{report_id}/files")
@@ -289,12 +283,15 @@ async def files_endpoint(report_id: str, _user: dict = Depends(require_manager))
     if len(files) == 1:
         name, data = files[0]
         ext = name.rsplit(".", 1)[-1]
-        return Response(data, media_type=FORMAT_MEDIA_TYPES.get(ext, "application/octet-stream"),
-                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+        return Response(
+            data,
+            media_type=FORMAT_MEDIA_TYPES.get(ext, "application/octet-stream"),
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"},
+        )
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in files:
             zf.writestr(name, data)
-    return Response(buffer.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('Relatórios_Horas.zip')}"})
-
+    return Response(
+        buffer.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('Relatórios_Horas.zip')}"}
+    )

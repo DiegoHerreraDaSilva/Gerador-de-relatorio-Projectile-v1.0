@@ -2,6 +2,7 @@ import datetime
 
 import pytest
 
+from backend.app.generator import business_days_between, local_holidays_for_filiale, national_holidays_between
 from backend.app.hours_analytics import (
     contract_weekday_hours,
     daily_stats,
@@ -15,11 +16,6 @@ from backend.app.hours_analytics import (
     parse_hhmm,
     percentile,
     resolve_reference,
-)
-from backend.app.generator import (
-    business_days_between,
-    local_holidays_for_filiale,
-    national_holidays_between,
 )
 
 FULL_TIME = {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0, 4: 8.0, 5: 0.0, 6: 0.0}
@@ -68,9 +64,7 @@ class TestBusinessDaysBetween:
         assert days == []
 
     def test_feriados_no_intervalo(self):
-        assert national_holidays_between(
-            datetime.date(2026, 9, 1), datetime.date(2026, 9, 30)
-        ) == [datetime.date(2026, 9, 7)]
+        assert national_holidays_between(datetime.date(2026, 9, 1), datetime.date(2026, 9, 30)) == [datetime.date(2026, 9, 7)]
 
 
 class TestContractWeekdayHours:
@@ -78,14 +72,10 @@ class TestContractWeekdayHours:
         assert contract_weekday_hours(datetime.date(2026, 8, 3), []) is None
 
     def test_contrato_em_aberto_cobre_data_futura(self):
-        assert contract_weekday_hours(
-            datetime.date(2026, 8, 3), [_contract(datetime.date(2023, 11, 1), None)]
-        ) == FULL_TIME
+        assert contract_weekday_hours(datetime.date(2026, 8, 3), [_contract(datetime.date(2023, 11, 1), None)]) == FULL_TIME
 
     def test_data_antes_do_inicio_nao_casa(self):
-        assert contract_weekday_hours(
-            datetime.date(2025, 12, 31), [_contract(datetime.date(2026, 1, 1), None)]
-        ) is None
+        assert contract_weekday_hours(datetime.date(2025, 12, 31), [_contract(datetime.date(2026, 1, 1), None)]) is None
 
     def test_data_depois_do_fim_nao_casa(self):
         contracts = [_contract(datetime.date(2022, 1, 1), datetime.date(2022, 12, 31))]
@@ -93,17 +83,14 @@ class TestContractWeekdayHours:
 
     def test_escolhe_a_vigencia_correta_entre_varias(self):
         meio = {0: 4.0, 1: 4.0, 2: 4.0, 3: 4.0, 4: 4.0, 5: 0.0, 6: 0.0}
-        contracts = [
-            _contract(datetime.date(2022, 3, 21), datetime.date(2023, 1, 31), meio),
-            _contract(datetime.date(2023, 2, 1), None, FULL_TIME),
-        ]
+        contracts = [_contract(datetime.date(2022, 3, 21), datetime.date(2023, 1, 31), meio), _contract(datetime.date(2023, 2, 1), None, FULL_TIME)]
         assert contract_weekday_hours(datetime.date(2022, 6, 1), contracts) == meio
         assert contract_weekday_hours(datetime.date(2026, 8, 3), contracts) == FULL_TIME
 
     def test_contrato_com_jornada_toda_zerada_nao_conta(self):
         # 14 dos 578 contratos medidos têm pPlannedTime* todo NULL: tratar como
         # "contrato de 0h" faria qualquer hora apontada virar 100% de excedente
-        zerado = {i: 0.0 for i in range(7)}
+        zerado = dict.fromkeys(range(7), 0.0)
         contracts = [_contract(datetime.date(2020, 1, 1), None, zerado)]
         assert contract_weekday_hours(datetime.date(2026, 8, 3), contracts) is None
 
@@ -142,7 +129,7 @@ class TestEmpiricalBaseline:
         assert (per_day, sample, window) == (7.0, 12, 365)
 
     def test_arredonda_para_quarto_de_hora(self):
-        history = {d: 5.97 for d in _intern_history()}
+        history = dict.fromkeys(_intern_history(), 5.97)
         assert empirical_daily_baseline(history, TODAY)[0] == 6.0
 
     def test_sem_dado(self):
@@ -151,18 +138,14 @@ class TestEmpiricalBaseline:
 
 class TestResolveReference:
     def test_contrato_tem_precedencia_e_autoriza_percentual(self):
-        ref = resolve_reference(
-            [_contract(datetime.date(2023, 1, 1), None)], _intern_history(), TODAY
-        )
+        ref = resolve_reference([_contract(datetime.date(2023, 1, 1), None)], _intern_history(), TODAY)
         assert ref["source"] == "contract"
         assert ref["hours_per_day"] == 8.0
         assert ref["allows_percentage"] is True
         assert ref["hours_per_weekday"] == [8.0, 8.0, 8.0, 8.0, 8.0, 0.0, 0.0]
 
     def test_contrato_divergente_do_historico_gera_nota(self):
-        ref = resolve_reference(
-            [_contract(datetime.date(2023, 1, 1), None)], _intern_history(hours=6.0), TODAY
-        )
+        ref = resolve_reference([_contract(datetime.date(2023, 1, 1), None)], _intern_history(hours=6.0), TODAY)
         assert ref["divergence_note"] == "Contrato 8 h · Seu padrão medido ~6 h"
 
     def test_historico_nao_autoriza_percentual(self):
@@ -215,9 +198,7 @@ class TestGapDays:
     def test_dia_sem_apontamento_e_detectado(self):
         closed = business_days_between(datetime.date(2026, 8, 3), datetime.date(2026, 8, 7))
         totals = _daily({"2026-08-03": 6.0, "2026-08-05": 6.0, "2026-08-07": 6.0})
-        assert gap_days(closed, totals) == [
-            datetime.date(2026, 8, 6), datetime.date(2026, 8, 4)
-        ]
+        assert gap_days(closed, totals) == [datetime.date(2026, 8, 6), datetime.date(2026, 8, 4)]
 
     def test_mais_recente_primeiro(self):
         closed = business_days_between(datetime.date(2026, 8, 3), datetime.date(2026, 8, 7))
@@ -225,7 +206,7 @@ class TestGapDays:
 
     def test_agosto_do_usuario_real_nao_tem_lacuna(self):
         closed = business_days_between(datetime.date(2026, 8, 1), datetime.date(2026, 8, 31))
-        assert gap_days(closed, {d: 6.0 for d in closed}) == []
+        assert gap_days(closed, dict.fromkeys(closed, 6.0)) == []
 
     def test_dia_com_zero_horas_conta_como_lacuna(self):
         closed = [datetime.date(2026, 8, 3)]
@@ -235,30 +216,21 @@ class TestGapDays:
 class TestDayMatchedComparison:
     def test_compara_mesmo_numero_de_dias_uteis(self):
         # mês em curso com 3 dias úteis encerrados: compara com 3, não com 21
-        totals = _daily({
-            "2026-09-01": 6.0, "2026-09-02": 6.0, "2026-09-03": 6.0,
-            "2026-08-27": 5.0, "2026-08-28": 5.0, "2026-08-31": 5.0,
-        })
-        result = day_matched_comparison(
-            totals, datetime.date(2026, 9, 1), datetime.date(2026, 9, 4), TODAY
-        )
+        totals = _daily({"2026-09-01": 6.0, "2026-09-02": 6.0, "2026-09-03": 6.0, "2026-08-27": 5.0, "2026-08-28": 5.0, "2026-08-31": 5.0})
+        result = day_matched_comparison(totals, datetime.date(2026, 9, 1), datetime.date(2026, 9, 4), TODAY)
         assert result["hours"] == 15.0
         assert result["delta_hours"] == 3.0
         assert result["delta_pct"] == pytest.approx(0.2)
         assert "3 dias úteis" in result["label"]
 
     def test_sem_dia_encerrado_devolve_none(self):
-        result = day_matched_comparison(
-            {}, datetime.date(2026, 9, 4), datetime.date(2026, 9, 4), datetime.date(2026, 9, 4)
-        )
+        result = day_matched_comparison({}, datetime.date(2026, 9, 4), datetime.date(2026, 9, 4), datetime.date(2026, 9, 4))
         assert result is None
 
     def test_janela_anterior_vazia_devolve_none(self):
         # evita anunciar "-100%" pra quem simplesmente ainda não trabalhava
         totals = _daily({"2026-09-01": 6.0})
-        assert day_matched_comparison(
-            totals, datetime.date(2026, 9, 1), datetime.date(2026, 9, 4), TODAY
-        ) is None
+        assert day_matched_comparison(totals, datetime.date(2026, 9, 1), datetime.date(2026, 9, 4), TODAY) is None
 
     def test_extra_holidays_for_year_pula_o_feriado_ao_montar_janela_anterior(self):
         # 09/04/2026 é quinta-feira: o dia útil imediatamente anterior é
@@ -272,11 +244,14 @@ class TestDayMatchedComparison:
         totals = _daily({"2026-04-09": 6.0, "2026-04-08": 5.0, "2026-04-07": 4.0})
         sem_extra = day_matched_comparison(totals, datetime.date(2026, 4, 9), datetime.date(2026, 4, 9), today)
         com_extra = day_matched_comparison(
-            totals, datetime.date(2026, 4, 9), datetime.date(2026, 4, 9), today,
+            totals,
+            datetime.date(2026, 4, 9),
+            datetime.date(2026, 4, 9),
+            today,
             extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "Santo André - São Paulo"),
         )
-        assert sem_extra["hours"] == 5.0   # comparou com 08/04
-        assert com_extra["hours"] == 4.0   # pulou 08/04 (feriado), comparou com 07/04
+        assert sem_extra["hours"] == 5.0  # comparou com 08/04
+        assert com_extra["hours"] == 4.0  # pulou 08/04 (feriado), comparou com 07/04
 
 
 class TestMonthlySeries:
@@ -315,24 +290,15 @@ class TestMonthlySeries:
         # 23 dias úteis; com o estadual de SP (9/07) MAIS a ponte que ele
         # gera (10/07, sexta), cai pra 21
         without = monthly_series(_intern_history(), TODAY)
-        with_extra = monthly_series(
-            _intern_history(), TODAY,
-            extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "São Paulo"),
-        )
+        with_extra = monthly_series(_intern_history(), TODAY, extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "São Paulo"))
         julho_sem = next(m for m in without if m["month"] == "2026-07")
         julho_com = next(m for m in with_extra if m["month"] == "2026-07")
         assert julho_sem["business_days"] == julho_com["business_days"] + 2
 
     def test_extra_holidays_for_year_desconta_o_municipal_so_pra_santo_andre(self):
         # 8 de abril de 2026 é quarta-feira, dentro da janela de 13 meses
-        outra_filial = monthly_series(
-            _intern_history(), TODAY,
-            extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "São Paulo"),
-        )
-        santo_andre = monthly_series(
-            _intern_history(), TODAY,
-            extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "Santo André - São Paulo"),
-        )
+        outra_filial = monthly_series(_intern_history(), TODAY, extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "São Paulo"))
+        santo_andre = monthly_series(_intern_history(), TODAY, extra_holidays_for_year=lambda y: local_holidays_for_filiale(y, "Santo André - São Paulo"))
         abril_outra = next(m for m in outra_filial if m["month"] == "2026-04")
         abril_sa = next(m for m in santo_andre if m["month"] == "2026-04")
         assert abril_outra["business_days"] == abril_sa["business_days"] + 1
@@ -374,9 +340,7 @@ class TestOutlierDays:
 
 
 class TestHhmm:
-    @pytest.mark.parametrize("value,minutes", [
-        ("0900", 540), ("1601", 961), ("0000", 0), ("2359", 1439), ("0847", 527),
-    ])
+    @pytest.mark.parametrize("value,minutes", [("0900", 540), ("1601", 961), ("0000", 0), ("2359", 1439), ("0847", 527)])
     def test_valores_reais(self, value, minutes):
         assert parse_hhmm(value) == minutes
 
