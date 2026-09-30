@@ -57,6 +57,33 @@ jobs:
       - name: Rodar pytest
         run: python -m pytest backend/tests/ -v
 
+  backend-lint:
+    name: Backend (ruff + mypy)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff (lint)
+        run: ruff check app tests
+
+      - name: ruff (format)
+        run: ruff format --check app tests
+
+      - name: mypy (módulos cobertos, ver pyproject.toml)
+        run: mypy
+
   frontend-build:
     name: Frontend (vitest + typecheck + build)
     runs-on: ubuntu-latest
@@ -72,6 +99,10 @@ jobs:
       - name: Instalar dependências
         working-directory: frontend
         run: npm ci
+
+      - name: Formatação (prettier)
+        working-directory: frontend
+        run: npm run format:check
 
       - name: Rodar testes (vitest)
         working-directory: frontend

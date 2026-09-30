@@ -1,2 +1,7 @@
 -r requirements.txt
 pytest==8.3.4
+# qualidade (ver backend/pyproject.toml e CI): lint/format e typecheck
+ruff==0.16.9
+mypy==2.3.1
+# Redis em memória pros testes do backend de sessão (sem exigir container)
+fakeredis==2.38.0

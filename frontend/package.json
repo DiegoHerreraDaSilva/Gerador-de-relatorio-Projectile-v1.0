@@ -7,6 +7,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 5173",
     "lint": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run"
   },
   "dependencies": {
@@ -21,6 +23,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.7.0",
     "esbuild": "^0.25.12",
+    "prettier": "^3.9.9",
     "typescript": "^5.6.3",
     "vite": "^7.3.6",
     "vitest": "^4.1.11"

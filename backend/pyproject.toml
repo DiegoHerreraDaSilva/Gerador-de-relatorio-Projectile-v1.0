@@ -1,0 +1,78 @@
+# Ferramentas de qualidade do backend (lint/format/typecheck). Os comandos
+# rodam a partir de `backend/` (a descoberta de config do ruff/mypy é pela
+# pasta atual):
+#   ruff check app tests
+#   ruff format --check app tests
+#   mypy
+# Este arquivo NÃO é um pacote Python instalável (sem [project]) — as
+# dependências continuam em requirements.txt/requirements-dev.txt.
+
+[tool.ruff]
+line-length = 160
+target-version = "py311"
+
+[tool.ruff.lint]
+# Base pragmática: bugs (F/E/W), imports (I), sintaxe moderna (UP),
+# armadilhas comuns (B) e simplificações seguras (C4/SIM).
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    # o formatter cuida do código; comentários/documentação longos ficam
+    "E501",
+    # if/else vs ternário: o código prefere if explícito em vários pontos
+    "SIM108",
+    # Depends(...) em argumento default é o padrão do FastAPI
+    "B008",
+    # dívida conhecida: ~50 `raise` dentro de except sem `from e` — corrigir
+    # em lote num PR dedicado (mantém o traceback encadeado); até lá, fora do
+    # gate pra ele não nascer vermelho
+    "B904",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# asserts com mensagem/tupla são idiomáticos em teste; F811 é o parâmetro do
+# teste (ex: `custom_db`) com o mesmo nome da fixture importada — é assim que
+# o pytest resolve a injeção
+"tests/**" = ["B011", "F811"]
+# load_dotenv()/truststore precisam rodar ANTES dos imports de propósito
+"app/main.py" = ["E402"]
+"app/chatbot.py" = ["E402"]
+# NamedTemporaryFile é fechado explicitamente (e removido no erro) com o
+# caminho devolvido pra quem chama apagar — o `with` fecharia cedo demais
+"app/api/routers/parsing.py" = ["SIM115"]
+
+[tool.ruff.lint.isort]
+# alinhado com format.skip-magic-trailing-comma=true (o ruff avisa que a
+# combinação oposta gera comportamento inesperado entre lint e format)
+split-on-trailing-comma = false
+
+[tool.ruff.format]
+# preserva as aspas já usadas (o estilo do repo é misto de propósito) —
+# o formatter só normaliza estrutura, vírgulas e quebras
+quote-style = "preserve"
+# respeita o empacotamento do autor: um dict/lista compacto em várias colunas
+# não vira um item por linha só por ter vírgula final
+skip-magic-trailing-comma = true
+
+[tool.mypy]
+python_version = "3.11"
+# incremental POR MÓDULO, nunca em big bang. Só módulos cujo GRAFO de imports
+# já é limpo entram aqui (o mypy reporta erro de todo módulo alcançado, não
+# só dos listados — então limpar "um módulo" é limpar o que ele importa):
+# hoje, `app/core` (config + logging), que é auto-contido. O legado
+# (services/api/auto_generation) tem ~250 erros acumulados; a lista cresce
+# quando um pacote for limpo, não antes.
+files = ["app/core"]
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# numpy está instalado no ambiente local por outro motivo e seus stubs usam
+# `type` (3.12+), que quebra a análise com python_version=3.11 — nenhum
+# módulo do app importa numpy direto. Quem puxa é o `pypdf` (tipos inline,
+# modo de layout opcional) e o `PIL` (via reportlab): não seguimos os dois
+# fundo, só o que o app usa de fato.
+[[tool.mypy.overrides]]
+module = ["pypdf", "pypdf.*", "PIL", "PIL.*", "numpy", "numpy.*"]
+follow_imports = "skip"
