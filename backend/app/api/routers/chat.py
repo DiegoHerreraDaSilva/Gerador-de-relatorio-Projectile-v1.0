@@ -38,7 +38,7 @@ class ChatPackage(BaseModel):
 
 
 class ChatState(BaseModel):
-    packages: list[ChatPackage] = Field(min_length=1)
+    packages: list[ChatPackage] = Field(min_length=1, max_length=100)
     activePackageIndex: int
     locationDate: str
     monthLabel: str
@@ -54,9 +54,9 @@ class ChatHistoryTurn(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(max_length=10_000)
     state: ChatState
-    history: list[ChatHistoryTurn] = []
+    history: list[ChatHistoryTurn] = Field(default=[], max_length=100)
 
 
 class ChatResponse(BaseModel):
@@ -65,7 +65,7 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat")
-async def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_session)):
+def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_session)):
     try:
         summary, operations = call_chat(payload.message, payload.state.model_dump(), [turn.model_dump() for turn in payload.history])
     except ChatConfigError as e:
@@ -101,7 +101,7 @@ class TranslatePayload(BaseModel):
 
 
 @router.post("/translate-activities")
-async def translate_activities_endpoint(payload: TranslatePayload, _user: dict = Depends(require_translate_access)):
+def translate_activities_endpoint(payload: TranslatePayload, _user: dict = Depends(require_translate_access)):
     try:
         translations = call_translate([item.model_dump() for item in payload.items], payload.target_language)
     except ChatConfigError as e:

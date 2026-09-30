@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/analytics/summary")
-async def analytics_summary_endpoint(_user: dict = Depends(require_manager)) -> dict:
+def analytics_summary_endpoint(_user: dict = Depends(require_manager)) -> dict:
     try:
         return report_queries.get_analytics_summary()
     except Exception as e:
@@ -26,7 +26,7 @@ async def analytics_summary_endpoint(_user: dict = Depends(require_manager)) -> 
 
 
 @router.get("/analytics/health")
-async def analytics_health_endpoint(_user: dict = Depends(require_manager)) -> dict:
+def analytics_health_endpoint(_user: dict = Depends(require_manager)) -> dict:
     """Saúde do sistema (geração, artefatos em disco, última rodada da
     geração automática, mensagens ignoradas) — só gerente, mesmo contrato de
     erro de `/analytics/summary` (banco fora do ar → 502 genérico)."""

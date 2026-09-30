@@ -72,7 +72,7 @@ def _sample_month(sample_id: str) -> str | None:
 
 
 @router.get("/management/clients-with-hours")
-async def management_clients_with_hours_endpoint(month_label: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_clients_with_hours_endpoint(month_label: str, _user: dict = Depends(require_manager_or_coordinator)):
     """Clientes com ao menos um lançamento de hora no mês — popula a busca de
     Cliente na tela de importação "por cliente" (`FileUpload.tsx`), só com
     quem teve movimento naquele período (não o cadastro inteiro do
@@ -88,7 +88,7 @@ async def management_clients_with_hours_endpoint(month_label: str, _user: dict =
 
 
 @router.get("/management/client-projects")
-async def management_client_projects_endpoint(client: str, month_label: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_client_projects_endpoint(client: str, month_label: str, _user: dict = Depends(require_manager_or_coordinator)):
     """Projetos de um cliente com ao menos um lançamento de hora no mês —
     popula o seletor multi-seleção de projeto da tela de importação "por
     cliente"."""
@@ -109,7 +109,7 @@ async def management_client_projects_endpoint(client: str, month_label: str, _us
 
 
 @router.get("/management/kpis")
-async def management_kpis_endpoint(
+def management_kpis_endpoint(
     months: int = 12,
     year: int | None = None,
     cost_centers: list[str] = Query(default=[]),
@@ -152,7 +152,7 @@ _SEND_STATUS_KEYS = (
 
 
 @router.get("/management/send-status")
-async def management_send_status_endpoint(
+def management_send_status_endpoint(
     months: int = 12,
     year: int | None = None,
     cost_centers: list[str] = Query(default=[]),
@@ -203,7 +203,7 @@ async def management_check_emails_endpoint(_user: dict = Depends(require_manager
 
 
 @router.get("/management/projects")
-async def management_projects_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
+def management_projects_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
     """Lista de todos os projetos do Projectile (id/nome/cliente), sem
     recorte por período — alimenta o seletor de projeto da tela de
     Diagnóstico (cadastro/edição manual de amostra), onde o gerente precisa
@@ -216,7 +216,7 @@ async def management_projects_endpoint(_user: dict = Depends(require_manager_or_
 
 
 @router.get("/management/kpis/samples")
-async def management_kpi_samples_endpoint(month: str | None = None, _user: dict = Depends(require_manager_or_coordinator)):
+def management_kpi_samples_endpoint(month: str | None = None, _user: dict = Depends(require_manager_or_coordinator)):
     """Tela de Diagnóstico: mostra de quais e-mails (ou cadastro manual)
     vieram as horas faturadas/dias de cada (projeto, mês), e o que foi
     pulado e por quê — necessário porque o match de projeto é automático,
@@ -243,7 +243,7 @@ class ManualSampleCreatePayload(BaseModel):
 
 
 @router.post("/management/kpis/samples")
-async def management_kpi_sample_create_endpoint(payload: ManualSampleCreatePayload, _user: dict = Depends(require_manager_or_coordinator)):
+def management_kpi_sample_create_endpoint(payload: ManualSampleCreatePayload, _user: dict = Depends(require_manager_or_coordinator)):
     """Cadastro manual de amostra — pra quando um relatório foi enviado fora
     do fluxo de e-mail, ou o match automático nunca achou o projeto certo."""
     if not re.fullmatch(r"\d{4}-\d{2}", payload.month):
@@ -278,7 +278,7 @@ class SampleUpdatePayload(BaseModel):
 
 
 @router.patch("/management/kpis/samples/{sample_id}")
-async def management_kpi_sample_update_endpoint(sample_id: str, payload: SampleUpdatePayload, _user: dict = Depends(require_manager_or_coordinator)):
+def management_kpi_sample_update_endpoint(sample_id: str, payload: SampleUpdatePayload, _user: dict = Depends(require_manager_or_coordinator)):
     """Corrige uma amostra existente — projeto errado (match automático
     fraco), horas/dias lidos errado, competência errada, ou pacote de
     trabalho coberto (projeto inteiro vs 1+ pacotes específicos)."""
@@ -295,9 +295,7 @@ async def management_kpi_sample_update_endpoint(sample_id: str, payload: SampleU
 
 
 @router.get("/management/projects/{project_id}/packages")
-async def management_project_packages_endpoint(
-    project_id: str, month: str = Query(pattern=r"^\d{4}-\d{2}$"), _user: dict = Depends(require_manager_or_coordinator)
-):
+def management_project_packages_endpoint(project_id: str, month: str = Query(pattern=r"^\d{4}-\d{2}$"), _user: dict = Depends(require_manager_or_coordinator)):
     """Pacotes de trabalho com hora de verdade nesse projeto/mês no
     Projectile — alimenta o multi-select de "Pacote de trabalho" na edição
     de amostra do Diagnóstico (ver `list_pacotes_for_project`)."""
@@ -309,7 +307,7 @@ async def management_project_packages_endpoint(
 
 
 @router.get("/management/projects/{project_id}/all-packages")
-async def management_project_all_packages_endpoint(project_id: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_project_all_packages_endpoint(project_id: str, _user: dict = Depends(require_manager_or_coordinator)):
     """Todo o histórico de pacotes de trabalho desse projeto (sem recorte de
     mês) — alimenta a lista só-leitura de pacotes ao expandir um projeto no
     popup de "Fechados": fechar é permanente, então o gerente precisa ver
@@ -322,7 +320,7 @@ async def management_project_all_packages_endpoint(project_id: str, _user: dict 
 
 
 @router.get("/management/closed-registry")
-async def management_closed_registry_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
+def management_closed_registry_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
     """Popup de "Fechados" do Painel de Gerência: todos os projetos do
     Projectile (fechar é permanente/atemporal, não só do período em vista
     no painel, ao contrário do resto da tela) junto com o registro atual de
@@ -337,31 +335,31 @@ async def management_closed_registry_endpoint(_user: dict = Depends(require_mana
 
 
 @router.post("/management/closed-registry/clients/{client}")
-async def management_close_client_endpoint(client: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_close_client_endpoint(client: str, _user: dict = Depends(require_manager_or_coordinator)):
     set_client_closed(client, True)
     return {"ok": True}
 
 
 @router.delete("/management/closed-registry/clients/{client}")
-async def management_reopen_client_endpoint(client: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_reopen_client_endpoint(client: str, _user: dict = Depends(require_manager_or_coordinator)):
     set_client_closed(client, False)
     return {"ok": True}
 
 
 @router.post("/management/closed-registry/projects/{project_id}")
-async def management_close_project_endpoint(project_id: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_close_project_endpoint(project_id: str, _user: dict = Depends(require_manager_or_coordinator)):
     set_project_closed(project_id, True)
     return {"ok": True}
 
 
 @router.delete("/management/closed-registry/projects/{project_id}")
-async def management_reopen_project_endpoint(project_id: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_reopen_project_endpoint(project_id: str, _user: dict = Depends(require_manager_or_coordinator)):
     set_project_closed(project_id, False)
     return {"ok": True}
 
 
 @router.delete("/management/kpis/samples/{sample_id}")
-async def management_kpi_sample_delete_endpoint(sample_id: str, _user: dict = Depends(require_manager_or_coordinator)):
+def management_kpi_sample_delete_endpoint(sample_id: str, _user: dict = Depends(require_manager_or_coordinator)):
     """Remove uma amostra errada. O e-mail original continua marcado como
     processado — não volta a ser reprocessado no próximo polling."""
     if not is_manager(_user):
@@ -377,7 +375,7 @@ class ManualEntryPayload(BaseModel):
 
 
 @router.put("/management/kpis/{month}")
-async def management_manual_entry_endpoint(month: str, payload: ManualEntryPayload, _user: dict = Depends(require_manager)):
+def management_manual_entry_endpoint(month: str, payload: ManualEntryPayload, _user: dict = Depends(require_manager)):
     if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
     set_manual_entry(month, payload.billed_hours, payload.elaboration_days)

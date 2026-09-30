@@ -67,7 +67,7 @@ def check_scheduler() -> dict:
 
 
 @router.get("/health")
-async def health_endpoint():
+def health_endpoint():
     """Liveness + dependências críticas, sem detalhe (endpoint público)."""
     checks = [check_reports_db(), check_projectile()]
     healthy = all(check["ok"] for check in checks)
@@ -75,7 +75,7 @@ async def health_endpoint():
 
 
 @router.get("/health/details")
-async def health_details_endpoint(_user: dict = Depends(require_manager)) -> dict:
+def health_details_endpoint(_user: dict = Depends(require_manager)) -> dict:
     """Check por check, com latência e motivo — só gerente (mostra a
     topologia interna: nome dos bancos e estado do agendador)."""
     checks = {"reports_db": check_reports_db(), "projectile": check_projectile(), "scheduler": check_scheduler()}

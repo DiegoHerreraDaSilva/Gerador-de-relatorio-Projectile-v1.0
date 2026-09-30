@@ -6,47 +6,77 @@ exatamente o mesmo arquivo pro mesmo conteúdo."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..generator import ActivityInput, GroupInput, ReportHeader, generate_report
 from ..pdf_generator import generate_report_pdf
 
+# Tetos de entrada — largos de propósito (um relatório real tem dezenas de
+# grupos e algumas centenas de atividades), só barram payload absurdo antes de
+# ele virar memória/CPU no gerador. Valem pra /generate, /send-report e pra
+# aprovação da geração automática, que reusam estes mesmos modelos.
+MAX_PACKAGES = 100
+MAX_GROUPS = 500
+MAX_ACTIVITIES_PER_GROUP = 2000
+MAX_ACTIVITIES_TOTAL = 20_000
+MAX_DESCRIPTION = 2000
+MAX_NAME = 500
+MAX_HEADER_TEXT = 500
+MAX_CHART_B64 = 4_000_000  # ~3 MB de PNG; o gráfico do navegador tem ~100 KB
+_IMAGE_MAGIC = (bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), bytes([0xFF, 0xD8, 0xFF]))  # PNG, JPEG
+
+
+def _check_image(value: str | None) -> str | None:
+    if not value:
+        return value
+    if len(value) > MAX_CHART_B64:
+        raise ValueError("imagem do gráfico grande demais")
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("imagem do gráfico não é base64 válido") from exc
+    if not raw.startswith(_IMAGE_MAGIC):
+        raise ValueError("imagem do gráfico precisa ser PNG ou JPEG")
+    return value
+
 
 class ActivityPayload(BaseModel):
-    description: str
+    description: str = Field(max_length=MAX_DESCRIPTION)
     hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class GroupPayload(BaseModel):
-    name: str
+    name: str = Field(max_length=MAX_NAME)
     performance: float = Field(ge=0, allow_inf_nan=False)
-    activities: list[ActivityPayload]
+    activities: list[ActivityPayload] = Field(max_length=MAX_ACTIVITIES_PER_GROUP)
 
 
 class HeaderPayload(BaseModel):
-    project_code: str = Field(min_length=1, description='Número do relatório (ex: "SE.XX.XXX") — obrigatório.')
-    project_name: str
-    location_date: str
-    month_label: str
-    signer1_name: str = Field(min_length=1, description="Nome de quem assina pela Schwaben — obrigatório.")
-    signer1_company: str = "Schwaben Engineering"
-    signer2_name: str = Field(min_length=1, description="Nome de quem assina pelo cliente — obrigatório.")
-    signer2_company: str = "Mercedes-Benz do Brasil"
+    project_code: str = Field(min_length=1, max_length=MAX_HEADER_TEXT, description='Número do relatório (ex: "SE.XX.XXX") — obrigatório.')
+    project_name: str = Field(max_length=MAX_HEADER_TEXT)
+    location_date: str = Field(max_length=MAX_HEADER_TEXT)
+    month_label: str = Field(max_length=MAX_HEADER_TEXT)
+    signer1_name: str = Field(min_length=1, max_length=MAX_HEADER_TEXT, description="Nome de quem assina pela Schwaben — obrigatório.")
+    signer1_company: str = Field(default="Schwaben Engineering", max_length=MAX_HEADER_TEXT)
+    signer2_name: str = Field(min_length=1, max_length=MAX_HEADER_TEXT, description="Nome de quem assina pelo cliente — obrigatório.")
+    signer2_company: str = Field(default="Mercedes-Benz do Brasil", max_length=MAX_HEADER_TEXT)
 
 
 class ReportPackagePayload(BaseModel):
     header: HeaderPayload
-    groups: list[GroupPayload]
-    file_name: str | None = None
+    groups: list[GroupPayload] = Field(max_length=MAX_GROUPS)
+    file_name: str | None = Field(default=None, max_length=MAX_NAME)
     chart_image_bar: str | None = None
     chart_image_pie: str | None = None
     # None = relatório cobre o projeto inteiro; texto = cobre só esse pacote
     # de trabalho — vira uma marca oculta no .xlsx (ver generator.py), lida
     # de volta por email_ingest.py pra status "enviado"/"parcial" por projeto.
-    pacote_scope: str | None = None
+    pacote_scope: str | None = Field(default=None, max_length=MAX_NAME)
     # idioma dos RÓTULOS FIXOS do arquivo gerado (título, cabeçalhos de
     # coluna, "Bruto"/"Performance", "Total de horas.../Total hours...") —
     # ver generator._LABELS/pdf_generator.generate_report_pdf. Por pacote
@@ -57,9 +87,23 @@ class ReportPackagePayload(BaseModel):
     # pra /send-report, sem precisar duplicar o campo em SendReportPayload.
     language: Literal["pt", "en", "de"] = "pt"
 
+    @field_validator("chart_image_bar", "chart_image_pie")
+    @classmethod
+    def _valid_chart_image(cls, value: str | None) -> str | None:
+        return _check_image(value)
+
+    def activity_count(self) -> int:
+        return sum(len(g.activities) for g in self.groups)
+
+
+def check_total_size(packages: list[ReportPackagePayload]) -> list[ReportPackagePayload]:
+    if sum(p.activity_count() for p in packages) > MAX_ACTIVITIES_TOTAL:
+        raise ValueError(f"atividades demais na geração (máximo {MAX_ACTIVITIES_TOTAL})")
+    return packages
+
 
 class GeneratePayload(BaseModel):
-    packages: list[ReportPackagePayload] = Field(min_length=1)
+    packages: list[ReportPackagePayload] = Field(min_length=1, max_length=MAX_PACKAGES)
     formats: list[Literal["xlsx", "pdf"]] = Field(default=["xlsx"], min_length=1)
     # checkbox "Incluir performance" no rodapé de Gerar Relatório — inclui no
     # arquivo o Bruto/Performance por grupo e o total geral (ver
@@ -69,6 +113,11 @@ class GeneratePayload(BaseModel):
     # e-mail) — fora do pedido original, sempre False lá.
     # ignorado: arquivo nunca mostra performance (ver `build_report_file`)
     include_performance: bool = False
+
+    @field_validator("packages")
+    @classmethod
+    def _total_size(cls, value: list[ReportPackagePayload]) -> list[ReportPackagePayload]:
+        return check_total_size(value)
 
 
 def persistence_pkg_data(pkg_payload: ReportPackagePayload) -> dict:

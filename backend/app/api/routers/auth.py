@@ -30,7 +30,7 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/auth/login")
-async def login_endpoint(payload: LoginRequest, request: Request, response: Response):
+def login_endpoint(payload: LoginRequest, request: Request, response: Response):
     client_key = request.client.host if request.client else "unknown"
 
     try:
@@ -62,7 +62,7 @@ async def login_endpoint(payload: LoginRequest, request: Request, response: Resp
 
 
 @router.get("/auth/me")
-async def me_endpoint(request: Request):
+def me_endpoint(request: Request):
     session = get_session(request.cookies.get(SESSION_COOKIE))
     if not session:
         raise HTTPException(401, "Não autenticado.")
@@ -70,7 +70,7 @@ async def me_endpoint(request: Request):
 
 
 @router.post("/auth/logout")
-async def logout_endpoint(request: Request, response: Response):
+def logout_endpoint(request: Request, response: Response):
     delete_session(request.cookies.get(SESSION_COOKIE))
     response.delete_cookie(SESSION_COOKIE)
     return {"ok": True}

@@ -12,13 +12,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
 from ... import email_ingest
 from ...generator import NonFiniteValueError
 from ...services.report_files import FORMAT_MEDIA_TYPES as _FORMAT_MEDIA_TYPES  # noqa: F401 — modelos re-exportados (contrato da rota)
-from ...services.report_files import GeneratePayload, ReportPackagePayload
+from ...services.report_files import MAX_PACKAGES, GeneratePayload, ReportPackagePayload, check_total_size
 from ...services.report_files import build_report_file as _build_report
 from ...services.report_files import dedupe_name as _dedupe_name
 from ...services.report_files import persistence_headers as _persistence_headers
@@ -35,7 +35,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 @router.post("/generate")
-async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(require_session)):
+def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(require_session)):
     formats = payload.formats
     # Só 1 pacote E 1 formato no payload — devolve o arquivo direto, sem
     # zipar, mantendo o comportamento original do app. Qualquer outra
@@ -122,15 +122,20 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class SendReportPayload(BaseModel):
-    packages: list[ReportPackagePayload] = Field(min_length=1)
-    to: str
+    packages: list[ReportPackagePayload] = Field(min_length=1, max_length=MAX_PACKAGES)
+    to: str = Field(max_length=320)
     subject: str = Field(min_length=1, max_length=200)
     message: str = Field(default="", max_length=5000)
     formats: list[Literal["xlsx", "pdf"]] = Field(default=["xlsx"], min_length=1)
 
+    @field_validator("packages")
+    @classmethod
+    def _total_size(cls, value: list[ReportPackagePayload]) -> list[ReportPackagePayload]:
+        return check_total_size(value)
+
 
 @router.post("/send-report")
-async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends(require_session)):
+def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends(require_session)):
     """Gera 1 ou mais relatórios (mesmo caminho de `/generate`, um arquivo
     por `(pacote, formato)` escolhido) e manda TUDO num único e-mail via
     Microsoft Graph, "como" o usuário logado, sempre com a caixa do agente
