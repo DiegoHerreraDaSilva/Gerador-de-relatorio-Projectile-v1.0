@@ -16,6 +16,11 @@ export default defineConfig({
       "/analytics": "http://localhost:8011",
       "/auto-generation": "http://localhost:8011",
       "/my-reviews": "http://localhost:8011",
+      "/management": "http://localhost:8011",
+      "/my-hours": "http://localhost:8011",
+      "/send-report": "http://localhost:8011",
+      "/translate-activities": "http://localhost:8011",
+      "/health": "http://localhost:8011",
     },
   },
   build: {
