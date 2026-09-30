@@ -17,7 +17,7 @@ sqlalchemy==2.0.36
 alembic==1.14.0
 python-ulid==2.7.0
 # base de fusos horários do agendador (America/Sao_Paulo) — o Windows não traz
-tzdata==2025.2
+tzdata==2026.4
 DBUtils==3.1.2
 # error tracking (Sentry/GlitchTip self-hosted) — ver core/logging.py
 sentry-sdk==2.71.0
