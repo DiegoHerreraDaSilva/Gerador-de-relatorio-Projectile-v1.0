@@ -24,6 +24,7 @@ from .common import (
     WorkflowError,
     _badges,
     _public,
+    skip_closed_drafts,
 )
 from .drafts import detail
 
@@ -146,6 +147,7 @@ _REVIEW_DONE_LIMIT = 20
 def my_reviews(user: dict, competence_from: str | None = None) -> dict:
     """ "Minhas revisões": o que está com a pessoa (em revisão/devolvido), o
     que ela mandou e espera o gerente, e os últimos concluídos."""
+    skip_closed_drafts()
     items = store.list_assigned(user.get("login") or "", REVIEW_LIST_STATUSES, competence_from)
     comments = store.latest_comments([i["id"] for i in items if i["status"] in (STATUS_REVIEWED, STATUS_RETURNED)], ("submitted", "returned"))
     out = [{**_without_blocks(_public(i)), "badges": i.get("badges_json") or {}, "last_comment": comments.get(i["id"])} for i in items]
@@ -161,6 +163,7 @@ def my_reviews(user: dict, competence_from: str | None = None) -> dict:
 def review_summary(user: dict, is_manager: bool, competence_from: str | None = None) -> dict:
     """Contadores da sidebar: o que espera a revisão da pessoa e, pro
     gerente, o que espera a aprovação dele."""
+    skip_closed_drafts()
     login = user.get("login") or ""
     return {
         "to_review": store.count_by_status(tuple(REVIEWER_EDITABLE), reviewer_login=login, competence_from=competence_from),

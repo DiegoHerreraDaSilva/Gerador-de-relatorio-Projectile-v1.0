@@ -146,6 +146,14 @@ def list_reports(competence: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def list_open_monthly(statuses: tuple[str, ...]) -> list[dict]:
+    """Relatórios MENSAIS (de qualquer competência) nesses estados — usado pra pular
+    os que ficaram em aberto de um projeto/cliente que foi fechado depois."""
+    with _connect(begin=False) as conn:
+        rows = conn.execute(select(*_LIST_COLUMNS).where(auto_reports.c.kind == KIND_MONTHLY, auto_reports.c.status.in_(statuses))).mappings().all()
+    return [dict(r) for r in rows]
+
+
 def list_custom() -> list[dict]:
     """Relatórios personalizados, os mais novos primeiro (sem janela: só o
     gerente cria e vê)."""

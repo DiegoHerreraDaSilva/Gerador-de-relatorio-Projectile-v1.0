@@ -939,3 +939,72 @@ def test_clique_duplo_enquanto_envia_e_recusado(auto_db, graph):
     finally:
         service._sending.discard(report_id)
     assert graph == []
+
+
+# --- fechado depois de gerado sai da geração automática ---------------------------------------
+
+
+def _close(table_name: str, column: str, value: str, closed: bool = True):
+    table = getattr(management_store, table_name)
+    with management_store.write_session() as s:
+        s.set_closed(table, column, value, closed)
+
+
+def _view(competence="2026-08"):
+    return {i["project_id"]: i for i in service.competence_view(competence)["items"]}
+
+
+def test_projeto_fechado_depois_de_gerado_vira_pulado_e_sai_da_contagem(auto_db):
+    items = _run()
+    assert items["E8"]["status"] == "em_revisao"
+    before = service.competence_view("2026-08")["counts"]
+
+    _close("mgmt_closed_projects", "project_id", "E8")
+    after = service.competence_view("2026-08")
+    e8 = {i["project_id"]: i for i in after["items"]}["E8"]
+
+    assert e8["status"] == "pulado" and e8["badges"]["skip_reason"] == "fechado no Diagnóstico"
+    assert after["counts"].get("em_revisao", 0) == before["em_revisao"] - 1
+    assert after["counts"]["pulado"] == before.get("pulado", 0) + 1
+    events = service.detail(e8["id"])["events"]
+    assert events[-1]["action"] == "skipped" and events[-1]["actor_name"] == "Sistema"
+
+
+def test_cliente_fechado_pula_todos_os_projetos_dele(auto_db):
+    items = _run()
+    client = items["E8"]["client"]
+    _close("mgmt_closed_clients", "client", client)
+    view = _view()
+    same_client = [p for p, i in items.items() if i["client"] == client and i["status"] == "em_revisao"]
+    assert same_client and all(view[p]["status"] == "pulado" for p in same_client)
+    others = [p for p, i in items.items() if i["client"] != client and i["status"] == "em_revisao"]
+    assert all(view[p]["status"] == "em_revisao" for p in others)
+
+
+def test_aprovado_e_enviado_nao_mudam_quando_o_projeto_e_fechado(auto_db, graph):
+    report_id = _approved()
+    _close("mgmt_closed_projects", "project_id", "E8")
+    assert _view()["E8"]["status"] == "aprovado"
+    assert _client().post(f"/auto-generation/reports/{report_id}/send", json={"to": ["c@x.com"], "subject": "R"}).status_code == 200
+    assert _view()["E8"]["status"] == "enviado"
+
+
+def test_reabrir_o_fechamento_nao_ressuscita_mas_regenerar_funciona(auto_db):
+    _run()
+    _close("mgmt_closed_projects", "project_id", "E8")
+    item = _view()["E8"]
+    assert item["status"] == "pulado"
+    _close("mgmt_closed_projects", "project_id", "E8", closed=False)
+    assert _view()["E8"]["status"] == "pulado"
+    service.regenerate(item["id"], _MANAGER)
+    assert _view()["E8"]["status"] == "em_revisao"
+
+
+def test_revisor_nao_ve_nem_conta_rascunho_de_projeto_fechado(auto_db, reviewers):
+    items = _run()
+    assert _assign(items["E8"]["id"], "colab").status_code == 200
+    assert _client(_COLLABORATOR).get("/my-reviews/summary").json()["to_review"] == 1
+
+    _close("mgmt_closed_projects", "project_id", "E8")
+    assert _client(_COLLABORATOR).get("/my-reviews/summary").json() == {"to_review": 0, "assigned": 0, "awaiting_approval": None}
+    assert _client(_COLLABORATOR).get("/my-reviews").json()["to_review"] == []

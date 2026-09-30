@@ -22,6 +22,7 @@ from .common import (
     _pattern_label,
     _public,
     _public_run,
+    skip_closed_drafts,
 )
 from .config import _family_for
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 def competence_view(competence: str) -> dict:
     builder.parse_competence(competence)
+    skip_closed_drafts()
     run = store.get_run(competence)
     items = store.list_reports(competence)
     try:

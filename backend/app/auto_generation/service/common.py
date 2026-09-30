@@ -137,6 +137,51 @@ def _transition(report_id: str, allowed: set[str], new_status: str, actor: dict,
         s.add_event(report_id, action, actor, comment or None)
 
 
+SYSTEM_ACTOR = {"login": "sistema", "name": "Sistema"}
+
+# o que ainda está em aberto e, por isso, sai quando o projeto/cliente é fechado
+CLOSABLE = {STATUS_ERROR, STATUS_IN_REVIEW, STATUS_REVIEWED, STATUS_RETURNED}
+
+
+def skip_closed_drafts() -> int:
+    """Projeto ou cliente fechado no Diagnóstico NÃO entra na geração automática: o que já
+    tinha rascunho em aberto (erro, em revisão, aguardando aprovação, devolvido) vira `pulado`,
+    com o motivo e um evento na linha do tempo. Aprovado/enviado não muda: já foi pro
+    histórico e/ou pro cliente. Reabrir o fechamento não ressuscita o rascunho (o "Regenerar"
+    continua valendo pra pulado). Personalizado não entra: o recorte é escolha explícita.
+    Devolve quantos foram pulados; nunca derruba quem chamou (leitura de lista/contador)."""
+    from ... import management
+
+    try:
+        closed = management.get_closed_registry()
+        projects = set(closed.get("closed_projects", []))
+        clients = set(closed.get("closed_clients", []))
+        if not projects and not clients:
+            return 0
+        skipped = 0
+        for item in store.list_open_monthly(tuple(CLOSABLE)):
+            if item["project_id"] not in projects and item["client"] not in clients:
+                continue
+            badges = {**(item.get("badges_json") or {}), "skip_reason": "fechado no Diagnóstico"}
+            try:
+                _transition(
+                    item["id"],
+                    CLOSABLE,
+                    STATUS_SKIPPED,
+                    SYSTEM_ACTOR,
+                    "skipped",
+                    "Projeto/cliente fechado no Diagnóstico depois de gerado.",
+                    badges_json=badges,
+                )
+                skipped += 1
+            except (WorkflowError, NotFound):
+                continue  # mudou de estado no meio: a próxima leitura confere de novo
+        return skipped
+    except Exception:
+        logger.warning("Não consegui pular os rascunhos de projetos fechados", exc_info=True)
+        return 0
+
+
 def _pattern_label(pattern: str) -> str:
     """Formato do número pra gente ler — o modelo com `#` por dígito
     ("SE.##.###"), nunca a expressão regular crua."""
