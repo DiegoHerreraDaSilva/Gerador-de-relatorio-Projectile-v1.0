@@ -9435,8 +9435,8 @@ input[data-pv="projectCode"]:placeholder-shown,
 
 /* variação sobre o mês anterior na tabela do Painel (seta + número: a cor nunca é o único sinal) */
 .kpi-delta {
-  display: block;
-  margin-top: 1px;
+  display: inline-block;
+  margin-right: 8px;
   font-size: 0.68rem;
   font-weight: 500;
   color: var(--text-muted);

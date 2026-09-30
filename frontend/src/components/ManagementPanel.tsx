@@ -323,12 +323,15 @@ export function ManagementPanel() {
                 <tr key={r.month}>
                   <td>{r.month}</td>
                   <td>
-                    {fmtNum(r.worked_hours)}
                     {deltas.get(r.month)?.workedPct != null && (
-                      <small className="kpi-delta" title="Variação sobre o mês anterior">
+                      <small
+                        className={`kpi-delta ${(deltas.get(r.month)?.workedPct ?? 0) > 0 ? "up" : (deltas.get(r.month)?.workedPct ?? 0) < 0 ? "down" : ""}`}
+                        title="Variação sobre o mês anterior"
+                      >
                         {formatDelta(deltas.get(r.month)?.workedPct ?? null, "%")}
                       </small>
                     )}
+                    {fmtNum(r.worked_hours)}
                   </td>
                   <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
                     {r.billed_hours === null ? "—" : fmtNum(r.billed_hours)}
@@ -340,7 +343,6 @@ export function ManagementPanel() {
                     className={`kpi-pct ${pctClass(r.perf_kpi_pct, 10, "min")}`}
                     title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}
                   >
-                    {fmtPct(r.perf_kpi_pct)}
                     {deltas.get(r.month)?.perfPoints != null && (
                       <small
                         className={`kpi-delta ${(deltas.get(r.month)?.perfPoints ?? 0) > 0 ? "up" : (deltas.get(r.month)?.perfPoints ?? 0) < 0 ? "down" : ""}`}
@@ -349,6 +351,7 @@ export function ManagementPanel() {
                         {formatDelta(deltas.get(r.month)?.perfPoints ?? null, "pts")}
                       </small>
                     )}
+                    {fmtPct(r.perf_kpi_pct)}
                   </td>
                 </tr>
               ))}
