@@ -651,26 +651,6 @@ Topologia recomendada a partir de 2026-09-29 (`docker-compose.prod.yml`): a mesm
 
 O fluxo antigo (Python nativo + NSSM, `atualizar-servidor.bat`) continua funcionando durante a transição; migre quando o servidor tiver Docker rodando os quatro serviços.
 
-## Backup e restore (reports_db)
-
-O `reports_db` é dado primário (histórico de relatórios, correções manuais do Diagnóstico, geração automática, artefatos) e não tem redundância própria — o backup é o que existe entre um problema no banco/disco e a perda definitiva. Dois scripts cobrem isso:
-
-```powershell
-# Backup: dump .sql.gz + copia incremental dos artefatos
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-reports-db.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-reports-db.ps1 -Dest "D:\Backups\relatorio" -RetentionDays 60
-
-# Restore (banco novo; num banco existente exige -Force + digitar RESTAURAR)
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore-reports-db.ps1 -DumpFile "D:\Backups\relatorio\reports_db_2026-09-29_060000.sql.gz"
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore-reports-db.ps1 -DumpFile "...\reports_db_2026-09-29_060000.sql.gz" -ArtifactsSource "D:\Backups\relatorio\artifacts"
-```
-
-- O dump (`reports_db_<data-hora>.sql.gz`) é feito com `mysqldump --single-transaction` **dentro do container** — a senha do banco nunca passa pela linha de comando do host. O restore imprime a contagem de linhas das tabelas principais pra conferir.
-- Os artefatos vão para `<Dest>\artifacts` por cópia incremental: coisa apagada no servidor **não** é apagada do backup (proteção contra apagar por engano). Por isso a pasta só cresce; limpe manualmente se precisar.
-- Retenção apaga só dumps mais antigos que `-RetentionDays` (padrão 30); artefatos nunca são removidos pelos scripts.
-- **Agendador de Tarefas (Windows):** crie uma tarefa diária com `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<repo>\scripts\backup-reports-db.ps1" -Dest "<pasta>"`, rodando como um usuário com acesso ao Docker e à pasta de destino (não use a conta SYSTEM sem informar `-Dest`).
-- **Restore em produção:** pare o backend antes (o que for gravado durante o restore se perde) e guarde o banco atual antes de usar `-Force`. O restore num banco de teste descartável é a forma de validar o procedimento sem risco.
-
 ## Observabilidade (logs e erros)
 
 - **Request-id:** toda resposta leva `X-Request-Id` (o cliente pode mandar o próprio — só ids simples de até 64 caracteres são aceitos; qualquer coisa estranha vira um id novo). O mesmo id aparece em toda linha de log daquela requisição, então um erro reportado pelo usuário (com o id no header) é rastreável no log.
