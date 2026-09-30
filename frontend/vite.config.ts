@@ -26,6 +26,14 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // bibliotecas num arquivo só: muda raramente, então o navegador o mantém em cache entre deploys
+        manualChunks(id: string) {
+          if (id.includes("node_modules")) return "vendor";
+        },
+      },
+    },
   },
   test: {
     environment: "node",
