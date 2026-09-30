@@ -24,7 +24,8 @@ import { useMyReviewsStore } from "../store/useMyReviewsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { ReportTabsBar } from "./ReportTabsBar";
 import { useSidebarTooltip } from "./SidebarTooltip";
-import { VIEW_TITLES, type AppView } from "../appView";
+import { VIEW_ACCESS, VIEW_TITLES, type AppView, type NavAccess } from "../appView";
+import { Search } from "lucide-react";
 
 const COLLAPSED_STORAGE_KEY = "sidebarCollapsed";
 
@@ -45,31 +46,36 @@ function initialsFor(name: string): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-// "all": todo mundo logado; "coordinator": gerente ou coordenador;
-// "manager": só gerente. Só controla o menu — o backend barra por conta própria.
-type NavAccess = "all" | "coordinator" | "manager";
-
-const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; access: NavAccess }> = [
-  { view: "report", label: "Gerar relatório", icon: FileText, access: "all" },
-  { view: "dashboard", label: "Dashboard de horas", icon: Activity, access: "all" },
-  { view: "management", label: "Painel de gerência", icon: LayoutDashboard, access: "manager" },
-  { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope, access: "coordinator" },
-  { view: "analytics", label: "Analytics relatórios", icon: BarChart3, access: "manager" },
+// quem vê cada tela: `VIEW_ACCESS` em appView.ts (a paleta de comandos usa a mesma regra)
+const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText }> = [
+  { view: "report", label: "Gerar relatório", icon: FileText },
+  { view: "dashboard", label: "Dashboard de horas", icon: Activity },
+  { view: "management", label: "Painel de gerência", icon: LayoutDashboard },
+  { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope },
+  { view: "analytics", label: "Analytics relatórios", icon: BarChart3 },
   // todo mundo vê, mas só os PRÓPRIOS relatórios (coordenador também) — só o
   // gerente vê os de todos; filtro aplicado no backend (_require_report_access),
   // mesmo princípio de /parse-db e /my-hours.
-  { view: "history", label: "Histórico de relatórios", icon: History, access: "all" },
-  { view: "analytics-chat", label: "Chat analítico", icon: MessagesSquare, access: "manager" },
-  { view: "auto-generation", label: "Geração automática", icon: CalendarClock, access: "manager" },
+  { view: "history", label: "Histórico de relatórios", icon: History },
+  { view: "analytics-chat", label: "Chat analítico", icon: MessagesSquare },
+  { view: "auto-generation", label: "Geração automática", icon: CalendarClock },
   // qualquer papel — só aparece pra quem tem (ou já teve) relatório atribuído
-  { view: "my-reviews", label: "Minhas revisões", icon: ClipboardCheck, access: "all" },
+  { view: "my-reviews", label: "Minhas revisões", icon: ClipboardCheck },
 ];
 
 // contadores da sidebar (aviso só no app): revisão pendente e, pro gerente,
 // o que aguarda a aprovação dele
 const SUMMARY_POLL_MS = 2 * 60 * 1000;
 
-export function Sidebar({ view, onNavigate }: { view: AppView; onNavigate: (view: AppView) => void }) {
+export function Sidebar({
+  view,
+  onNavigate,
+  onOpenPalette,
+}: {
+  view: AppView;
+  onNavigate: (view: AppView) => void;
+  onOpenPalette: () => void;
+}) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const canAccess = (access: NavAccess) =>
@@ -89,7 +95,8 @@ export function Sidebar({ view, onNavigate }: { view: AppView; onNavigate: (view
     };
   }, [user?.login]); // eslint-disable-line react-hooks/exhaustive-deps
   const visible = (item: (typeof NAV_ITEMS)[number]) =>
-    canAccess(item.access) && (item.view !== "my-reviews" || (summary?.assigned ?? 0) > 0 || view === "my-reviews");
+    canAccess(VIEW_ACCESS[item.view]) &&
+    (item.view !== "my-reviews" || (summary?.assigned ?? 0) > 0 || view === "my-reviews");
   const countFor = (v: AppView): number =>
     v === "my-reviews" ? (summary?.to_review ?? 0) : v === "auto-generation" ? (summary?.awaiting_approval ?? 0) : 0;
   const countLabel = (v: AppView, n: number) => (v === "my-reviews" ? `${n} pra revisar` : `${n} aguardando aprovação`);
@@ -211,6 +218,24 @@ export function Sidebar({ view, onNavigate }: { view: AppView; onNavigate: (view
         </div>
 
         <nav className="sidebar-nav" aria-label="Navegação principal">
+          <button
+            type="button"
+            className="sidebar-palette-btn"
+            aria-label="Abrir a paleta de comandos (Ctrl K)"
+            data-tip={tip("Comandos (Ctrl K)")}
+            onClick={() => {
+              onOpenPalette();
+              setDrawerOpen(false);
+            }}
+          >
+            <Search size={16} strokeWidth={2} aria-hidden="true" />
+            {showLabels && (
+              <>
+                <span>Buscar...</span>
+                <kbd className="palette-kbd">Ctrl K</kbd>
+              </>
+            )}
+          </button>
           {showLabels && <p className="sidebar-section-label">Navegação</p>}
           {NAV_ITEMS.filter(visible).map((item) => {
             const Icon = item.icon;

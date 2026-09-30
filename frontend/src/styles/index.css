@@ -9245,3 +9245,122 @@ input[data-pv="projectCode"]:placeholder-shown,
 .modal-card:focus {
   outline: none;
 }
+
+/* paleta de comandos (CommandPalette.tsx) e o botão que a abre na sidebar */
+.palette-backdrop {
+  align-items: flex-start;
+  padding-top: 14vh;
+  z-index: 8000;
+}
+.palette-card {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.palette-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+}
+.palette-kbd {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.7rem;
+}
+.palette-list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+.palette-group {
+  margin: 8px 8px 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.palette-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+.palette-item.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.palette-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-item-group,
+.palette-item-hint {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.palette-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.sidebar-palette-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.sidebar-palette-btn:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.sidebar-palette-btn .palette-kbd {
+  margin-left: auto;
+}
+.sidebar.collapsed .sidebar-palette-btn {
+  justify-content: center;
+  padding: 8px 0;
+}

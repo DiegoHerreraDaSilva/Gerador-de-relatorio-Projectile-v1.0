@@ -1,16 +1,10 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { VIEW_TITLES, type AppView } from "./appView";
 import { LoginScreen } from "./components/LoginScreen";
-import { ManagementPanel } from "./components/ManagementPanel";
-import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
-import { MyHoursDashboard } from "./components/MyHoursDashboard";
-import { HistoryPanel } from "./components/HistoryPanel";
-import { AnalyticsPanel } from "./components/AnalyticsPanel";
-import { AnalyticsChatPanel } from "./components/AnalyticsChatPanel";
-import { AutoGenerationPanel } from "./components/AutoGenerationPanel";
 import { AutoReportBar } from "./components/AutoReportBar";
-import { MyReviewsPanel } from "./components/MyReviewsPanel";
+import { CommandPalette } from "./components/CommandPalette";
+import { LoadingState } from "./components/PageStates";
 import { useReportTabsStore } from "./store/useReportTabsStore";
 import { useAuthStore } from "./store/useAuthStore";
 import { ValidationBanner } from "./components/ValidationBanner";
@@ -26,16 +20,93 @@ import { useMyReviewsStore } from "./store/useMyReviewsStore";
 import { computeGrandTotalFor } from "./utils/calc";
 import { BASE_TITLE, parseDeepLink, titleWithPending } from "./utils/deepLink";
 import { fmtNum } from "./utils/fmt";
+import { buildCommands } from "./utils/commands";
+import { isEditableTarget, resolveShortcut } from "./utils/shortcuts";
+import { modalStack } from "./hooks/useModal";
+
+// Só a tela do relatório (a de entrada) vem no primeiro carregamento; as outras oito viram arquivos próprios,
+// baixados quando a pessoa abre a tela (o JS inicial caiu pela metade). Os painéis usam export nomeado,
+// então o `default` é montado aqui.
+const ManagementPanel = lazy(() =>
+  import("./components/ManagementPanel").then((m) => ({ default: m.ManagementPanel })),
+);
+const DiagnosticsPanel = lazy(() =>
+  import("./components/DiagnosticsPanel").then((m) => ({ default: m.DiagnosticsPanel })),
+);
+const MyHoursDashboard = lazy(() =>
+  import("./components/MyHoursDashboard").then((m) => ({ default: m.MyHoursDashboard })),
+);
+const HistoryPanel = lazy(() => import("./components/HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
+const AnalyticsPanel = lazy(() => import("./components/AnalyticsPanel").then((m) => ({ default: m.AnalyticsPanel })));
+const AnalyticsChatPanel = lazy(() =>
+  import("./components/AnalyticsChatPanel").then((m) => ({ default: m.AnalyticsChatPanel })),
+);
+const AutoGenerationPanel = lazy(() =>
+  import("./components/AutoGenerationPanel").then((m) => ({ default: m.AutoGenerationPanel })),
+);
+const MyReviewsPanel = lazy(() => import("./components/MyReviewsPanel").then((m) => ({ default: m.MyReviewsPanel })));
 
 export default function App() {
   // deep link dos avisos por e-mail (`?view=…&report=…`) abre a guia certa
   const [view, setView] = useState<AppView>(() => parseDeepLink(window.location.search).view ?? "report");
   const authStatus = useAuthStore((s) => s.status);
   const checkSession = useAuthStore((s) => s.checkSession);
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const tabs = useReportTabsStore((s) => s.tabs);
+  const activeTabId = useReportTabsStore((s) => s.activeTabId);
+  const assigned = useMyReviewsStore((s) => s.summary?.assigned ?? 0);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     checkSession();
   }, [checkSession]);
+
+  // atalhos globais (regra pura em utils/shortcuts): Ctrl/⌘+K ou "/" abre a paleta; Ctrl/⌘+Z desfaz no relatório
+  useEffect(() => {
+    if (authStatus !== "authenticated") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const action = resolveShortcut({
+        key: e.key,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        targetEditable: isEditableTarget(e.target as HTMLElement | null),
+        modalOpen: modalStack.size() > 0,
+        view,
+      });
+      if (action === "palette") {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      } else if (action === "undo") {
+        e.preventDefault();
+        useReportStore.getState().undo();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [authStatus, view]);
+
+  const commands = useMemo(
+    () =>
+      buildCommands({
+        isManager: Boolean(user?.isManager),
+        isCoordinator: Boolean(user?.isCoordinator),
+        currentView: view,
+        hasAssignedReviews: assigned > 0,
+        tabs: tabs.map((t) => ({ id: t.id, label: t.label })),
+        activeTabId,
+        navigate: setView,
+        switchTab: (id) => useReportTabsStore.getState().switchTab(id),
+        newReport: () => {
+          setView("report");
+          useReportTabsStore.getState().addTab();
+        },
+        logout: () => void logout(),
+      }),
+    [user, view, assigned, tabs, activeTabId, logout],
+  );
 
   useEffect(() => {
     if (authStatus !== "authenticated") return;
@@ -88,21 +159,30 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar view={view} onNavigate={setView} />
+      <Sidebar view={view} onNavigate={setView} onOpenPalette={() => setPaletteOpen(true)} />
+      {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       <main className="app-main">
         {/* único heading semântico da tela — cada painel (Management/
             Diagnostics/MyHours) não tem <h1> próprio fora do estado de
             carregamento; a sidebar não é mais o header, então esse título
             precisa continuar existindo em algum lugar pra leitor de tela. */}
         <h1 className="sr-only">{VIEW_TITLES[view]}</h1>
-        {view === "management" && <ManagementPanel />}
-        {view === "diagnostics" && <DiagnosticsPanel />}
-        {view === "dashboard" && <MyHoursDashboard />}
-        {view === "history" && <HistoryPanel />}
-        {view === "analytics" && <AnalyticsPanel />}
-        {view === "analytics-chat" && <AnalyticsChatPanel />}
-        {view === "auto-generation" && <AutoGenerationPanel onNavigate={setView} />}
-        {view === "my-reviews" && <MyReviewsPanel onNavigate={setView} />}
+        <Suspense
+          fallback={
+            <div className="card page-container">
+              <LoadingState label={`Abrindo ${VIEW_TITLES[view]}...`} rows={5} />
+            </div>
+          }
+        >
+          {view === "management" && <ManagementPanel />}
+          {view === "diagnostics" && <DiagnosticsPanel />}
+          {view === "dashboard" && <MyHoursDashboard />}
+          {view === "history" && <HistoryPanel />}
+          {view === "analytics" && <AnalyticsPanel />}
+          {view === "analytics-chat" && <AnalyticsChatPanel />}
+          {view === "auto-generation" && <AutoGenerationPanel onNavigate={setView} />}
+          {view === "my-reviews" && <MyReviewsPanel onNavigate={setView} />}
+        </Suspense>
         {view === "report" && <ReportView />}
       </main>
     </div>
