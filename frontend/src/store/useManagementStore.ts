@@ -457,3 +457,27 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
     }
   },
 }));
+
+/** "AAAA-MM" do mês passado (o último mês fechado) — a chave de Competência usada pelos filtros. */
+export function lastMonthKey(now: Date = new Date()): string {
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Padrão do Diagnóstico de relatórios: Competência = mês passado. A store de filtros é a MESMA do
+ * Painel de Gerência, então isto só vale se ninguém escolheu nada (Período "Últimos 12 meses" e nenhuma
+ * competência) e quem chama desfaz ao sair da tela (`restore`) — senão o Painel herdaria o recorte.
+ * `restore` só desfaz se a competência continua sendo a que foi aplicada aqui. */
+export function applyLastMonthDefault(now: Date = new Date()): { applied: boolean; restore: () => void } {
+  const state = useManagementStore.getState();
+  if (state.period !== ROLLING_PERIOD || state.selectedMonths.length > 0) return { applied: false, restore: () => {} };
+  const month = lastMonthKey(now);
+  state.setSelectedMonths([month]);
+  return {
+    applied: true,
+    restore: () => {
+      const current = useManagementStore.getState();
+      if (current.selectedMonths.length === 1 && current.selectedMonths[0] === month) current.setSelectedMonths([]);
+    },
+  };
+}

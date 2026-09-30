@@ -7,7 +7,7 @@ import { ManagementFilters } from "./ManagementFilters";
 import { SortableTh } from "./SortableTh";
 import { PageHeader } from "./PageHeader";
 import { SendStatusCard } from "./SendStatusCard";
-import { useManagementStore } from "../store/useManagementStore";
+import { applyLastMonthDefault, useManagementStore } from "../store/useManagementStore";
 import { useDiagnosticsStore, type Sample, type Project, type SkippedMessage } from "../store/useDiagnosticsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { useSortableRows } from "../hooks/useSortableRows";
@@ -334,7 +334,10 @@ export function DiagnosticsPanel() {
   useEffect(() => {
     load();
     loadProjects();
-    loadManagementStore();
+    // padrão da tela: competência = mês passado (já dispara a busca da store); desfeito ao sair
+    const { applied, restore } = applyLastMonthDefault();
+    if (!applied) loadManagementStore();
+    return restore;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
