@@ -113,7 +113,7 @@ def _expected_class(method: str, path: str) -> str:
         return "public"
     if (method, path) in _TRANSLATE:
         return "translate"
-    if path.startswith("/management/") or path in ("/parse-db-client", "/my-hours/employees"):
+    if path.startswith("/management/") or path in ("/parse-db-client", "/my-hours/employees", "/my-hours/team"):
         return "manager_or_coordinator"
     return "session"
 

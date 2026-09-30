@@ -16,6 +16,7 @@ import {
   X,
   Plus,
   ClipboardCheck,
+  Users,
 } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
@@ -50,6 +51,7 @@ function initialsFor(name: string): string {
 const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText }> = [
   { view: "report", label: "Gerar relatório", icon: FileText },
   { view: "dashboard", label: "Dashboard de horas", icon: Activity },
+  { view: "team", label: "Meu time", icon: Users },
   { view: "management", label: "Painel de gerência", icon: LayoutDashboard },
   { view: "diagnostics", label: "Diagnóstico de relatórios", icon: Stethoscope },
   { view: "analytics", label: "Analytics relatórios", icon: BarChart3 },

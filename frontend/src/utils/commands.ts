@@ -38,6 +38,7 @@ export function canAccess(access: NavAccess, user: { isManager: boolean; isCoord
 const VIEW_KEYWORDS: Partial<Record<AppView, string>> = {
   report: "gerar relatório importar xlsx pdf editar",
   dashboard: "minhas horas dashboard apontamentos calendário",
+  team: "meu time equipe colaboradores pessoas lacunas apontamento sobrecarga",
   management: "gerência kpi painel faturado performance",
   diagnostics: "diagnóstico amostras enviados fechados",
   analytics: "analytics métricas relatórios gerados",

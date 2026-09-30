@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ... import team_overview
 from ...generator import business_days_between, is_santo_andre_filiale, local_holidays_for_filiale, national_holidays_between
 from ...hours_analytics import (
     daily_stats,
@@ -115,6 +116,26 @@ def my_hours_employees_endpoint(_user: dict = Depends(require_manager_or_coordin
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
     return {"employees": [{"employee_id": e["employee_id"], "name": e["name"], "cost_center": e["cost_center"]} for e in employees]}
+
+
+@router.get("/my-hours/team")
+def my_hours_team_endpoint(month: str | None = None, _user: dict = Depends(require_manager_or_coordinator)):
+    """Visão do time (gerente ou coordenador): por pessoa de engenharia, horas e dias úteis sem apontamento do
+    mês (padrão: o atual). É o que o seletor de colaborador do Dashboard já mostra pessoa a pessoa, numa tabela
+    só. Coordenador só vê meses da janela de 12 meses (403 fora dela)."""
+    today = date.today()
+    month = month or today.strftime("%Y-%m")
+    try:
+        team_overview.month_bounds(month)
+    except (ValueError, IndexError):
+        raise HTTPException(400, "Mês inválido (use AAAA-MM).")
+    if month > today.strftime("%Y-%m"):
+        raise HTTPException(400, "Esse mês ainda não começou.")
+    period_access.check_month(_user, month)
+    try:
+        return team_overview.team_overview(month, today)
+    except ProjectileDbError as e:
+        raise log_and_generic_error(e)
 
 
 def _entry_times(row: dict) -> tuple[str | None, str | None]:

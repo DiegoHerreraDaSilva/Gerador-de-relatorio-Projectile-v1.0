@@ -9573,3 +9573,48 @@ input[data-pv="projectCode"]:placeholder-shown,
   margin: 2px 0 0;
   font-weight: 600;
 }
+
+/* Meu time (TeamPanel.tsx) */
+.team-month {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.team-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.team-totals .card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.team-totals strong {
+  font-size: 1.35rem;
+}
+.team-table-wrap {
+  overflow-x: auto;
+}
+.team-table td:first-child {
+  font-weight: 600;
+}
+.team-gap {
+  display: inline-block;
+  min-width: 26px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  color: var(--bad);
+  font-weight: 700;
+  text-align: center;
+  cursor: help;
+}
+.team-note {
+  margin: 12px 0 0;
+  font-size: 0.8rem;
+}

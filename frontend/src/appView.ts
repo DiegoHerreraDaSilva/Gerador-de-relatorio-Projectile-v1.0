@@ -3,6 +3,7 @@ export type AppView =
   | "management"
   | "diagnostics"
   | "dashboard"
+  | "team"
   | "history"
   | "analytics"
   | "analytics-chat"
@@ -14,6 +15,7 @@ export const VIEW_TITLES: Record<AppView, string> = {
   management: "Painel de Gerência",
   diagnostics: "Diagnóstico de relatórios",
   dashboard: "Dashboard de horas",
+  team: "Meu time",
   history: "Histórico de relatórios",
   analytics: "Analytics relatórios",
   "analytics-chat": "Chat analítico",
@@ -28,6 +30,7 @@ export type NavAccess = "all" | "coordinator" | "manager";
 export const VIEW_ACCESS: Record<AppView, NavAccess> = {
   report: "all",
   dashboard: "all",
+  team: "coordinator",
   management: "manager",
   diagnostics: "coordinator",
   analytics: "manager",
@@ -41,6 +44,7 @@ export const VIEW_ACCESS: Record<AppView, NavAccess> = {
 export const VIEW_ORDER: AppView[] = [
   "report",
   "dashboard",
+  "team",
   "management",
   "diagnostics",
   "analytics",

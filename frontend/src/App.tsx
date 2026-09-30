@@ -46,6 +46,7 @@ const DiagnosticsPanel = lazy(() =>
 const MyHoursDashboard = lazy(() =>
   import("./components/MyHoursDashboard").then((m) => ({ default: m.MyHoursDashboard })),
 );
+const TeamPanel = lazy(() => import("./components/TeamPanel").then((m) => ({ default: m.TeamPanel })));
 const HistoryPanel = lazy(() => import("./components/HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
 const AnalyticsPanel = lazy(() => import("./components/AnalyticsPanel").then((m) => ({ default: m.AnalyticsPanel })));
 const AnalyticsChatPanel = lazy(() =>
@@ -206,6 +207,7 @@ export default function App() {
           {view === "management" && <ManagementPanel />}
           {view === "diagnostics" && <DiagnosticsPanel />}
           {view === "dashboard" && <MyHoursDashboard />}
+          {view === "team" && <TeamPanel onNavigate={setView} />}
           {view === "history" && <HistoryPanel />}
           {view === "analytics" && <AnalyticsPanel />}
           {view === "analytics-chat" && <AnalyticsChatPanel />}

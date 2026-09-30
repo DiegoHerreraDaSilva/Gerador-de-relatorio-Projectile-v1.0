@@ -29,6 +29,10 @@ export const CHANGELOG: ChangelogEntry[] = [
         text: "No Diagnóstico, o filtro já abre no mês passado e há um resumo das pendências de envio por cliente.",
         roles: ["manager", "coordinator"],
       },
+      {
+        text: "Nova tela “Meu time”: por pessoa de engenharia, horas e dias úteis sem apontamento do mês, com quem precisa de atenção primeiro.",
+        roles: ["manager", "coordinator"],
+      },
       { text: "O Painel de Gerência exporta para Excel e mostra a variação sobre o mês anterior.", roles: ["manager"] },
       {
         text: "Novo botão “Resumo do mês” no Painel: um texto de gerência com os números do mês, redigido pela IA (com todo número conferido) ou automático.",

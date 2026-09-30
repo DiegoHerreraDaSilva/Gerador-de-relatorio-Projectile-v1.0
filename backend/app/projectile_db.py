@@ -497,6 +497,33 @@ def fetch_engineering_employees(start_date: str, end_date: str) -> list[dict]:
     return sorted(employees.values(), key=lambda e: e["name"].casefold())
 
 
+def fetch_engineering_daily_totals(start_date: str, end_date: str) -> list[dict]:
+    """Total de horas POR PESSOA E DIA da engenharia (CAD+CAE) no período — uma linha por
+    `(employee_id, data)`, agregada no banco (centenas de linhas, não milhares de lançamentos). Base da visão
+    do time (`team_overview.py`). Mesmos joins e filtros de `fetch_engineering_hours` (`sysClientId` em todas as
+    tabelas, índice de data, `pDeleteFlag`); a chave é o `tjob.pEmployee` (FK de verdade), nunca o nome."""
+    try:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT tj.pEmployee AS employee_id, tb.pDate AS data, SUM(tb.pTime) AS horas
+                FROM ttimebit tb
+                JOIN tjob tj ON tj.pJob = tb.pJob AND tj.sysClientId = tb.sysClientId
+                JOIN temployee te ON te.pEmployee = tj.pEmployee AND te.sysClientId = tb.sysClientId
+                WHERE (te.pCostCenter LIKE %s OR te.pCostCenter LIKE %s)
+                  AND tb.sysClientId = %s
+                  AND tb.pDate BETWEEN %s AND %s
+                  AND (tb.pDeleteFlag IS NULL OR tb.pDeleteFlag = '')
+                GROUP BY tj.pEmployee, tb.pDate
+                ORDER BY tb.pDate
+                """,
+                ("%CAD%", "%CAE%", _SYS_CLIENT_ID, start_date, end_date),
+            )
+            return cur.fetchall()
+    except pymysql.MySQLError as e:
+        raise ProjectileDbError(f"Falha ao consultar horas diárias da engenharia no Projectile: {e}") from e
+
+
 _PROJECT_CODE_RE = re.compile(r"^(\d+)")
 
 
