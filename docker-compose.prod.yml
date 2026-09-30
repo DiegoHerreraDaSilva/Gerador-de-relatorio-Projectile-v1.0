@@ -65,6 +65,10 @@ services:
     environment:
       <<: *app-environment
       PROCESS_ROLE: web
+    # os arquivos de relatório guardados (backend/data/report_artifacts) precisam sobreviver a um update
+    # (container novo) e ser os MESMOS no web (download) e no worker (aprovação/envio): volume compartilhado
+    volumes:
+      - backend_data:/app/backend/data
     ports:
       - "8011:8011"
     depends_on:
@@ -87,6 +91,15 @@ services:
     environment:
       <<: *app-environment
       PROCESS_ROLE: worker
+    volumes:
+      - backend_data:/app/backend/data
+    # o agendador grava um heartbeat no Redis a cada ciclo; o --check falha se ele parou
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.app.worker", "--check"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
     depends_on:
       reports-mysql:
         condition: service_healthy
@@ -96,3 +109,4 @@ services:
 volumes:
   reports_mysql_data:
   redis_data:
+  backend_data:

@@ -634,8 +634,9 @@ Topologia recomendada a partir de 2026-09-29 (`docker-compose.prod.yml`): a mesm
   ```powershell
   .\scripts\atualizar-servidor-docker.bat
   ```
-  O script faz `git pull`, builda com tag de data/hora (`IMAGE_TAG`), sobe banco + Redis, aplica `alembic upgrade head`, sobe web + worker e imprime o `docker compose ps`. A tag anterior fica em `.last_image_tag.bak`.
-- **Rollback:** `set IMAGE_TAG=<tag anterior>` e `docker compose -f docker-compose.prod.yml up -d` (sem rebuild).
+  O script faz `git pull`, builda com tag de data/hora (`IMAGE_TAG`), sobe banco + Redis, aplica `alembic upgrade head`, sobe web + worker e espera o web responder em `/health` (até 90 s; qualquer resposta HTTP conta, o 503 de um Projectile lento não reverte). **Se o web não responder, volta sozinho para a tag anterior** — mas a migration não é desfeita: confira se o código antigo é compatível com o schema novo. A tag anterior fica em `.last_image_tag.bak`.
+- **Rollback manual:** `set IMAGE_TAG=<tag anterior>` e `docker compose -f docker-compose.prod.yml up -d` (sem rebuild).
+- **Arquivos de relatório:** o volume `backend_data` (montado em `/app/backend/data` no web E no worker) guarda `report_artifacts/`; sem ele cada update apagaria os arquivos e o download do Histórico quebraria. O worker tem healthcheck (`python -m backend.app.worker --check`): o agendador grava um heartbeat no Redis a cada ciclo e o check falha se ele parar.
 - **Staging na mesma máquina:** crie um `.env.staging` (mesmas chaves, portas diferentes — ex. `8011` do compose é a única porta publicada) e rode com projeto/volumes separados:
   ```powershell
   docker compose -f docker-compose.prod.yml -p relatorio-staging --env-file .env.staging up -d --build

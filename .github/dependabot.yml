@@ -1,0 +1,22 @@
+# Atualizações de dependência automáticas (PRs semanais; nada entra sem passar no CI).
+# Não há deploy automático: um PR aprovado só chega ao servidor quando alguém rodar o script de atualização.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: monthly

@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from ..core.config import get_settings
+from ..core.redis_client import get_redis_client
 from ..services import auto_generation_store as store
 from ..services.audit import record_event
 from . import builder, rules, service
@@ -40,13 +41,49 @@ SYSTEM_ACTOR = {"login": "sistema", "name": "Agendador"}
 # processo (acabou de subir, ou o startup não rodou).
 _last_tick_at: datetime | None = None
 
+# No Docker o loop roda no container `worker` e o /health/details no `web`: variável de processo não
+# atravessa isso. Com Redis, o heartbeat também vai pra esta chave (vale entre processos); sem Redis
+# (dev, processo único) continua a variável local.
+HEARTBEAT_KEY = "scheduler:last_tick"
+_HEARTBEAT_TTL_SECONDS = 3600
+
+
+def record_tick(now: datetime | None = None) -> None:
+    """Marca "o loop está vivo agora" (local e, se houver, no Redis). Nunca levanta: um Redis fora do ar
+    não pode derrubar o agendador."""
+    global _last_tick_at
+    now = now or datetime.now(UTC)
+    _last_tick_at = now
+    try:
+        client = get_redis_client()
+        if client is not None:
+            client.set(HEARTBEAT_KEY, now.isoformat(), ex=_HEARTBEAT_TTL_SECONDS)
+    except Exception:  # noqa: BLE001
+        logger.warning("Não consegui gravar o heartbeat do agendador no Redis", exc_info=True)
+
 
 def last_tick_at() -> datetime | None:
-    """Quando o loop acordou pela última vez (UTC, com tzinfo). Não confundir
-    com `scheduler_state.last_attempt_at`: aquele só existe quando uma rodada
-    chegou a ser TENTADA; este prova que o loop está vivo mesmo em mês sem
-    nada pra gerar."""
-    return _last_tick_at
+    """Quando o loop acordou pela última vez (UTC, com tzinfo) — neste processo OU, com Redis, em qualquer
+    outro (o worker). Não confundir com `scheduler_state.last_attempt_at`: aquele só existe quando uma
+    rodada chegou a ser TENTADA; este prova que o loop está vivo mesmo em mês sem nada pra gerar."""
+    shared: datetime | None = None
+    try:
+        client = get_redis_client()
+        raw = client.get(HEARTBEAT_KEY) if client is not None else None
+        if raw:
+            shared = datetime.fromisoformat(raw if isinstance(raw, str) else raw.decode())
+    except Exception:  # noqa: BLE001
+        logger.warning("Não consegui ler o heartbeat do agendador no Redis", exc_info=True)
+    candidates = [t for t in (_last_tick_at, shared) if t is not None]
+    return max(candidates) if candidates else None
+
+
+def heartbeat_is_fresh(now: datetime | None = None) -> bool:
+    """O loop acordou há menos de 3 ciclos? Desligado (`AUTO_GENERATION_ENABLED=false`) conta como ok."""
+    if not get_settings().auto_generation_enabled:
+        return True
+    last = last_tick_at()
+    return last is not None and ((now or datetime.now(UTC)) - last) < timedelta(seconds=POLL_SECONDS * 3)
 
 
 @dataclass(frozen=True)
@@ -137,14 +174,15 @@ def tick(now: datetime | None = None) -> Decision | None:
 async def loop() -> None:
     """Acorda a cada 5 min. Erro de um ciclo (banco/Projectile fora do ar) é
     logado e o próximo tenta de novo, respeitando o intervalo entre tentativas."""
-    global _last_tick_at
     while True:
+        # antes E depois: uma rodada longa (o Projectile leva ~20 s por conexão nova) não pode parecer loop morto
+        record_tick()
         if get_settings().auto_generation_enabled:
             try:
                 await asyncio.to_thread(tick)
             except Exception:  # noqa: BLE001 — o agendador nunca pode morrer por um ciclo ruim
                 logger.exception("Falha no ciclo do agendador da geração automática")
-        _last_tick_at = datetime.now(UTC)
+        record_tick()
         await asyncio.sleep(POLL_SECONDS)
 
 

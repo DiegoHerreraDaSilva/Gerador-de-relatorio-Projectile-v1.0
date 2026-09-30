@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 
 from . import email_ingest
 from .auto_generation import scheduler
@@ -64,9 +65,17 @@ async def _run_loops() -> None:
     await asyncio.gather(asyncio.create_task(email_polling_loop()), asyncio.create_task(scheduler_loop()))
 
 
+def check() -> int:
+    """Healthcheck do container worker (`python -m backend.app.worker --check`): 0 se o agendador acordou há
+    pouco (heartbeat no Redis) ou está desligado de propósito; 1 se o loop morreu ou nunca acordou."""
+    return 0 if scheduler.heartbeat_is_fresh() else 1
+
+
 def run() -> None:
     """Entrypoint do processo worker (container): valida o papel e roda os
     loops pra sempre."""
+    if "--check" in sys.argv[1:]:
+        raise SystemExit(check())
     configure_logging()
     if process_role() == "web":
         raise RuntimeError("PROCESS_ROLE=web não roda o worker — use o serviço web.")
