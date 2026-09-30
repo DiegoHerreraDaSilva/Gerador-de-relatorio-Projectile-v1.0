@@ -9600,6 +9600,9 @@ input[data-pv="projectCode"]:placeholder-shown,
 .team-table-wrap {
   overflow-x: auto;
 }
+.team-table {
+  width: 100%;
+}
 .team-table td:first-child {
   font-weight: 600;
 }
