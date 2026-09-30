@@ -4,7 +4,7 @@ openpyxl==3.1.5
 pydantic==2.13.4
 pydantic-settings==2.7.1
 python-multipart==0.0.32
-anthropic==0.125.0
+anthropic==1.8.0
 python-dotenv==1.1.1
 truststore==0.10.4
 keyring==25.7.0
