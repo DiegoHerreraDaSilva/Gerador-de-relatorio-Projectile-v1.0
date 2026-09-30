@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { PageHeader } from "./PageHeader";
 import { useAnalyticsStore } from "../store/useAnalyticsStore";
+import { formatDateTime, formatFileSize } from "../utils/historyFormat";
 
 function formatHours(hours: number): string {
   return `${hours.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}h`;
@@ -61,20 +62,33 @@ function AnalyticsSection({
   );
 }
 
+const AUTO_RUN_STATUS_LABELS: Record<string, string> = {
+  running: "Em andamento",
+  done: "Concluída",
+  failed: "Falhou",
+};
+
 /** Tela de métricas agregadas sobre `reports_db` — só gerente (ver `managerOnly` em
  * `Sidebar.tsx`, reforçado no backend por `require_manager`). Fica esparsa
  * até acumular meses de uso real: cada seção trata lista vazia como estado
  * vazio explícito, nunca como erro. */
 export function AnalyticsPanel() {
   const summary = useAnalyticsStore((s) => s.summary);
+  const health = useAnalyticsStore((s) => s.health);
   const loading = useAnalyticsStore((s) => s.loading);
+  const healthLoading = useAnalyticsStore((s) => s.healthLoading);
   const error = useAnalyticsStore((s) => s.error);
+  const healthError = useAnalyticsStore((s) => s.healthError);
   const loadSummary = useAnalyticsStore((s) => s.loadSummary);
+  const loadHealth = useAnalyticsStore((s) => s.loadHealth);
 
   useEffect(() => {
     loadSummary();
+    loadHealth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const refreshing = loading || healthLoading;
 
   return (
     <div className="analytics-panel page-container">
@@ -83,8 +97,16 @@ export function AnalyticsPanel() {
         description="Métricas agregadas sobre relatórios gerados: horas, tempo de geração e taxa de falhas."
         icon={<BarChart3 size={20} strokeWidth={1.8} />}
         actions={
-          <button type="button" className="btn-secondary" onClick={() => loadSummary()} disabled={loading}>
-            <RefreshCw size={14} strokeWidth={2} className={loading ? "spin" : ""} />
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              loadSummary();
+              loadHealth();
+            }}
+            disabled={refreshing}
+          >
+            <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
             Atualizar
           </button>
         }
@@ -161,7 +183,10 @@ export function AnalyticsPanel() {
             <AnalyticsSection
               title="Responsáveis"
               columns={["Nome", "Relatórios"]}
-              rows={summary.top_creators.map((row) => ({ key: row.login, cells: [row.name || row.login, row.reports] }))}
+              rows={summary.top_creators.map((row) => ({
+                key: row.login,
+                cells: [row.name || row.login, row.reports],
+              }))}
             />
             <AnalyticsSection
               title="Geração por formato"
@@ -173,6 +198,76 @@ export function AnalyticsPanel() {
             />
           </div>
         </>
+      )}
+
+      {healthError && (
+        <div className="card">
+          <p className="muted">{healthError}</p>
+        </div>
+      )}
+
+      {health && (
+        <div className="analytics-grid">
+          <AnalyticsSection
+            title={`Saúde da geração (${health.generation.window_days} dias)`}
+            columns={["Indicador", "Valor"]}
+            rows={[
+              { key: "tentativas", cells: ["Tentativas", health.generation.total] },
+              { key: "falhas", cells: ["Falhas", health.generation.failed] },
+              { key: "taxa", cells: ["Taxa de falha", formatPercent(health.generation.failure_rate)] },
+              { key: "media", cells: ["Tempo médio", formatMs(health.generation.avg_duration_ms)] },
+              { key: "p95", cells: ["Tempo p95", formatMs(health.generation.p95_duration_ms)] },
+              {
+                key: "ultima",
+                cells: [
+                  "Última falha",
+                  health.generation.last_failure
+                    ? `${formatDateTime(health.generation.last_failure.started_at)} — ${
+                        health.generation.last_failure.error_message ||
+                        health.generation.last_failure.error_code ||
+                        "sem detalhe"
+                      }`
+                    : "Nenhuma",
+                ],
+              },
+            ]}
+          />
+          <AnalyticsSection
+            title="Infraestrutura"
+            columns={["Indicador", "Valor"]}
+            rows={[
+              {
+                key: "artefatos",
+                cells: ["Artefatos em disco", `${health.artifacts.count} (${formatFileSize(health.artifacts.bytes)})`],
+              },
+              {
+                key: "rodada",
+                cells: [
+                  "Última rodada automática",
+                  health.auto_generation
+                    ? `${health.auto_generation.competence ?? "—"} · ${
+                        AUTO_RUN_STATUS_LABELS[health.auto_generation.status] ?? health.auto_generation.status
+                      } · ${formatDateTime(health.auto_generation.finished_at ?? health.auto_generation.started_at ?? "")}`
+                    : "Nenhuma",
+                ],
+              },
+              {
+                key: "ignoradas",
+                cells: [
+                  "Mensagens ignoradas",
+                  health.skipped_messages.count === 0
+                    ? "Nenhuma"
+                    : `${health.skipped_messages.count}${
+                        health.skipped_messages.last_received_at
+                          ? ` (última em ${formatDateTime(health.skipped_messages.last_received_at)})`
+                          : ""
+                      }`,
+                ],
+              },
+              { key: "servidor", cells: ["Hora do servidor", formatDateTime(health.checked_at)] },
+            ]}
+          />
+        </div>
       )}
     </div>
   );

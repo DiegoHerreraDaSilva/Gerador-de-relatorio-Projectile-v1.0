@@ -10,14 +10,15 @@ Mapeamento de tabelas confirmado manualmente via MySQL Workbench:
   `capEmployee`/`pEmployee` identificam o funcionário dono do job — não existe
   coluna de funcionário direto em `ttimebit`.
 """
+
 from __future__ import annotations
 
 import html
 import os
 import re
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 import pymysql
 import pymysql.cursors
@@ -52,10 +53,7 @@ def _connection_kwargs() -> dict:
     database = os.environ.get("PROJECTILE_DB_NAME", "projectile")
     port = int(os.environ.get("PROJECTILE_DB_PORT", "3306"))
     if not host or not user:
-        raise ProjectileDbError(
-            "Configuração do banco do Projectile ausente. Defina PROJECTILE_DB_HOST e "
-            "PROJECTILE_DB_USER no .env (veja .env.example)."
-        )
+        raise ProjectileDbError("Configuração do banco do Projectile ausente. Defina PROJECTILE_DB_HOST e PROJECTILE_DB_USER no .env (veja .env.example).")
     try:
         password = get_projectile_db_password(user)
     except DbCredentialsError as e:
@@ -64,14 +62,14 @@ def _connection_kwargs() -> dict:
         # em main.py a captura, então virava um 500 sem a mensagem genérica de
         # infra (ver `_log_and_generic_error`), quebrando o contrato de erro do app.
         raise ProjectileDbError(str(e)) from e
-    return dict(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database=database,
-        cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=8,
+    return {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "database": database,
+        "cursorclass": pymysql.cursors.DictCursor,
+        "connect_timeout": 8,
         # autocommit: esse módulo só faz SELECT, nunca escreve — mas cada
         # conexão do pool é reaproveitada entre várias requisições, e o MySQL
         # do Projectile usa REPEATABLE READ por padrão. Sem autocommit, a
@@ -79,8 +77,8 @@ def _connection_kwargs() -> dict:
         # "retrato" dos dados ficaria congelado até o próximo commit, e toda
         # query seguinte na mesma conexão devolveria dado desatualizado
         # silenciosamente. Com autocommit, cada SELECT enxerga o dado atual.
-        autocommit=True,
-    )
+        "autocommit": True,
+    }
 
 
 # Pool de verdade (DBUtils.PooledDB) em vez de uma conexão única + RLock
@@ -113,15 +111,7 @@ def _get_pool() -> PooledDB:
             if _pool is None:
                 pool_size = get_settings().projectile_db_pool_size
                 try:
-                    _pool = PooledDB(
-                        creator=pymysql,
-                        mincached=1,
-                        maxcached=pool_size,
-                        maxconnections=pool_size,
-                        blocking=True,
-                        ping=1,
-                        **_connection_kwargs(),
-                    )
+                    _pool = PooledDB(creator=pymysql, mincached=1, maxcached=pool_size, maxconnections=pool_size, blocking=True, ping=1, **_connection_kwargs())
                 except pymysql.MySQLError as e:
                     raise ProjectileDbError(f"Falha ao conectar no banco do Projectile: {e}") from e
     return _pool
@@ -138,9 +128,7 @@ def _get_connection() -> pymysql.connections.Connection:
 
 
 @contextmanager
-def _borrowed_connection(
-    conn: pymysql.connections.Connection | None = None,
-) -> Iterator[pymysql.connections.Connection]:
+def _borrowed_connection(conn: pymysql.connections.Connection | None = None) -> Iterator[pymysql.connections.Connection]:
     """Se `conn` já foi passada (chamador quer reaproveitar uma conexão em
     várias queries do mesmo request, ex: `management.compute_monthly_kpis`),
     só a repassa e NÃO devolve ao pool — quem abriu é dono e decide quando
@@ -166,10 +154,37 @@ def open_connection() -> pymysql.connections.Connection:
     return _get_connection()
 
 
-def fetch_employee_hours(
-    start_date: str, end_date: str,
-    employee_id: str | None = None, employee_name: str | None = None,
-) -> list[dict]:
+def ping() -> None:
+    """SELECT 1 barato pro `/health/details` — levanta `ProjectileDbError`
+    se o banco não responder (o pool já tem `connect_timeout=8` e `ping=1`
+    na conexão emprestada, então isto é o teste de verdade: se falhar, a
+    busca de horas e o login estariam falhando também)."""
+    with _borrowed_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1")
+        cur.fetchone()
+
+
+def fetch_user_emails(logins: list[str]) -> dict[str, str]:
+    """login → e-mail (`auser.rEmail`) pras notificações da geração automática.
+    Só leitura; ignora login sem e-mail. Comparação sem caixa (o collation do
+    legado varia), então a chave devolvida é o login em minúsculas — quem
+    consome procura com `.casefold()`."""
+    wanted = sorted({login.strip().lower() for login in logins if login and login.strip()})
+    if not wanted:
+        return {}
+    placeholders = ", ".join(["%s"] * len(wanted))
+    try:
+        with _borrowed_connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT rLogin, rEmail FROM auser WHERE LOWER(rLogin) IN ({placeholders})", wanted)
+            rows = cur.fetchall()
+    except ProjectileDbError:
+        raise
+    except Exception as e:
+        raise ProjectileDbError(f"Falha ao buscar e-mails de usuários no Projectile: {e}") from e
+    return {(row.get("rLogin") or "").strip().lower(): (row.get("rEmail") or "").strip() for row in rows if (row.get("rEmail") or "").strip()}
+
+
+def fetch_employee_hours(start_date: str, end_date: str, employee_id: str | None = None, employee_name: str | None = None) -> list[dict]:
     """Busca as horas do funcionário no período. Prefere `employee_id`
     (`tjob.pEmployee`, FK de verdade — resolvida uma vez no login via
     `temployee.pLogin`, ver `auth.py:verify_projectile_login`): usa
@@ -204,10 +219,7 @@ def fetch_employee_hours(
         raise ProjectileDbError(f"Falha ao consultar horas do Projectile: {e}") from e
 
 
-def fetch_my_hours(
-    start_date: str, end_date: str,
-    employee_id: str | None = None, employee_name: str | None = None,
-) -> list[dict]:
+def fetch_my_hours(start_date: str, end_date: str, employee_id: str | None = None, employee_name: str | None = None) -> list[dict]:
     """Como `fetch_employee_hours` (mesmo filtro por funcionário, mesmo
     fallback pra nome), mas junta também `temployee` (`cost_center`) e traz
     `project_id`/`external` (igual `fetch_engineering_hours`) — nenhuma das
@@ -287,26 +299,23 @@ def fetch_employee_contracts(employee_id: str) -> list[dict]:
                 (_SYS_CLIENT_ID, employee_id),
             )
             columns = (
-                "pPlannedTimeMonday", "pPlannedTimeTuesday", "pPlannedTimeWednesday",
-                "pPlannedTimeThursday", "pPlannedTimeFriday", "pPlannedTimeSaturday",
+                "pPlannedTimeMonday",
+                "pPlannedTimeTuesday",
+                "pPlannedTimeWednesday",
+                "pPlannedTimeThursday",
+                "pPlannedTimeFriday",
+                "pPlannedTimeSaturday",
                 "pPlannedTimeSunday",
             )
             return [
-                {
-                    "begin": row["pContractBegin"],
-                    "end": row["pContractEnd"],
-                    "weekday_hours": {i: float(row[c] or 0) for i, c in enumerate(columns)},
-                }
+                {"begin": row["pContractBegin"], "end": row["pContractEnd"], "weekday_hours": {i: float(row[c] or 0) for i, c in enumerate(columns)}}
                 for row in cur.fetchall()
             ]
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao consultar contrato do Projectile: {e}") from e
 
 
-def fetch_daily_hours_totals(
-    start_date: str, end_date: str,
-    employee_id: str | None = None, employee_name: str | None = None,
-) -> list[dict]:
+def fetch_daily_hours_totals(start_date: str, end_date: str, employee_id: str | None = None, employee_name: str | None = None) -> list[dict]:
     """Total de horas por DIA do funcionário (`[{"data", "horas"}]`, ordenado)
     — mesmos joins e filtros de `fetch_my_hours`, só agregado no SQL.
 
@@ -348,9 +357,7 @@ def fetch_daily_hours_totals(
         raise ProjectileDbError(f"Falha ao consultar totais diários do Projectile: {e}") from e
 
 
-def fetch_engineering_hours(
-    start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
-) -> list[dict]:
+def fetch_engineering_hours(start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None) -> list[dict]:
     """Busca as horas de TODOS os funcionários dos centros de custo de
     engenharia (CAD+CAE, sempre os dois — o recorte mais amplo permitido no
     painel) no período — usado no painel de gerência, diferente de
@@ -467,9 +474,7 @@ def extract_project_code(pacote_raw: str) -> str | None:
     return match.group(1) if match else None
 
 
-def fetch_project_ids_with_hours(
-    start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
-) -> list[str]:
+def fetch_project_ids_with_hours(start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None) -> list[str]:
     """Projetos (CAD+CAE) que têm ao menos um lançamento de hora no período —
     usado pra popular o seletor de Cliente/Projeto da tela de importação
     "por cliente" (`/management/clients-with-hours`,
@@ -481,9 +486,7 @@ def fetch_project_ids_with_hours(
     return sorted({r["project_id"] for r in rows if r.get("project_id")})
 
 
-def fetch_project_codes(
-    start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
-) -> dict[str, str]:
+def fetch_project_codes(start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None) -> dict[str, str]:
     """project_id -> "código do projeto" no período — o Projectile não tem
     uma coluna de código separada pra `tproject`, mas o pacote de trabalho
     (`ttimebit.capJob`) sempre começa com ele, ex: em
@@ -505,9 +508,7 @@ def fetch_project_codes(
     return codes
 
 
-def fetch_project_hours(
-    project_ids: list[str], start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None
-) -> list[dict]:
+def fetch_project_hours(project_ids: list[str], start_date: str, end_date: str, conn: pymysql.connections.Connection | None = None) -> list[dict]:
     """Horas de TODOS os funcionários (CAD+CAE) nos projetos informados, no
     período — usado pelo gerente pra gerar relatório "por cliente"/"por
     projeto" na tela de importação (`/parse-db-client`), diferente de
@@ -549,7 +550,10 @@ def fetch_project_hours(
 
 
 def fetch_custom_hours(
-    start_date: str, end_date: str, project_ids: list[str] | None = None, employee_ids: list[str] | None = None,
+    start_date: str,
+    end_date: str,
+    project_ids: list[str] | None = None,
+    employee_ids: list[str] | None = None,
     conn: pymysql.connections.Connection | None = None,
 ) -> list[dict]:
     """Horas (CAD+CAE) de um recorte livre — projetos e/ou colaboradores —
@@ -611,16 +615,16 @@ def _missing_observacao_issue(row_index: int, hs_float: float, row: dict) -> Row
     date_label = row_date.strftime("%d/%m/%Y") if hasattr(row_date, "strftime") else str(row_date or "data desconhecida")
     pacote_label = html.unescape(str(row.get("pacote") or "")).strip() or "Sem pacote"
     return RowIssue(
-        row=row_index, reason="descricao_vazia",
+        row=row_index,
+        reason="descricao_vazia",
         message=(
-            f"Lançamento {row_index}: descrição vazia (Observação não preenchida) — {hs_float} h "
-            f"descartada(s) em {date_label}, pacote \"{pacote_label}\"."
+            f"Lançamento {row_index}: descrição vazia (Observação não preenchida) — {hs_float} h descartada(s) em {date_label}, pacote \"{pacote_label}\"."
         ),
         raw_hours=hs_float,
     )
 
 
-def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> tuple[list["WorkPackage"], list[RowIssue]]:
+def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> tuple[list[WorkPackage], list[RowIssue]]:
     """Agrupa as linhas de `fetch_project_hours` em um `WorkPackage` por
     PROJETO (não por pacote de trabalho) — usado no modo "1 relatório por
     projeto" da importação "por cliente": aqui quem vira `Group` (a divisão
@@ -645,31 +649,26 @@ def group_hours_by_project(rows: list[dict], project_names: dict[str, str]) -> t
 
         project_id = str(row.get("project_id") or "").strip()
         if not project_id:
-            issues.append(RowIssue(
-                row=i, reason="projeto_desconhecido",
-                message=f'Lançamento {i}: sem projeto associado ("{obs_value}").',
-                raw_hours=hs_float,
-                raw_description=obs_value,
-            ))
+            issues.append(
+                RowIssue(
+                    row=i,
+                    reason="projeto_desconhecido",
+                    message=f'Lançamento {i}: sem projeto associado ("{obs_value}").',
+                    raw_hours=hs_float,
+                    raw_description=obs_value,
+                )
+            )
             continue
 
         package_name = project_names.get(project_id) or project_id
         pacote = html.unescape(str(row.get("pacote") or "")).strip() or "Geral"
 
-        accumulator.add_activity(
-            package_key=project_id,
-            package_name=package_name,
-            group_name=pacote,
-            description=obs_value,
-            hours=hs_float,
-        )
+        accumulator.add_activity(package_key=project_id, package_name=package_name, group_name=pacote, description=obs_value, hours=hs_float)
 
     return accumulator.build(), issues
 
 
-def fetch_clients_for_projects(
-    project_ids: list[str], conn: pymysql.connections.Connection | None = None
-) -> list[str]:
+def fetch_clients_for_projects(project_ids: list[str], conn: pymysql.connections.Connection | None = None) -> list[str]:
     """Lista de clientes só dos projetos informados — usada pra popular o
     filtro de Cliente com só quem tem horas no período em vista (últimos N
     meses), não o histórico inteiro do Projectile. Consulta direta em
@@ -693,9 +692,7 @@ def fetch_clients_for_projects(
         raise ProjectileDbError(f"Falha ao consultar clientes do Projectile: {e}") from e
 
 
-def fetch_project_ids_for_clients(
-    clients: list[str], conn: pymysql.connections.Connection | None = None
-) -> list[str]:
+def fetch_project_ids_for_clients(clients: list[str], conn: pymysql.connections.Connection | None = None) -> list[str]:
     """Resolve nomes de cliente (`tproject.capCustomer`) pros IDs de projeto
     (`tproject.pProject`) correspondentes — usado só quando o filtro de
     Cliente está ativo, pra filtrar a query principal por `tj.pProject IN
@@ -712,9 +709,7 @@ def fetch_project_ids_for_clients(
         raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
 
 
-def fetch_project_names_for_ids(
-    project_ids: list[str], conn: pymysql.connections.Connection | None = None
-) -> list[str]:
+def fetch_project_names_for_ids(project_ids: list[str], conn: pymysql.connections.Connection | None = None) -> list[str]:
     """Nomes de projeto (`tproject.pDescription`) só dos IDs informados — usado
     pra popular o filtro de Projeto com só quem tem horas no período em vista.
     Projeto aqui é `tproject` de verdade, não `capJob` (pacote de trabalho):
@@ -738,9 +733,7 @@ def fetch_project_names_for_ids(
         raise ProjectileDbError(f"Falha ao consultar nomes de projeto do Projectile: {e}") from e
 
 
-def fetch_project_details(
-    project_ids: list[str], conn: pymysql.connections.Connection | None = None
-) -> dict[str, dict]:
+def fetch_project_details(project_ids: list[str], conn: pymysql.connections.Connection | None = None) -> dict[str, dict]:
     """Nome e cliente por projeto (`pProject` -> `{"name", "client"}`) — usado
     pela tabela "Relatórios enviados" do painel, que precisa mostrar cliente
     e projeto juntos por linha (diferente de `fetch_project_names_for_ids`/
@@ -753,25 +746,16 @@ def fetch_project_details(
     try:
         with _borrowed_connection(conn) as conn, conn.cursor() as cur:
             placeholders = ",".join(["%s"] * len(project_ids))
-            cur.execute(
-                f"SELECT pProject, pDescription, capCustomer FROM tproject "
-                f"WHERE pProject IN ({placeholders})",
-                project_ids,
-            )
+            cur.execute(f"SELECT pProject, pDescription, capCustomer FROM tproject WHERE pProject IN ({placeholders})", project_ids)
             return {
-                row["pProject"]: {
-                    "name": html.unescape(row["pDescription"] or "").strip(),
-                    "client": html.unescape(row["capCustomer"] or "").strip(),
-                }
+                row["pProject"]: {"name": html.unescape(row["pDescription"] or "").strip(), "client": html.unescape(row["capCustomer"] or "").strip()}
                 for row in cur.fetchall()
             }
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao consultar detalhes de projeto do Projectile: {e}") from e
 
 
-def fetch_project_ids_for_names(
-    names: list[str], conn: pymysql.connections.Connection | None = None
-) -> list[str]:
+def fetch_project_ids_for_names(names: list[str], conn: pymysql.connections.Connection | None = None) -> list[str]:
     """Resolve nomes de projeto (`tproject.pDescription`) pros IDs
     correspondentes — usado quando o filtro de Projeto está ativo. Aceita
     `conn` já aberta, ver `fetch_engineering_hours`."""
@@ -796,14 +780,8 @@ def fetch_all_projects(conn: pymysql.connections.Connection | None = None) -> di
     `conn` já aberta, ver `fetch_engineering_hours`."""
     try:
         with _borrowed_connection(conn) as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT pProject, pDescription FROM tproject "
-                "WHERE pDescription IS NOT NULL AND pDescription <> ''"
-            )
-            return {
-                row["pProject"]: html.unescape(row["pDescription"]).strip()
-                for row in cur.fetchall()
-            }
+            cur.execute("SELECT pProject, pDescription FROM tproject WHERE pDescription IS NOT NULL AND pDescription <> ''")
+            return {row["pProject"]: html.unescape(row["pDescription"]).strip() for row in cur.fetchall()}
     except pymysql.MySQLError as e:
         raise ProjectileDbError(f"Falha ao consultar projetos do Projectile: {e}") from e
 
@@ -818,17 +796,9 @@ def fetch_all_projects_with_details(conn: pymysql.connections.Connection | None 
     Aceita `conn` já aberta, ver `fetch_engineering_hours`."""
     try:
         with _borrowed_connection(conn) as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT pProject, pDescription, capCustomer FROM tproject "
-                "WHERE pDescription IS NOT NULL AND pDescription <> '' "
-                "ORDER BY pDescription"
-            )
+            cur.execute("SELECT pProject, pDescription, capCustomer FROM tproject WHERE pDescription IS NOT NULL AND pDescription <> '' ORDER BY pDescription")
             return [
-                {
-                    "id": row["pProject"],
-                    "name": html.unescape(row["pDescription"]).strip(),
-                    "client": html.unescape(row["capCustomer"] or "").strip(),
-                }
+                {"id": row["pProject"], "name": html.unescape(row["pDescription"]).strip(), "client": html.unescape(row["capCustomer"] or "").strip()}
                 for row in cur.fetchall()
             ]
     except pymysql.MySQLError as e:
@@ -865,7 +835,7 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
         if separator_match:
             sep_index = separator_match.start()
             prefix = obs_value[:sep_index].strip()
-            description = obs_value[sep_index + 1:].strip()
+            description = obs_value[sep_index + 1 :].strip()
         else:
             # sem "-"/"_" pra separar prefixo/descrição — diferente do export .xlsx
             # (onde isso indica linha malformada), aqui é comum no dado real do
@@ -873,12 +843,15 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
             # como "Geral" em vez de descartar/marcar como aviso.
             prefix, description = "Geral", obs_value
         if not prefix or not description:
-            issues.append(RowIssue(
-                row=i, reason="descricao_vazia",
-                message=f'Lançamento {i}: {"prefixo vazio" if not prefix else "descrição vazia"} em "{obs_value}".',
-                raw_hours=hs_float if hs_float > 0 else None,
-                raw_description=description or prefix or None,
-            ))
+            issues.append(
+                RowIssue(
+                    row=i,
+                    reason="descricao_vazia",
+                    message=f'Lançamento {i}: {"prefixo vazio" if not prefix else "descrição vazia"} em "{obs_value}".',
+                    raw_hours=hs_float if hs_float > 0 else None,
+                    raw_description=description or prefix or None,
+                )
+            )
             continue
 
         if hs_float <= 0:
@@ -887,13 +860,7 @@ def group_hours(rows: list[dict], split_by_package: bool) -> tuple[list[WorkPack
         package_name = html.unescape(str(row.get("pacote") or "")).strip() or "Geral"
         package_key = package_name if split_by_package else SINGLE_PACKAGE_KEY
 
-        accumulator.add_activity(
-            package_key=package_key,
-            package_name=package_name,
-            group_name=prefix,
-            description=description,
-            hours=hs_float,
-        )
+        accumulator.add_activity(package_key=package_key, package_name=package_name, group_name=prefix, description=description, hours=hs_float)
 
     if not split_by_package and rows:
         name = html.unescape(str(rows[0].get("pacote") or "")).strip()

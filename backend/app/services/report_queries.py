@@ -6,22 +6,18 @@ geração do arquivo), aqui NÃO há fail-open: o único propósito destas
 funções é ler o histórico, então se `reports_db` estiver fora do ar, a
 exceção sobe pra quem chama decidir o HTTP status (ver `main.py`,
 `_log_and_generic_error`)."""
+
 from __future__ import annotations
 
-from datetime import date
+import math
+import os
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import and_, desc, func, or_, select
 
 from ..db.reports_db import get_engine
-from ..db.reports_schema import (
-    audit_log,
-    report_activities,
-    report_artifacts,
-    report_generation,
-    report_groups,
-    report_versions,
-    reports,
-)
+from ..db.reports_schema import audit_log, report_activities, report_artifacts, report_generation, report_groups, report_versions, reports
+from . import report_persistence
 
 MAX_PAGE_SIZE = 100
 # teto da busca geral: termos demais só viram uma consulta cara sem ganho
@@ -47,34 +43,33 @@ def _search_condition(search: str):
     terms = search.split()[:MAX_SEARCH_TERMS]
     if not terms:
         return None
-    return and_(*(
-        or_(*(func.lower(column).contains(term.lower(), autoescape=True) for column in _SEARCH_COLUMNS))
-        for term in terms
-    ))
+    return and_(*(or_(*(func.lower(column).contains(term.lower(), autoescape=True) for column in _SEARCH_COLUMNS)) for term in terms))
 
 
 def _paginate(conn, base_query, order_by, page: int, page_size: int) -> tuple[list[dict], int]:
     total = conn.execute(select(func.count()).select_from(base_query.subquery())).scalar_one()
-    rows = conn.execute(
-        base_query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)
-    ).mappings().all()
+    rows = conn.execute(base_query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)).mappings().all()
     return [dict(r) for r in rows], total
 
 
 def list_reports(
-    *, page: int, page_size: int,
-    report_number: str | None = None, competence: str | None = None,
-    status: str | None = None, created_by: str | None = None,
-    search: str | None = None, competence_from: date | None = None,
+    *,
+    page: int,
+    page_size: int,
+    report_number: str | None = None,
+    competence: str | None = None,
+    status: str | None = None,
+    created_by: str | None = None,
+    search: str | None = None,
+    competence_from: date | None = None,
 ) -> dict:
     conditions = []
     if competence_from is not None:
         # janela de quem não é gerente (ver `api/period_access.py`); relatório
         # sem competência reconhecida vale pela data em que foi gerado
-        conditions.append(or_(
-            reports.c.competence_start >= competence_from,
-            and_(reports.c.competence_start.is_(None), reports.c.created_at >= competence_from),
-        ))
+        conditions.append(
+            or_(reports.c.competence_start >= competence_from, and_(reports.c.competence_start.is_(None), reports.c.created_at >= competence_from))
+        )
     if search and (condition := _search_condition(search)) is not None:
         conditions.append(condition)
     if report_number:
@@ -101,9 +96,7 @@ def list_reports(
 def _with_current_version_number(conn, report: dict) -> dict:
     version_number = None
     if report.get("current_version_id"):
-        row = conn.execute(
-            select(report_versions.c.version_number).where(report_versions.c.id == report["current_version_id"])
-        ).first()
+        row = conn.execute(select(report_versions.c.version_number).where(report_versions.c.id == report["current_version_id"])).first()
         version_number = row.version_number if row else None
     return {**report, "current_version_number": version_number}
 
@@ -130,38 +123,57 @@ def get_version_detail(report_id: str, version_id: str) -> dict | None:
 
     engine = get_engine()
     with engine.connect() as conn:
-        row = conn.execute(
-            select(
-                report_versions.c.id, report_versions.c.report_id, report_versions.c.version_number,
-                report_versions.c.created_by, report_versions.c.created_from,
-                report_versions.c.change_summary, report_versions.c.created_at,
-                report_source_snapshots.c.data_json, report_source_snapshots.c.data_hash,
-                report_source_snapshots.c.schema_version, report_source_snapshots.c.captured_at,
+        row = (
+            conn.execute(
+                select(
+                    report_versions.c.id,
+                    report_versions.c.report_id,
+                    report_versions.c.version_number,
+                    report_versions.c.created_by,
+                    report_versions.c.created_from,
+                    report_versions.c.change_summary,
+                    report_versions.c.created_at,
+                    report_source_snapshots.c.data_json,
+                    report_source_snapshots.c.data_hash,
+                    report_source_snapshots.c.schema_version,
+                    report_source_snapshots.c.captured_at,
+                )
+                .select_from(report_versions.join(report_source_snapshots, report_versions.c.source_snapshot_id == report_source_snapshots.c.id))
+                .where(report_versions.c.id == version_id, report_versions.c.report_id == report_id)
             )
-            .select_from(report_versions.join(report_source_snapshots, report_versions.c.source_snapshot_id == report_source_snapshots.c.id))
-            .where(report_versions.c.id == version_id, report_versions.c.report_id == report_id)
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     if row is None:
         return None
     row = dict(row)
     return {
-        "id": row["id"], "report_id": row["report_id"], "version_number": row["version_number"],
-        "created_by": row["created_by"], "created_from": row["created_from"],
-        "change_summary": row["change_summary"], "created_at": row["created_at"],
-        "snapshot": {
-            "data": row["data_json"], "data_hash": row["data_hash"],
-            "schema_version": row["schema_version"], "captured_at": row["captured_at"],
-        },
+        "id": row["id"],
+        "report_id": row["report_id"],
+        "version_number": row["version_number"],
+        "created_by": row["created_by"],
+        "created_from": row["created_from"],
+        "change_summary": row["change_summary"],
+        "created_at": row["created_at"],
+        "snapshot": {"data": row["data_json"], "data_hash": row["data_hash"], "schema_version": row["schema_version"], "captured_at": row["captured_at"]},
     }
 
 
 def list_generations(report_id: str, *, page: int, page_size: int) -> dict:
     base_query = (
         select(
-            report_generation.c.id, report_generation.c.report_id, report_generation.c.report_version_id,
-            report_versions.c.version_number, report_generation.c.format, report_generation.c.requested_by,
-            report_generation.c.started_at, report_generation.c.finished_at, report_generation.c.duration_ms,
-            report_generation.c.status, report_generation.c.error_code, report_generation.c.error_message,
+            report_generation.c.id,
+            report_generation.c.report_id,
+            report_generation.c.report_version_id,
+            report_versions.c.version_number,
+            report_generation.c.format,
+            report_generation.c.requested_by,
+            report_generation.c.started_at,
+            report_generation.c.finished_at,
+            report_generation.c.duration_ms,
+            report_generation.c.status,
+            report_generation.c.error_code,
+            report_generation.c.error_message,
         )
         .select_from(report_generation.join(report_versions, report_generation.c.report_version_id == report_versions.c.id))
         .where(report_generation.c.report_id == report_id)
@@ -175,15 +187,21 @@ def list_generations(report_id: str, *, page: int, page_size: int) -> dict:
 def list_artifacts(report_id: str, *, page: int, page_size: int) -> dict:
     base_query = (
         select(
-            report_artifacts.c.id, report_artifacts.c.generation_id, report_artifacts.c.artifact_type,
-            report_artifacts.c.file_name, report_artifacts.c.mime_type, report_artifacts.c.file_size,
-            report_artifacts.c.sha256, report_artifacts.c.created_at,
-            report_generation.c.report_version_id, report_versions.c.version_number,
+            report_artifacts.c.id,
+            report_artifacts.c.generation_id,
+            report_artifacts.c.artifact_type,
+            report_artifacts.c.file_name,
+            report_artifacts.c.mime_type,
+            report_artifacts.c.file_size,
+            report_artifacts.c.sha256,
+            report_artifacts.c.created_at,
+            report_generation.c.report_version_id,
+            report_versions.c.version_number,
         )
         .select_from(
-            report_artifacts
-            .join(report_generation, report_artifacts.c.generation_id == report_generation.c.id)
-            .join(report_versions, report_generation.c.report_version_id == report_versions.c.id)
+            report_artifacts.join(report_generation, report_artifacts.c.generation_id == report_generation.c.id).join(
+                report_versions, report_generation.c.report_version_id == report_versions.c.id
+            )
         )
         .where(report_generation.c.report_id == report_id)
     )
@@ -196,19 +214,27 @@ def list_artifacts(report_id: str, *, page: int, page_size: int) -> dict:
 def get_artifact(artifact_id: str) -> dict | None:
     engine = get_engine()
     with engine.connect() as conn:
-        row = conn.execute(
-            select(
-                report_artifacts.c.id, report_artifacts.c.storage_path, report_artifacts.c.file_name,
-                report_artifacts.c.mime_type, report_artifacts.c.artifact_type,
-                report_generation.c.report_id, reports.c.created_by,
+        row = (
+            conn.execute(
+                select(
+                    report_artifacts.c.id,
+                    report_artifacts.c.storage_path,
+                    report_artifacts.c.file_name,
+                    report_artifacts.c.mime_type,
+                    report_artifacts.c.artifact_type,
+                    report_generation.c.report_id,
+                    reports.c.created_by,
+                )
+                .select_from(
+                    report_artifacts.join(report_generation, report_artifacts.c.generation_id == report_generation.c.id).join(
+                        reports, report_generation.c.report_id == reports.c.id
+                    )
+                )
+                .where(report_artifacts.c.id == artifact_id)
             )
-            .select_from(
-                report_artifacts
-                .join(report_generation, report_artifacts.c.generation_id == report_generation.c.id)
-                .join(reports, report_generation.c.report_id == reports.c.id)
-            )
-            .where(report_artifacts.c.id == artifact_id)
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     return dict(row) if row else None
 
 
@@ -219,11 +245,7 @@ def _current_version_activities_join():
     versões: sem isso, editar/reenviar um relatório duplicaria as horas da
     versão antiga junto com a nova."""
     return (
-        reports
-        .join(
-            report_versions,
-            and_(report_versions.c.report_id == reports.c.id, report_versions.c.id == reports.c.current_version_id),
-        )
+        reports.join(report_versions, and_(report_versions.c.report_id == reports.c.id, report_versions.c.id == reports.c.current_version_id))
         .join(report_groups, report_groups.c.report_version_id == report_versions.c.id)
         .join(report_activities, report_activities.c.report_group_id == report_groups.c.id)
     )
@@ -245,33 +267,24 @@ def _hours_breakdown(conn, group_col, label_key: str, *, limit: int | None = Non
 
 def _generation_stats(conn) -> dict:
     total = conn.execute(select(func.count()).select_from(report_generation)).scalar_one()
-    failed = conn.execute(
-        select(func.count()).select_from(report_generation).where(report_generation.c.status == "failed")
-    ).scalar_one()
-    overall_avg = conn.execute(
-        select(func.avg(report_generation.c.duration_ms)).where(report_generation.c.status == "success")
-    ).scalar_one()
-    by_format_rows = conn.execute(
-        select(
-            report_generation.c.format,
-            func.avg(report_generation.c.duration_ms).label("avg_ms"),
-            func.count().label("count"),
+    failed = conn.execute(select(func.count()).select_from(report_generation).where(report_generation.c.status == "failed")).scalar_one()
+    overall_avg = conn.execute(select(func.avg(report_generation.c.duration_ms)).where(report_generation.c.status == "success")).scalar_one()
+    by_format_rows = (
+        conn.execute(
+            select(report_generation.c.format, func.avg(report_generation.c.duration_ms).label("avg_ms"), func.count().label("count"))
+            .where(report_generation.c.status == "success")
+            .group_by(report_generation.c.format)
         )
-        .where(report_generation.c.status == "success")
-        .group_by(report_generation.c.format)
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return {
         "total": total,
         "failed": failed,
         "failure_rate": (failed / total) if total else None,
         "avg_duration_ms": float(overall_avg) if overall_avg is not None else None,
         "by_format": [
-            {
-                "format": r["format"],
-                "avg_duration_ms": float(r["avg_ms"]) if r["avg_ms"] is not None else None,
-                "count": r["count"],
-            }
-            for r in by_format_rows
+            {"format": r["format"], "avg_duration_ms": float(r["avg_ms"]) if r["avg_ms"] is not None else None, "count": r["count"]} for r in by_format_rows
         ],
     }
 
@@ -280,21 +293,21 @@ def _reports_created_per_month(conn) -> list[dict]:
     # date_format é específico de MySQL — aceitável aqui: reports_db nunca
     # roda em outro dialeto (ver docstring de reports_schema.py).
     period = func.date_format(reports.c.created_at, "%Y-%m").label("period")
-    rows = conn.execute(
-        select(period, func.count().label("count")).group_by(period).order_by(period)
-    ).mappings().all()
+    rows = conn.execute(select(period, func.count().label("count")).group_by(period).order_by(period)).mappings().all()
     return [{"period": r["period"], "count": r["count"]} for r in rows]
 
 
 def _top_creators(conn, limit: int = 10) -> list[dict]:
-    rows = conn.execute(
-        select(
-            reports.c.created_by, reports.c.created_by_name_snapshot, func.count().label("count"),
+    rows = (
+        conn.execute(
+            select(reports.c.created_by, reports.c.created_by_name_snapshot, func.count().label("count"))
+            .group_by(reports.c.created_by, reports.c.created_by_name_snapshot)
+            .order_by(desc(func.count()))
+            .limit(limit)
         )
-        .group_by(reports.c.created_by, reports.c.created_by_name_snapshot)
-        .order_by(desc(func.count()))
-        .limit(limit)
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return [{"login": r["created_by"], "name": r["created_by_name_snapshot"], "reports": r["count"]} for r in rows]
 
 
@@ -312,10 +325,7 @@ def get_analytics_summary() -> dict:
                 "versions": conn.execute(select(func.count()).select_from(report_versions)).scalar_one(),
                 "artifacts": conn.execute(select(func.count()).select_from(report_artifacts)).scalar_one(),
             },
-            "hours_by_competence": _hours_breakdown(
-                conn, reports.c.competence_label, "competence_label",
-                order_by=func.min(reports.c.competence_start),
-            ),
+            "hours_by_competence": _hours_breakdown(conn, reports.c.competence_label, "competence_label", order_by=func.min(reports.c.competence_start)),
             "hours_by_group": _hours_breakdown(conn, report_groups.c.name, "group_name", limit=15),
             "hours_by_project": _hours_breakdown(conn, reports.c.project_name_snapshot, "project_name", limit=15),
             "generation": _generation_stats(conn),
@@ -324,18 +334,80 @@ def get_analytics_summary() -> dict:
         }
 
 
+def get_generation_health(*, window_days: int = 30, now: datetime | None = None) -> dict:
+    """Geração de arquivos nos últimos `window_days` dias (painel de Saúde,
+    só gerente): tentativas, falhas, latência (média e p95) e a última falha
+    com motivo. O p95 é calculado em Python — o MySQL não tem função de
+    percentil e a janela é pequena (só geração recente).
+
+    `now` é naive UTC pra bater com as colunas DATETIME do banco (ver
+    `report_persistence._utcnow`)."""
+    since = (now or datetime.now(UTC).replace(tzinfo=None)) - timedelta(days=window_days)
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = (
+            conn.execute(
+                select(
+                    report_generation.c.status,
+                    report_generation.c.duration_ms,
+                    report_generation.c.format,
+                    report_generation.c.error_code,
+                    report_generation.c.error_message,
+                    report_generation.c.started_at,
+                )
+                .where(report_generation.c.started_at >= since)
+                .order_by(desc(report_generation.c.started_at))
+            )
+            .mappings()
+            .all()
+        )
+
+    total = len(rows)
+    failed = [row for row in rows if row["status"] == "failed"]
+    durations = sorted(float(row["duration_ms"]) for row in rows if row["status"] == "success" and row["duration_ms"] is not None)
+    # nearest-rank: o p95 é o valor na posição ceil(0,95 × n)
+    p95 = durations[math.ceil(0.95 * len(durations)) - 1] if durations else None
+    last = failed[0] if failed else None
+    return {
+        "window_days": window_days,
+        "total": total,
+        "failed": len(failed),
+        "failure_rate": (len(failed) / total) if total else None,
+        "avg_duration_ms": (sum(durations) / len(durations)) if durations else None,
+        "p95_duration_ms": p95,
+        "last_failure": (
+            {"started_at": last["started_at"], "format": last["format"], "error_code": last["error_code"], "error_message": last["error_message"]}
+            if last
+            else None
+        ),
+    }
+
+
+def get_artifacts_on_disk(directory: str | None = None) -> dict:
+    """Conta e soma os bytes dos arquivos de artifact em DISCO (não no
+    banco). A diferença banco × disco é justamente o que o painel de Saúde
+    precisa enxergar (arquivo órfão que ninguém apaga)."""
+    root_dir = directory or report_persistence.ARTIFACTS_DIR
+    count = 0
+    total_bytes = 0
+    for root, _dirs, files in os.walk(root_dir):
+        for name in files:
+            try:
+                total_bytes += os.path.getsize(os.path.join(root, name))
+                count += 1
+            except OSError:
+                continue
+    return {"count": count, "bytes": total_bytes}
+
+
 def list_audit_events_for_report(report_id: str, *, page: int, page_size: int) -> dict:
     engine = get_engine()
     with engine.connect() as conn:
         version_ids = [r.id for r in conn.execute(select(report_versions.c.id).where(report_versions.c.report_id == report_id))]
-        generation_ids = [
-            r.id for r in conn.execute(select(report_generation.c.id).where(report_generation.c.report_id == report_id))
-        ]
+        generation_ids = [r.id for r in conn.execute(select(report_generation.c.id).where(report_generation.c.report_id == report_id))]
         artifact_ids = []
         if generation_ids:
-            artifact_ids = [
-                r.id for r in conn.execute(select(report_artifacts.c.id).where(report_artifacts.c.generation_id.in_(generation_ids)))
-            ]
+            artifact_ids = [r.id for r in conn.execute(select(report_artifacts.c.id).where(report_artifacts.c.generation_id.in_(generation_ids)))]
         entity_ids = [report_id, *version_ids, *generation_ids, *artifact_ids]
         base_query = select(audit_log).where(audit_log.c.entity_id.in_(entity_ids))
         items, total = _paginate(conn, base_query, desc(audit_log.c.created_at), page, page_size)

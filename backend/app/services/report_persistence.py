@@ -10,6 +10,7 @@ do arquivo em si (a função central do app, que já funciona sem este banco há
 tempo). As exceções de NEGÓCIO continuam subindo normalmente por fora deste
 módulo (ex: `NonFiniteValueError` do `generator.py`, tratada em `main.py`).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +19,7 @@ import os
 import shutil
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
@@ -26,28 +27,28 @@ from ulid import ULID
 
 from ..core.config import get_settings
 from ..db.reports_db import get_engine
-from ..db.reports_schema import (
-    report_activities,
-    report_artifacts,
-    report_generation,
-    report_groups,
-    report_source_snapshots,
-    report_versions,
-    reports,
-)
+from ..db.reports_schema import report_activities, report_artifacts, report_generation, report_groups, report_source_snapshots, report_versions, reports
 from . import audit
+from .policy import FailurePolicy
 from .snapshot import build_snapshot_data, compute_data_hash, compute_identity_hash, parse_competence_range, snapshot_schema_version
 
 logger = logging.getLogger(__name__)
 
-_ARTIFACTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "report_artifacts")
+# política registrada em `services/policy.py`: histórico/versão são
+# acompanhamento da geração — nunca bloqueiam o arquivo (fail-open).
+FAILURE_POLICY = FailurePolicy.FAIL_OPEN
+
+# pasta própria dos artifacts (cópia do arquivo gerado, fora do tempfile do
+# sistema) — pública porque `report_queries.get_artifacts_on_disk` (painel de
+# Saúde) mede o tamanho em disco a partir daqui.
+ARTIFACTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "report_artifacts")
 
 
 def _utcnow() -> datetime:
     # naive UTC (sem tzinfo) — colunas DATETIME(6) do MySQL não guardam
     # timezone; manter consistente em todo o módulo evita comparar aware com
     # naive por engano.
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @dataclass
@@ -71,10 +72,7 @@ class GenerationGuard:
     def __init__(self) -> None:
         self._unavailable = False
 
-    def begin(
-        self, pkg_data: dict, fmt: str, requested_by: str, requested_by_name: str,
-        created_from: str = "generate_endpoint",
-    ) -> GenerationHandle | None:
+    def begin(self, pkg_data: dict, fmt: str, requested_by: str, requested_by_name: str, created_from: str = "generate_endpoint") -> GenerationHandle | None:
         if self._unavailable:
             return None
         handle = begin_generation(pkg_data, fmt, requested_by, requested_by_name, created_from)
@@ -83,9 +81,7 @@ class GenerationGuard:
         return handle
 
 
-def begin_generation(
-    pkg_data: dict, fmt: str, requested_by: str, requested_by_name: str, created_from: str = "generate_endpoint"
-) -> GenerationHandle | None:
+def begin_generation(pkg_data: dict, fmt: str, requested_by: str, requested_by_name: str, created_from: str = "generate_endpoint") -> GenerationHandle | None:
     """Transação A: resolve/cria o `report`, grava o snapshot, cria a nova
     versão + grupos/atividades, e abre o registro de `generation` (status
     'started'). Chamar UMA VEZ por (pacote, formato) gerado — a mesma
@@ -103,9 +99,7 @@ def begin_generation(
     try:
         return _begin_generation_unsafe(pkg_data, fmt, requested_by, requested_by_name, created_from, started_monotonic)
     except Exception:
-        logger.exception(
-            "Falha ao persistir início de geração em reports_db — relatório será gerado sem histórico (fail-open)"
-        )
+        logger.exception("Falha ao persistir início de geração em reports_db — relatório será gerado sem histórico (fail-open)")
         return None
 
 
@@ -126,14 +120,26 @@ def _begin_generation_unsafe(
     engine = get_engine()
     with engine.begin() as conn:
         report_id, report_was_created = _find_or_create_report(
-            conn, identity_hash, report_number, scope, competence_label,
-            competence_start, competence_end, header.get("project_name") or "",
-            requested_by, requested_by_name, now,
+            conn,
+            identity_hash,
+            report_number,
+            scope,
+            competence_label,
+            competence_start,
+            competence_end,
+            header.get("project_name") or "",
+            requested_by,
+            requested_by_name,
+            now,
         )
         if report_was_created:
             audit.record_event(
-                actor_id=requested_by, actor_name=requested_by_name, action="report_created",
-                entity_type="report", entity_id=report_id, source=created_from,
+                actor_id=requested_by,
+                actor_name=requested_by_name,
+                action="report_created",
+                entity_type="report",
+                entity_id=report_id,
+                source=created_from,
                 after={"report_number": report_number, "scope": scope, "competence_label": competence_label},
                 conn=conn,
             )
@@ -153,25 +159,21 @@ def _begin_generation_unsafe(
             )
         )
         version_id = str(ULID())
-        _insert_version_with_retry(
-            conn, version_id, report_id, version_number, snapshot_id, requested_by, created_from, now
-        )
+        _insert_version_with_retry(conn, version_id, report_id, version_number, snapshot_id, requested_by, created_from, now)
         _insert_groups_and_activities(conn, version_id, pkg_data.get("groups") or [], now)
         generation_id = str(ULID())
         conn.execute(
             insert(report_generation).values(
-                id=generation_id,
-                report_id=report_id,
-                report_version_id=version_id,
-                format=fmt,
-                requested_by=requested_by,
-                started_at=now,
-                status="started",
+                id=generation_id, report_id=report_id, report_version_id=version_id, format=fmt, requested_by=requested_by, started_at=now, status="started"
             )
         )
         audit.record_event(
-            actor_id=requested_by, actor_name=requested_by_name, action="report_version_created",
-            entity_type="report_version", entity_id=version_id, source=created_from,
+            actor_id=requested_by,
+            actor_name=requested_by_name,
+            action="report_version_created",
+            entity_type="report_version",
+            entity_id=version_id,
+            source=created_from,
             after={"report_id": report_id, "version_number": version_number, "format": fmt},
             conn=conn,
         )
@@ -188,12 +190,9 @@ def _begin_generation_unsafe(
 
 
 def _find_or_create_report(
-    conn, identity_hash, report_number, scope, competence_label, competence_start, competence_end,
-    project_name, requested_by, requested_by_name, now,
+    conn, identity_hash, report_number, scope, competence_label, competence_start, competence_end, project_name, requested_by, requested_by_name, now
 ) -> tuple[str, bool]:
-    row = conn.execute(
-        select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()
-    ).first()
+    row = conn.execute(select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()).first()
     if row:
         return row.id, False
 
@@ -221,9 +220,7 @@ def _find_or_create_report(
     except IntegrityError:
         # outra transação venceu a corrida entre nosso SELECT e nosso INSERT
         # (mesmo identity_hash) — pega o id dela em vez de falhar.
-        row = conn.execute(
-            select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()
-        ).first()
+        row = conn.execute(select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()).first()
         if row:
             return row.id, False
         raise
@@ -236,25 +233,21 @@ def _next_version_number(conn, report_id: str) -> int:
     # neste ponto — o FOR UPDATE aqui é defesa adicional (belt-and-suspenders),
     # não a única barreira. `UNIQUE(report_id, version_number)` é a segunda
     # camada (ver `_insert_version_with_retry`).
-    current_max = conn.execute(
-        select(func.max(report_versions.c.version_number))
-        .where(report_versions.c.report_id == report_id)
-        .with_for_update()
-    ).scalar()
+    current_max = conn.execute(select(func.max(report_versions.c.version_number)).where(report_versions.c.report_id == report_id).with_for_update()).scalar()
     return (current_max or 0) + 1
 
 
 def _insert_version_with_retry(conn, version_id, report_id, version_number, snapshot_id, created_by, created_from, now):
-    values = dict(
-        id=version_id,
-        report_id=report_id,
-        source_snapshot_id=snapshot_id,
-        created_by=created_by,
-        created_from=created_from,
-        change_summary=None,
-        state_json=None,
-        created_at=now,
-    )
+    values = {
+        "id": version_id,
+        "report_id": report_id,
+        "source_snapshot_id": snapshot_id,
+        "created_by": created_by,
+        "created_from": created_from,
+        "change_summary": None,
+        "state_json": None,
+        "created_at": now,
+    }
     try:
         conn.execute(insert(report_versions).values(version_number=version_number, **values))
     except IntegrityError:
@@ -290,9 +283,7 @@ def _insert_groups_and_activities(conn, version_id: str, groups: list[dict], now
             )
 
 
-def finish_generation_success(
-    handle: GenerationHandle | None, output_path: str, download_name: str, fmt: str, mime_type: str
-) -> None:
+def finish_generation_success(handle: GenerationHandle | None, output_path: str, download_name: str, fmt: str, mime_type: str) -> None:
     """Transação B (sucesso): copia o artifact pra armazenamento próprio
     (`backend/data/report_artifacts/` — o `output_path` original, em
     `tempfile.gettempdir()`, é removido segundos depois do download),
@@ -315,9 +306,7 @@ def _finish_generation_success_unsafe(handle: GenerationHandle, output_path, dow
     engine = get_engine()
     with engine.begin() as conn:
         conn.execute(
-            update(report_generation)
-            .where(report_generation.c.id == handle.generation_id)
-            .values(status="success", finished_at=now, duration_ms=duration_ms)
+            update(report_generation).where(report_generation.c.id == handle.generation_id).values(status="success", finished_at=now, duration_ms=duration_ms)
         )
         conn.execute(
             insert(report_artifacts).values(
@@ -333,14 +322,14 @@ def _finish_generation_success_unsafe(handle: GenerationHandle, output_path, dow
                 created_at=now,
             )
         )
-        conn.execute(
-            update(reports)
-            .where(reports.c.id == handle.report_id)
-            .values(current_version_id=handle.version_id, updated_at=now)
-        )
+        conn.execute(update(reports).where(reports.c.id == handle.report_id).values(current_version_id=handle.version_id, updated_at=now))
         audit.record_event(
-            actor_id=handle._requested_by, actor_name=handle._requested_by_name, action="report_generated",
-            entity_type="report_generation", entity_id=handle.generation_id, source="report_persistence",
+            actor_id=handle._requested_by,
+            actor_name=handle._requested_by_name,
+            action="report_generated",
+            entity_type="report_generation",
+            entity_id=handle.generation_id,
+            source="report_persistence",
             after={"format": fmt, "file_name": download_name, "sha256": sha256, "duration_ms": duration_ms},
             conn=conn,
         )
@@ -366,17 +355,14 @@ def _finish_generation_failure_unsafe(handle: GenerationHandle, error: Exception
         conn.execute(
             update(report_generation)
             .where(report_generation.c.id == handle.generation_id)
-            .values(
-                status="failed",
-                finished_at=now,
-                duration_ms=duration_ms,
-                error_code=type(error).__name__,
-                error_message=str(error)[:2000],
-            )
+            .values(status="failed", finished_at=now, duration_ms=duration_ms, error_code=type(error).__name__, error_message=str(error)[:2000])
         )
         audit.record_event(
-            actor_id=handle._requested_by, actor_name=handle._requested_by_name,
-            action="report_generation_failed", entity_type="report_generation", entity_id=handle.generation_id,
+            actor_id=handle._requested_by,
+            actor_name=handle._requested_by_name,
+            action="report_generation_failed",
+            entity_type="report_generation",
+            entity_id=handle.generation_id,
             source="report_persistence",
             after={"error_code": type(error).__name__, "error_message": str(error)[:2000]},
             conn=conn,
@@ -409,7 +395,7 @@ def reconcile_orphaned_generations() -> None:
 
 
 def _copy_to_permanent_storage(output_path: str, report_id: str, generation_id: str, fmt: str) -> str:
-    dest_dir = os.path.join(_ARTIFACTS_DIR, report_id)
+    dest_dir = os.path.join(ARTIFACTS_DIR, report_id)
     os.makedirs(dest_dir, exist_ok=True)
     dest_path = os.path.join(dest_dir, f"{generation_id}.{fmt}")
     shutil.copyfile(output_path, dest_path)
