@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Download, History, Search, Trash2, X } from "lucide-react";
 import { PageHeader } from "./PageHeader";
 import { confirmDialog } from "./ConfirmDialog";
+import { EmptyState, ErrorState, LoadingState } from "./PageStates";
+import { toast } from "../store/useToastStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useHistoryStore, type SortColumn } from "../store/useHistoryStore";
 import {
@@ -48,7 +50,6 @@ export function HistoryPanel() {
   const checkAllMatching = useHistoryStore((s) => s.checkAllMatching);
   const clearChecked = useHistoryStore((s) => s.clearChecked);
   const deleteChecked = useHistoryStore((s) => s.deleteChecked);
-  const [actionError, setActionError] = useState("");
   const [working, setWorking] = useState(false);
   const pageCheckbox = useRef<HTMLInputElement>(null);
 
@@ -99,12 +100,11 @@ export function HistoryPanel() {
   }, [checkedOnPage, allOnPageChecked]);
 
   async function selectEverything() {
-    setActionError("");
     setWorking(true);
     try {
       await checkAllMatching();
     } catch {
-      setActionError("Não consegui selecionar todos os resultados. Tenta de novo.");
+      toast.error("Não consegui selecionar todos os resultados. Tenta de novo.");
     } finally {
       setWorking(false);
     }
@@ -120,16 +120,15 @@ export function HistoryPanel() {
       danger: true,
     });
     if (!ok) return;
-    setActionError("");
     setWorking(true);
     try {
       const result = await deleteChecked();
+      const count = result.deleted.length;
+      toast.success(count === 1 ? "1 relatório apagado." : `${count} relatórios apagados.`);
       if (result.files_failed > 0)
-        setActionError(
-          `Apagado, mas ${result.files_failed} arquivo(s) não saíram do disco — confira a pasta de artefatos.`,
-        );
+        toast.error(`${result.files_failed} arquivo(s) não saíram do disco — confira a pasta de artefatos.`);
     } catch {
-      setActionError("Não consegui apagar. Nada foi removido ou só parte foi; atualize a lista e confira.");
+      toast.error("Não consegui apagar. Nada foi removido ou só parte foi; atualize a lista e confira.");
     } finally {
       setWorking(false);
     }
@@ -179,7 +178,7 @@ export function HistoryPanel() {
 
       {error && (
         <div className="card">
-          <p className="error-text">{error}</p>
+          <ErrorState message={error} onRetry={() => loadReports(page)} busy={loading} />
         </div>
       )}
 
@@ -212,12 +211,20 @@ export function HistoryPanel() {
             </button>
           </div>
         )}
-        {actionError && <p className="error-text">{actionError}</p>}
-        {loading && <p className="muted">Carregando...</p>}
-        {!loading && reports.length === 0 && (
-          <p className="muted">
-            {searchTerm ? `Nenhum relatório encontrado para "${searchTerm}".` : "Nenhum relatório encontrado."}
-          </p>
+        {loading && <LoadingState label="Carregando relatórios..." rows={5} />}
+        {!loading && !error && reports.length === 0 && (
+          <EmptyState
+            icon={<History size={22} strokeWidth={1.6} />}
+            title={
+              searchTerm ? `Nenhum relatório encontrado para "${searchTerm}"` : "Nenhum relatório no histórico ainda"
+            }
+            description={
+              searchTerm
+                ? "Confira a grafia ou busque por outro número, projeto ou competência."
+                : "Os relatórios aparecem aqui assim que são gerados, enviados ou aprovados."
+            }
+            action={searchTerm ? { label: "Limpar busca", onClick: () => setFilter("search", "") } : undefined}
+          />
         )}
         {!loading && reports.length > 0 && (
           <table className="kpi-table history-table">

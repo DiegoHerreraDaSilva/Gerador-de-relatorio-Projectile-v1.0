@@ -7,6 +7,7 @@ import { SortableTh } from "./SortableTh";
 import { PageHeader } from "./PageHeader";
 import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
+import { ErrorState, LoadingState } from "./PageStates";
 import { useManagementStore, round2 } from "../store/useManagementStore";
 import type { MonthRow } from "../store/useManagementStore";
 
@@ -168,7 +169,11 @@ export function ManagementPanel() {
           icon={<LayoutDashboard size={20} strokeWidth={1.8} />}
         />
         <div className="card management-panel page-state-card">
-          <p className={error ? "error-text" : "muted"}>{error || "Carregando indicadores..."}</p>
+          {error ? (
+            <ErrorState message={error} onRetry={() => load(true, true)} busy={refreshing} />
+          ) : (
+            <LoadingState label="Carregando indicadores..." rows={5} />
+          )}
         </div>
       </div>
     );

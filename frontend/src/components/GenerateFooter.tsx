@@ -7,6 +7,7 @@ import { computeDefaultFileName } from "../utils/fileName";
 import { buildGeneratePayload } from "../utils/generatePayload";
 import { SendReportModal } from "./SendReportModal";
 import { FormatCheckboxes, type ReportFormat } from "./FormatCheckboxes";
+import { toast } from "../store/useToastStore";
 
 export function GenerateFooter() {
   const packages = useReportStore((s) => s.packages);
@@ -15,7 +16,7 @@ export function GenerateFooter() {
   const fileNameEdited = useReportStore((s) => s.fileNameEdited);
   const setFileName = useReportStore((s) => s.setFileName);
   const setHasGeneratedOnce = useReportStore((s) => s.setHasGeneratedOnce);
-  const [status, setStatus] = useState("");
+  const [generating, setGenerating] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
   const [formats, setFormats] = useState<Set<ReportFormat>>(() => new Set(["xlsx"]));
 
@@ -33,22 +34,22 @@ export function GenerateFooter() {
   const handleGenerate = async () => {
     const missingCode = packages.find((pkg) => !pkg.projectCode.trim());
     if (missingCode) {
-      setStatus(`Preencha o número do relatório (SE.XX.XXX) de "${missingCode.projectName}" antes de gerar.`);
+      toast.error(`Preencha o número do relatório (SE.XX.XXX) de "${missingCode.projectName}" antes de gerar.`);
       return;
     }
     if (!header.signer1Name.trim() || !header.signer2Name.trim()) {
-      setStatus("Preencha o nome de quem assina (Schwaben e cliente) antes de gerar.");
+      toast.error("Preencha o nome de quem assina (Schwaben e cliente) antes de gerar.");
       return;
     }
     const emptyDescMessage = findEmptyActivityDescriptionMessage(packages, "gerar");
     if (emptyDescMessage) {
-      setStatus(emptyDescMessage);
+      toast.error(emptyDescMessage);
       return;
     }
 
     const payload = buildGeneratePayload(packages, header, Array.from(formats));
 
-    setStatus("Gerando...");
+    setGenerating(true);
     try {
       const res = await fetch("/generate", {
         method: "POST",
@@ -69,10 +70,14 @@ export function GenerateFooter() {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setStatus("");
       setHasGeneratedOnce(true);
+      toast.success(
+        isZip ? "Relatórios gerados — o download do .zip começou." : "Relatório gerado — o download começou.",
+      );
     } catch (err: unknown) {
-      setStatus("Erro ao gerar: " + (err instanceof Error ? err.message : String(err)));
+      toast.error("Erro ao gerar: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -102,8 +107,8 @@ export function GenerateFooter() {
             )}
           </div>
           <FormatCheckboxes value={formats} onChange={setFormats} />
-          <button className="primary" onClick={handleGenerate} disabled={status === "Gerando..."}>
-            Gerar relatório final
+          <button className="primary" onClick={handleGenerate} disabled={generating}>
+            {generating ? "Gerando..." : "Gerar relatório final"}
           </button>
           <div className="filename-with-performance">
             <div className="filename-field">
@@ -123,9 +128,6 @@ export function GenerateFooter() {
           Enviar Relatório
         </button>
       </div>
-      <p className="muted" style={{ textAlign: "center", minHeight: "1.45em", margin: "4px 0 0" }}>
-        {status}
-      </p>
       {showSendModal && <SendReportModal onClose={() => setShowSendModal(false)} />}
     </div>
   );

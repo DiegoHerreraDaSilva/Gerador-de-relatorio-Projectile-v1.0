@@ -6,6 +6,7 @@ import type { AppView } from "../appView";
 import { useAutoGenerationStore } from "../store/useAutoGenerationStore";
 import { useMyReviewsStore, type ReviewItem } from "../store/useMyReviewsStore";
 import { fmtNum } from "../utils/fmt";
+import { ErrorState, LoadingState } from "./PageStates";
 
 /** "Minhas revisões": os relatórios da geração automática que o gerente
  * atribuiu a quem está logado. Revisa no editor de sempre e manda pra
@@ -52,7 +53,7 @@ export function MyReviewsPanel({ onNavigate }: { onNavigate: (view: AppView) => 
 
       {error && (
         <div className="card">
-          <p className="error-text">{error}</p>
+          <ErrorState message={error} onRetry={() => void load()} busy={loading} />
         </div>
       )}
       {openError && (
@@ -62,7 +63,7 @@ export function MyReviewsPanel({ onNavigate }: { onNavigate: (view: AppView) => 
       )}
       {loading && !loaded && (
         <div className="card">
-          <p className="muted">Carregando...</p>
+          <LoadingState label="Carregando revisões..." rows={4} />
         </div>
       )}
       {empty && (

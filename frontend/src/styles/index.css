@@ -9101,3 +9101,147 @@ input[data-pv="projectCode"]:placeholder-shown,
     animation: none;
   }
 }
+
+/* avisos (ToastHost.tsx): canto superior direito, acima de modais (9000) e abaixo do tooltip (10000) */
+.toast-host {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9500;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--toast-color, var(--accent)) 45%, var(--border));
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow:
+    0 12px 28px -14px rgba(0, 0, 0, 0.6),
+    0 0 0 1px var(--hairline);
+  animation: toast-in 160ms ease-out;
+}
+.toast-success {
+  --toast-color: var(--ok);
+}
+.toast-error {
+  --toast-color: var(--bad);
+}
+.toast-info {
+  --toast-color: var(--accent-hi);
+}
+.toast-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--toast-color);
+}
+.toast-message {
+  flex: 1;
+  margin: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.toast-action,
+.toast-close {
+  flex: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  border-radius: 6px;
+}
+.toast-action {
+  padding: 2px 8px;
+  font-weight: 700;
+  color: var(--toast-color);
+}
+.toast-action:hover,
+.toast-close:hover {
+  background: color-mix(in srgb, var(--toast-color) 14%, transparent);
+}
+.toast-close {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  opacity: 0.7;
+}
+.toast-close:hover {
+  opacity: 1;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+/* estados de tela (PageStates.tsx): vazio, erro e carregando */
+.state-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  text-align: center;
+}
+.state-loading {
+  align-items: stretch;
+  text-align: left;
+}
+.state-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.state-error .state-icon {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 30%, transparent);
+}
+.state-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+.state-description {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* foco visível global pra quem navega por teclado: base de ESPECIFICIDADE ZERO (:where), então qualquer
+   estilo de foco próprio de um componente continua vencendo; campos de texto mostram o foco pela borda */
+:where(a, button, summary, [role="button"], [role="option"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 2px;
+}
+/* o contêiner do modal recebe foco por código (fallback): sem anel */
+.modal-card:focus {
+  outline: none;
+}

@@ -4,6 +4,7 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfirmHost } from "./components/ConfirmDialog";
 import { HintHost } from "./components/HintHost";
+import { ToastHost } from "./components/ToastHost";
 import "./styles/index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -12,6 +13,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <App />
       <ConfirmHost />
       <HintHost />
+      <ToastHost />
     </ErrorBoundary>
   </React.StrictMode>,
 );
