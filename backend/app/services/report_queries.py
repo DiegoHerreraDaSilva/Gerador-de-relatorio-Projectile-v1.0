@@ -110,8 +110,10 @@ def _list_conditions(
     search: str | None,
     competence_from: date | None,
     visible_to: str | None,
+    trash: bool = False,
 ) -> list:
-    conditions = []
+    # lixeira: a lista normal só tem o que está vivo; a lixeira (só gerente, garantido na rota) só o apagado
+    conditions = [reports.c.deleted_at.is_not(None) if trash else reports.c.deleted_at.is_(None)]
     if visible_to:
         # só relatórios em que o usuário criou ao menos uma versão
         conditions.append(select(report_versions.c.id).where(report_versions.c.report_id == reports.c.id, _own_version(visible_to)).exists())
@@ -148,6 +150,7 @@ def list_reports(
     viewer_name: str | None = None,
     sort: str | None = None,
     order: str = "desc",
+    trash: bool = False,
 ) -> dict:
     conditions = _list_conditions(
         report_number=report_number,
@@ -157,6 +160,7 @@ def list_reports(
         search=search,
         competence_from=competence_from,
         visible_to=visible_to,
+        trash=trash,
     )
     base_query = select(reports)
     if conditions:
@@ -164,7 +168,10 @@ def list_reports(
 
     engine = get_engine()
     with engine.connect() as conn:
-        items, total = _paginate(conn, base_query, _sort_order(sort, order, visible_to), page, page_size)
+        default_order = _sort_order(sort, order, visible_to)
+        if trash and not sort:
+            default_order = [desc(reports.c.deleted_at), reports.c.id]  # lixeira: o apagado mais recentemente primeiro
+        items, total = _paginate(conn, base_query, default_order, page, page_size)
         items = [_with_current_version_number(conn, item, visible_to) for item in items]
         if visible_to:
             # quem criou o registro pode ser outra pessoa: não aparece pra quem só vê o próprio
@@ -182,6 +189,7 @@ def list_report_ids(
     search: str | None = None,
     competence_from: date | None = None,
     visible_to: str | None = None,
+    trash: bool = False,
 ) -> dict:
     """Ids de TODOS os relatórios do filtro (pro "selecionar todos"), até `MAX_IDS`."""
     conditions = _list_conditions(
@@ -192,6 +200,7 @@ def list_report_ids(
         search=search,
         competence_from=competence_from,
         visible_to=visible_to,
+        trash=trash,
     )
     query = select(reports.c.id)
     if conditions:
@@ -223,7 +232,7 @@ def _with_current_version_number(conn, report: dict, viewer: str | None = None) 
 def get_report(report_id: str, viewer: str | None = None) -> dict | None:
     engine = get_engine()
     with engine.connect() as conn:
-        row = conn.execute(select(reports).where(reports.c.id == report_id)).mappings().first()
+        row = conn.execute(select(reports).where(reports.c.id == report_id, reports.c.deleted_at.is_(None))).mappings().first()
         if row is None:
             return None
         return _with_current_version_number(conn, dict(row), viewer)
@@ -357,7 +366,7 @@ def get_artifact(artifact_id: str) -> dict | None:
                         reports, report_generation.c.report_id == reports.c.id
                     )
                 )
-                .where(report_artifacts.c.id == artifact_id)
+                .where(report_artifacts.c.id == artifact_id, reports.c.deleted_at.is_(None))
             )
             .mappings()
             .first()
@@ -372,7 +381,14 @@ def _current_version_activities_join():
     versões: sem isso, editar/reenviar um relatório duplicaria as horas da
     versão antiga junto com a nova."""
     return (
-        reports.join(report_versions, and_(report_versions.c.report_id == reports.c.id, report_versions.c.id == reports.c.current_version_id))
+        reports.join(
+            report_versions,
+            and_(
+                report_versions.c.report_id == reports.c.id,
+                report_versions.c.id == reports.c.current_version_id,
+                reports.c.deleted_at.is_(None),  # relatório na lixeira não conta nas horas
+            ),
+        )
         .join(report_groups, report_groups.c.report_version_id == report_versions.c.id)
         .join(report_activities, report_activities.c.report_group_id == report_groups.c.id)
     )
@@ -420,7 +436,7 @@ def _reports_created_per_month(conn) -> list[dict]:
     # date_format é específico de MySQL — aceitável aqui: reports_db nunca
     # roda em outro dialeto (ver docstring de reports_schema.py).
     period = func.date_format(reports.c.created_at, "%Y-%m").label("period")
-    rows = conn.execute(select(period, func.count().label("count")).group_by(period).order_by(period)).mappings().all()
+    rows = conn.execute(select(period, func.count().label("count")).where(reports.c.deleted_at.is_(None)).group_by(period).order_by(period)).mappings().all()
     return [{"period": r["period"], "count": r["count"]} for r in rows]
 
 
@@ -428,6 +444,7 @@ def _top_creators(conn, limit: int = 10) -> list[dict]:
     rows = (
         conn.execute(
             select(reports.c.created_by, reports.c.created_by_name_snapshot, func.count().label("count"))
+            .where(reports.c.deleted_at.is_(None))
             .group_by(reports.c.created_by, reports.c.created_by_name_snapshot)
             .order_by(desc(func.count()))
             .limit(limit)

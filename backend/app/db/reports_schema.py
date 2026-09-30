@@ -74,7 +74,11 @@ reports = Table(
     Column("created_by_name_snapshot", String(255), nullable=False),
     Column("created_at", DateTime(timezone=False), nullable=False),
     Column("updated_at", DateTime(timezone=False), nullable=False),
+    # lixeira: relatório apagado pelo gerente fica aqui por 30 dias (restaurável) antes da purga; nulo = vivo
+    Column("deleted_at", DateTime(timezone=False), nullable=True),
+    Column("deleted_by", String(100), nullable=True),
     Index("idx_reports_report_number", "report_number"),
+    Index("idx_reports_deleted_at", "deleted_at"),
     Index("idx_reports_competence", "competence_start"),
     mysql_engine="InnoDB",
     mysql_charset="utf8mb4",

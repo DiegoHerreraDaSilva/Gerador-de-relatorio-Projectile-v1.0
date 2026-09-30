@@ -23,6 +23,8 @@ _MANAGER_ONLY = {
     ("GET", "/health/details"),
     ("GET", "/reports/ids"),
     ("DELETE", "/reports"),
+    ("POST", "/reports/restore"),
+    ("DELETE", "/reports/trash"),
     ("GET", "/management/kpis"),
     ("POST", "/management/kpis/check-emails"),
     ("PUT", "/management/kpis/{month}"),

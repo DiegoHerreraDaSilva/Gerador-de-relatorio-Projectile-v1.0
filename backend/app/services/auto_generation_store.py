@@ -188,7 +188,8 @@ def find_history_numbers(numbers: list[str]) -> list[tuple[str, str, str]]:
     with _connect(begin=False) as conn:
         rows = conn.execute(
             select(reports_table.c.report_number, reports_table.c.project_name_snapshot, reports_table.c.competence_label).where(
-                reports_table.c.report_number.in_(numbers)
+                reports_table.c.report_number.in_(numbers),
+                reports_table.c.deleted_at.is_(None),  # o número de um relatório na lixeira volta a ficar livre
             )
         ).all()
     return [(r[0], r[1], r[2]) for r in rows]

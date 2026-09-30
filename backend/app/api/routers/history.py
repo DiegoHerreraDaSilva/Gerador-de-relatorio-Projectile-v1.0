@@ -72,12 +72,15 @@ def list_reports_endpoint(
     q: str | None = Query(None, max_length=200),
     sort: Literal["numero", "projeto", "competencia", "versao", "criado_por", "atualizado"] | None = None,
     order: Literal["asc", "desc"] = "desc",
+    trash: bool = False,
     _user: dict = Depends(require_session),
 ):
     """`q` = busca geral por Número, Projeto, Competência e Criado por. Pra
     quem não é gerente ela roda DENTRO dos próprios relatórios — nunca amplia
     o recorte de `created_by`."""
     viewer = _viewer(_user)
+    if trash and viewer is not None:
+        raise HTTPException(403, "Só o gerente vê a lixeira.")
     # nunca aceita created_by de quem não é gerente — mesma regra de
     # /parse-db (não confiar em identidade vinda do cliente pra consultar
     # dado de outra pessoa); ele só enxerga o que ele mesmo gerou.
@@ -97,6 +100,7 @@ def list_reports_endpoint(
             viewer_name=_user.get("name"),
             sort=sort,
             order=order,
+            trash=trash,
         )
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
@@ -109,11 +113,12 @@ def list_report_ids_endpoint(
     status: str | None = None,
     created_by: str | None = None,
     q: str | None = Query(None, max_length=200),
+    trash: bool = False,
     _user: dict = Depends(require_manager),
 ):
-    """Ids de todos os relatórios do filtro (o "selecionar todos" da exclusão) — só gerente."""
+    """Ids de todos os relatórios do filtro (o "selecionar todos" da exclusão) — só gerente. `trash` = os da lixeira."""
     try:
-        return report_queries.list_report_ids(report_number=report_number, competence=competence, status=status, created_by=created_by, search=q)
+        return report_queries.list_report_ids(report_number=report_number, competence=competence, status=status, created_by=created_by, search=q, trash=trash)
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 
@@ -123,10 +128,30 @@ class DeleteReportsRequest(BaseModel):
 
 
 @router.delete("/reports")
-def delete_reports_endpoint(body: DeleteReportsRequest, _user: dict = Depends(require_manager)):
-    """Apaga relatórios do histórico (versões, arquivos, snapshots) — só gerente. A auditoria fica."""
+def trash_reports_endpoint(body: DeleteReportsRequest, _user: dict = Depends(require_manager)):
+    """Move relatórios pra LIXEIRA (só gerente): somem do Histórico, dos downloads e do Analytics, mas nada é
+    apagado — dá pra restaurar por 30 dias. A auditoria registra quem apagou."""
     try:
-        return report_admin.delete_reports(body.ids, _user)
+        return report_admin.trash_reports(body.ids, _user)
+    except Exception as e:
+        raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
+
+
+@router.post("/reports/restore")
+def restore_reports_endpoint(body: DeleteReportsRequest, _user: dict = Depends(require_manager)):
+    """Tira relatórios da lixeira (só gerente)."""
+    try:
+        return report_admin.restore_reports(body.ids, _user)
+    except Exception as e:
+        raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
+
+
+@router.delete("/reports/trash")
+def purge_reports_endpoint(body: DeleteReportsRequest, _user: dict = Depends(require_manager)):
+    """Apaga DEFINITIVAMENTE o que já está na lixeira (versões, arquivos, snapshots; não tem volta) — só gerente.
+    Relatório vivo não é apagado por aqui (vai em `not_found`). A auditoria fica."""
+    try:
+        return report_admin.purge_reports(body.ids, _user)
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 

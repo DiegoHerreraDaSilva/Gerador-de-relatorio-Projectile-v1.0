@@ -101,7 +101,7 @@ def report_hours_by_project(start: date, end: date, limit: int) -> list[dict]:
                     .join(report_groups, report_groups.c.report_version_id == report_versions.c.id)
                     .join(report_activities, report_activities.c.report_group_id == report_groups.c.id)
                 )
-                .where(reports.c.competence_start >= start, reports.c.competence_start <= end)
+                .where(reports.c.competence_start >= start, reports.c.competence_start <= end, reports.c.deleted_at.is_(None))
                 .group_by(reports.c.project_name_snapshot)
                 .order_by(desc(hours))
                 .limit(limit)

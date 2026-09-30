@@ -189,11 +189,18 @@ def _begin_generation_unsafe(
     )
 
 
+def _revive(conn, report_id: str) -> None:
+    """A identidade (número + escopo + competência) é única: gerar de novo um relatório que está na lixeira traz
+    ele e o histórico dele de volta, em vez de criar um segundo. No-op se já está vivo."""
+    conn.execute(update(reports).where(reports.c.id == report_id, reports.c.deleted_at.is_not(None)).values(deleted_at=None, deleted_by=None))
+
+
 def _find_or_create_report(
     conn, identity_hash, report_number, scope, competence_label, competence_start, competence_end, project_name, requested_by, requested_by_name, now
 ) -> tuple[str, bool]:
     row = conn.execute(select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()).first()
     if row:
+        _revive(conn, row.id)
         return row.id, False
 
     new_id = str(ULID())
@@ -222,6 +229,7 @@ def _find_or_create_report(
         # (mesmo identity_hash) — pega o id dela em vez de falhar.
         row = conn.execute(select(reports.c.id).where(reports.c.identity_hash == identity_hash).with_for_update()).first()
         if row:
+            _revive(conn, row.id)
             return row.id, False
         raise
 

@@ -171,6 +171,29 @@ def tick(now: datetime | None = None) -> Decision | None:
     return decision
 
 
+_last_purge_day: str | None = None
+
+
+def purge_trash_daily(now: datetime | None = None) -> int:
+    """Uma vez por dia (UTC) purga os relatórios que estão na lixeira há mais de 30 dias. Fail-open: é
+    manutenção, nunca pode derrubar o loop do agendador. Devolve quantos apagou (0 se já rodou hoje)."""
+    global _last_purge_day
+    today = (now or datetime.now(UTC)).date().isoformat()
+    if _last_purge_day == today:
+        return 0
+    try:
+        from ..services import report_admin
+
+        purged = report_admin.purge_expired()
+    except Exception:  # noqa: BLE001
+        logger.warning("Não consegui purgar a lixeira de relatórios", exc_info=True)
+        return 0
+    _last_purge_day = today
+    if purged:
+        logger.info("Lixeira: %d relatório(s) apagado(s) por passar de %d dias", purged, report_admin.TRASH_DAYS)
+    return purged
+
+
 async def loop() -> None:
     """Acorda a cada 5 min. Erro de um ciclo (banco/Projectile fora do ar) é
     logado e o próximo tenta de novo, respeitando o intervalo entre tentativas."""
@@ -182,6 +205,7 @@ async def loop() -> None:
                 await asyncio.to_thread(tick)
             except Exception:  # noqa: BLE001 — o agendador nunca pode morrer por um ciclo ruim
                 logger.exception("Falha no ciclo do agendador da geração automática")
+        await asyncio.to_thread(purge_trash_daily)
         record_tick()
         await asyncio.sleep(POLL_SECONDS)
 
