@@ -34,6 +34,21 @@ class ProjectileDbError(RuntimeError):
     ausente ou erro de rede/credencial, nunca erro do usuário."""
 
 
+class EmployeeNotLinkedError(Exception):
+    """O login da sessão não tem registro em `temployee` (`pLogin`): sem ele não
+    há como saber, com segurança, de quem são as horas."""
+
+
+NOT_LINKED_MESSAGE = "Seu usuário não está vinculado a um colaborador no Projectile — peça pro administrador conferir o cadastro (login em Funcionários)."
+
+
+def _require_employee_id(employee_id: str | None) -> str:
+    value = str(employee_id or "").strip()
+    if not value:
+        raise EmployeeNotLinkedError(NOT_LINKED_MESSAGE)
+    return value
+
+
 # Esse Projectile é uma instalação on-premise de cliente único: TODA tabela
 # relevante (ttimebit, tjob, temployee, tproject, auser) tem `sysClientId`
 # como primeira coluna de todo índice composto, mas nenhuma query aqui
@@ -184,22 +199,18 @@ def fetch_user_emails(logins: list[str]) -> dict[str, str]:
     return {(row.get("rLogin") or "").strip().lower(): (row.get("rEmail") or "").strip() for row in rows if (row.get("rEmail") or "").strip()}
 
 
-def fetch_employee_hours(start_date: str, end_date: str, employee_id: str | None = None, employee_name: str | None = None) -> list[dict]:
-    """Busca as horas do funcionário no período. Prefere `employee_id`
+def fetch_employee_hours(start_date: str, end_date: str, employee_id: str | None = None) -> list[dict]:
+    """Busca as horas do funcionário no período, SEMPRE por `employee_id`
     (`tjob.pEmployee`, FK de verdade — resolvida uma vez no login via
-    `temployee.pLogin`, ver `auth.py:verify_projectile_login`): usa
-    `IdxJobEmployee` com o filtro de `sysClientId` abaixo, então vira um
-    lookup indexado em vez de scan. Se não tiver `employee_id` (ex: login sem
-    registro correspondente em `temployee`), cai pro fallback por nome
-    parcial (`tjob.capEmployee LIKE`), mais lento mas sempre funciona."""
-    if not employee_id and not employee_name:
-        raise ValueError("informe employee_id ou employee_name")
+    `temployee.pLogin`, ver `auth.py:verify_projectile_login`; usa
+    `IdxJobEmployee` com o filtro de `sysClientId`). Não há busca por nome:
+    `capEmployee LIKE '%nome%'` casava homônimos e nomes parciais e mostrava
+    as horas de OUTRA pessoa. Sem vínculo confiável, levanta
+    `EmployeeNotLinkedError` (as rotas respondem 409 com instrução clara)."""
+    employee_id = _require_employee_id(employee_id)
     try:
         with _borrowed_connection() as conn, conn.cursor() as cur:
-            if employee_id:
-                match_clause, match_param = "tj.pEmployee = %s", employee_id
-            else:
-                match_clause, match_param = "tj.capEmployee LIKE %s", f"%{employee_name}%"
+            match_clause, match_param = "tj.pEmployee = %s", employee_id
             cur.execute(
                 f"""
                 SELECT tb.pDate AS data, tb.pNote AS observacao, tb.pTime AS horas,
@@ -219,9 +230,8 @@ def fetch_employee_hours(start_date: str, end_date: str, employee_id: str | None
         raise ProjectileDbError(f"Falha ao consultar horas do Projectile: {e}") from e
 
 
-def fetch_my_hours(start_date: str, end_date: str, employee_id: str | None = None, employee_name: str | None = None) -> list[dict]:
-    """Como `fetch_employee_hours` (mesmo filtro por funcionário, mesmo
-    fallback pra nome), mas junta também `temployee` (`cost_center`) e traz
+def fetch_my_hours(start_date: str, end_date: str, employee_id: str | None = None) -> list[dict]:
+    """Como `fetch_employee_hours` (mesmo filtro por `employee_id`), mas junta também `temployee` (`cost_center`) e traz
     `project_id`/`external` (igual `fetch_engineering_hours`) — nenhuma das
     duas funções tinha as duas coisas juntas. Usada pelo Dashboard de horas
     pessoal (`GET /my-hours`), que precisa de projeto e faturável/não
@@ -235,14 +245,10 @@ def fetch_my_hours(start_date: str, end_date: str, employee_id: str | None = Non
     NÃO traz `ttimebit.pAssessableTime` de propósito: medido NULL em 100% dos
     lançamentos de quem só tem trabalho interno (77% no geral), então
     `tjob.pExternal` continua sendo o único sinal confiável de faturável."""
-    if not employee_id and not employee_name:
-        raise ValueError("informe employee_id ou employee_name")
+    employee_id = _require_employee_id(employee_id)
     try:
         with _borrowed_connection() as conn, conn.cursor() as cur:
-            if employee_id:
-                match_clause, match_param = "tj.pEmployee = %s", employee_id
-            else:
-                match_clause, match_param = "tj.capEmployee LIKE %s", f"%{employee_name}%"
+            match_clause, match_param = "tj.pEmployee = %s", employee_id
             cur.execute(
                 f"""
                 SELECT tb.pDate AS data, tb.pTime AS horas, tb.capJob AS pacote,
@@ -315,7 +321,7 @@ def fetch_employee_contracts(employee_id: str) -> list[dict]:
         raise ProjectileDbError(f"Falha ao consultar contrato do Projectile: {e}") from e
 
 
-def fetch_daily_hours_totals(start_date: str, end_date: str, employee_id: str | None = None, employee_name: str | None = None) -> list[dict]:
+def fetch_daily_hours_totals(start_date: str, end_date: str, employee_id: str | None = None) -> list[dict]:
     """Total de horas por DIA do funcionário (`[{"data", "horas"}]`, ordenado)
     — mesmos joins e filtros de `fetch_my_hours`, só agregado no SQL.
 
@@ -330,14 +336,10 @@ def fetch_daily_hours_totals(start_date: str, end_date: str, employee_id: str | 
     informação (pode ser férias/atestado, e medido que este banco não tem
     fonte confiável de ausência). Quem precisa da lista de dias úteis pega em
     `generator.business_days_between`."""
-    if not employee_id and not employee_name:
-        raise ValueError("informe employee_id ou employee_name")
+    employee_id = _require_employee_id(employee_id)
     try:
         with _borrowed_connection() as conn, conn.cursor() as cur:
-            if employee_id:
-                match_clause, match_param = "tj.pEmployee = %s", employee_id
-            else:
-                match_clause, match_param = "tj.capEmployee LIKE %s", f"%{employee_name}%"
+            match_clause, match_param = "tj.pEmployee = %s", employee_id
             cur.execute(
                 f"""
                 SELECT tb.pDate AS data, SUM(tb.pTime) AS horas

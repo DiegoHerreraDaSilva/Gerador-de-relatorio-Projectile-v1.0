@@ -10,9 +10,18 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from ...parser import parse_projectile_export
-from ...projectile_db import ProjectileDbError, fetch_employee_hours, fetch_project_details, fetch_project_hours, group_hours, group_hours_by_project
+from ...projectile_db import (
+    EmployeeNotLinkedError,
+    ProjectileDbError,
+    fetch_employee_hours,
+    fetch_project_details,
+    fetch_project_hours,
+    group_hours,
+    group_hours_by_project,
+)
 from .. import period_access
 from ..dependencies import require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
@@ -76,12 +85,17 @@ def _reject_if_oversized_uncompressed(tmp_path: str) -> None:
         raise HTTPException(413, "Arquivo .xlsx com conteúdo descomprimido excessivo — recusado por segurança.")
 
 
+def _parse_upload(tmp_path: str, split_by_package: bool):
+    _reject_if_oversized_uncompressed(tmp_path)
+    return parse_projectile_export(tmp_path, split_by_package=split_by_package)
+
+
 @router.post("/parse")
 async def parse_endpoint(file: UploadFile = File(...), mode: Literal["single", "multi"] = Form("single"), _user: dict = Depends(require_session)):
     tmp_path = await _stream_upload_to_tempfile(file, _MAX_UPLOAD_BYTES)
     try:
-        _reject_if_oversized_uncompressed(tmp_path)
-        packages, issues = parse_projectile_export(tmp_path, split_by_package=(mode == "multi"))
+        # leitura do .xlsx é CPU/disco bloqueante: fora do event loop
+        packages, issues = await run_in_threadpool(_parse_upload, tmp_path, mode == "multi")
     except zipfile.BadZipFile:
         raise HTTPException(400, "O arquivo enviado não é um .xlsx válido.")
     except ValueError as e:
@@ -100,7 +114,7 @@ class ParseDbRequest(BaseModel):
 
 
 @router.post("/parse-db")
-async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(require_session)):
+def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(require_session)):
     # busca sempre as horas do PRÓPRIO usuário logado — nunca confia em nome de
     # funcionário vindo do cliente, senão qualquer um logado poderia forjar o
     # request e puxar as horas de outra pessoa.
@@ -110,14 +124,14 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     period_access.check_range(_user, start_date, end_date)
 
     try:
-        rows = fetch_employee_hours(start_date, end_date, employee_id=_user.get("employee_id"), employee_name=employee_name)
+        rows = fetch_employee_hours(start_date, end_date, employee_id=_user.get("employee_id"))
+    except EmployeeNotLinkedError as e:
+        raise HTTPException(409, str(e))
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
 
     if not rows:
-        raise HTTPException(
-            404, f'Nenhum lançamento encontrado pro nome "{employee_name}" em {payload.month_label}. Confira o nome (a busca é parcial) e o mês.'
-        )
+        raise HTTPException(404, f'Nenhum lançamento encontrado pro nome "{employee_name}" em {payload.month_label}. Confira o mês.')
 
     packages, issues = group_hours(rows, split_by_package=(payload.mode == "multi"))
     return build_parse_response(packages, issues)
@@ -130,7 +144,7 @@ class ParseDbClientRequest(BaseModel):
 
 
 @router.post("/parse-db-client")
-async def parse_db_client_endpoint(payload: ParseDbClientRequest, _user: dict = Depends(require_manager_or_coordinator)):
+def parse_db_client_endpoint(payload: ParseDbClientRequest, _user: dict = Depends(require_manager_or_coordinator)):
     start_date, end_date = resolve_month_range(payload.month_label)
     period_access.check_range(_user, start_date, end_date)
 

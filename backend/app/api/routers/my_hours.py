@@ -21,6 +21,7 @@ from ...hours_analytics import (
     resolve_reference,
 )
 from ...projectile_db import (
+    EmployeeNotLinkedError,
     ProjectileDbError,
     fetch_daily_hours_totals,
     fetch_employee_contracts,
@@ -107,7 +108,7 @@ def _resolve_target(user: dict, employee_id: str | None) -> tuple[str | None, st
 
 
 @router.get("/my-hours/employees")
-async def my_hours_employees_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
+def my_hours_employees_endpoint(_user: dict = Depends(require_manager_or_coordinator)):
     """Lista do seletor de colaborador do Dashboard de horas."""
     try:
         employees = _engineering_employees()
@@ -127,7 +128,7 @@ def _entry_times(row: dict) -> tuple[str | None, str | None]:
 
 
 @router.get("/my-hours")
-async def my_hours_endpoint(period: str = "current_month", employee_id: str | None = None, _user: dict = Depends(require_session)):
+def my_hours_endpoint(period: str = "current_month", employee_id: str | None = None, _user: dict = Depends(require_session)):
     """Dashboard de horas — por padrão do PRÓPRIO usuário logado (mesma
     regra de `/parse-db`: nunca confia em identidade vinda do cliente).
     `employee_id` de outra pessoa só vale pra gerente/coordenador, e só pra
@@ -164,11 +165,13 @@ async def my_hours_endpoint(period: str = "current_month", employee_id: str | No
         return local_holidays_for_filiale(year, filiale)
 
     try:
-        rows = fetch_my_hours(start_date.isoformat(), end_date.isoformat(), employee_id=employee_id, employee_name=employee_name)
-        history_rows = fetch_daily_hours_totals(history_start.isoformat(), end_date.isoformat(), employee_id=employee_id, employee_name=employee_name)
+        rows = fetch_my_hours(start_date.isoformat(), end_date.isoformat(), employee_id=employee_id)
+        history_rows = fetch_daily_hours_totals(history_start.isoformat(), end_date.isoformat(), employee_id=employee_id)
         contracts = fetch_employee_contracts(employee_id) if employee_id else []
         project_ids = sorted({r["project_id"] for r in rows if r.get("project_id")})
         project_details = fetch_project_details(project_ids) if project_ids else {}
+    except EmployeeNotLinkedError as e:
+        raise HTTPException(409, str(e))
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
 

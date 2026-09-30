@@ -34,8 +34,8 @@ def _setup(monkeypatch):
         calls["employees"] += 1
         return _ENGINEERING
 
-    def _my_hours(start, end, employee_id=None, employee_name=None):
-        calls["my_hours"].append({"employee_id": employee_id, "employee_name": employee_name})
+    def _my_hours(start, end, employee_id=None):
+        calls["my_hours"].append({"employee_id": employee_id})
         return []
 
     monkeypatch.setattr(my_hours_router, "fetch_engineering_employees", _employees)
@@ -78,7 +78,7 @@ def test_coordenador_e_gerente_veem_alguem_de_engenharia(_setup, user):
 
     assert response.status_code == 200
     assert response.json()["employee"] == {"employee_id": "500", "name": "Ana Engenharia"}
-    assert _setup["my_hours"][0] == {"employee_id": "500", "employee_name": "Ana Engenharia"}
+    assert _setup["my_hours"][0] == {"employee_id": "500"}
 
 
 def test_filial_vem_do_projectile_e_muda_o_feriado_municipal(_setup):
