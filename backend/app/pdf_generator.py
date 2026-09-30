@@ -19,6 +19,7 @@ import base64
 import io
 import json
 import zipfile
+from xml.sax.saxutils import escape as _xml_escape
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
@@ -109,12 +110,18 @@ def _bruto_performance_cell(bruto: float, performance: float, label_style: Parag
     return table
 
 
+def _text(value: object) -> str:
+    """Texto do usuário pro `Paragraph` do ReportLab, que lê mini-HTML: sem
+    escapar, "<" solto derruba a geração e "<b>"/"<font>" mudam o layout."""
+    return _xml_escape(str(value or ""))
+
+
 def _signature_table(header: ReportHeader) -> Table:
     style = ParagraphStyle("sig", fontName="Helvetica-Bold", fontSize=9, alignment=1, textColor=colors.black)
     company_style = ParagraphStyle("sigCompany", fontName="Helvetica", fontSize=8, alignment=1, textColor=_TEXT_MUTED)
 
     def _box(name: str, company: str) -> list:
-        return [Spacer(1, 10 * mm), Paragraph(name or "&nbsp;", style), Paragraph(company, company_style)]
+        return [Spacer(1, 10 * mm), Paragraph(_text(name) or "&nbsp;", style), Paragraph(_text(company), company_style)]
 
     content_width = A4[0] - 2 * _MARGIN_H
     gap = 16 * mm
@@ -230,11 +237,11 @@ def generate_report_pdf(
     story.append(Spacer(1, 6 * mm))
     story.append(HRFlowable(width="100%", thickness=1.4, color=_ACCENT, spaceAfter=6 * mm))
 
-    story.append(Paragraph(header.project_code, info_bold_style))
+    story.append(Paragraph(_text(header.project_code), info_bold_style))
     story.append(Spacer(1, 2 * mm))
-    story.append(Paragraph(header.project_name, info_style))
-    story.append(Paragraph(header.location_date, info_style))
-    story.append(Paragraph(labels["subtitle"].format(month=_translate_month_label(header.month_label, language)), info_style))
+    story.append(Paragraph(_text(header.project_name), info_style))
+    story.append(Paragraph(_text(header.location_date), info_style))
+    story.append(Paragraph(labels["subtitle"].format(month=_text(_translate_month_label(header.month_label, language))), info_style))
     story.append(Spacer(1, 8 * mm))
 
     grand_total = 0.0
@@ -276,12 +283,12 @@ def generate_report_pdf(
             # Performance, se `include_performance`) — normalmente a
             # primeira (0), mas ver comentário abaixo sobre o caso em que a
             # tabela não cabe numa página inteira.
-            header_row = [Paragraph(group.name, group_title_style), ""]
+            header_row = [Paragraph(_text(group.name), group_title_style), ""]
             if include_performance:
                 header_row.append("")
             data = [header_row]
             for idx, desc in enumerate(descriptions):
-                row = [Paragraph(f"• {desc}", activity_style)]
+                row = [Paragraph(f"• {_text(desc)}", activity_style)]
                 if include_performance:
                     row.append(
                         _bruto_performance_cell(bruto_total, group.performance, bp_label_style_light, bp_value_style_light, language)
@@ -360,7 +367,7 @@ def generate_report_pdf(
             story.append(KeepTogether(group_table))
         story.append(Spacer(1, 5 * mm))
 
-    total_row_cells = [Paragraph(labels["total_hours"].format(month=_translate_month_label(header.month_label, language)), total_label_style)]
+    total_row_cells = [Paragraph(labels["total_hours"].format(month=_text(_translate_month_label(header.month_label, language))), total_label_style)]
     if include_performance:
         total_performance = grand_total / grand_bruto if grand_bruto > 0 else 0.0
         total_row_cells.append(_bruto_performance_cell(grand_bruto, total_performance, bp_label_style, bp_value_style, language))

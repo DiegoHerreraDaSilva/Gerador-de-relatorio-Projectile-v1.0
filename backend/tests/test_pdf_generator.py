@@ -151,3 +151,15 @@ def test_pdf_group_taller_than_one_page_does_not_raise_layout_error(tmp_path):
     # só uma vez na atividade do meio da lista (ver _build_group_table) + uma
     # vez no total geral (que aqui coincide, só tem esse grupo) — nunca 35x.
     assert text.count("35 h") == 2
+
+
+def test_pdf_user_text_is_escaped_not_parsed_as_markup(tmp_path):
+    """O ReportLab lê mini-HTML no `Paragraph`: "<" solto derrubava a geração e
+    "<b>" virava negrito. Texto do usuário tem que sair literal."""
+    groups = [GroupInput(name="Grupo <b>A</b> & Cia", performance=1.0, activities=[ActivityInput("Comparar 5 < 7 e <font size=30>grande", 4.0)])]
+    pdf_path = make_report_pdf(tmp_path, groups=groups)
+    text = "\n".join(page.extract_text() for page in PdfReader(pdf_path).pages)
+
+    assert "Grupo <b>A</b> & Cia" in text
+    assert "5 < 7" in text
+    assert "<font size=30>grande" in text
