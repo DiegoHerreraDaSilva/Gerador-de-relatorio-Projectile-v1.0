@@ -20,8 +20,8 @@ from backend.app.repositories import report_analytics_repository
 # --- Jev --------------------------------------------------------------------
 
 
-def _settings(key="k", openrouter=""):
-    return SimpleNamespace(openrouter_api_key=openrouter, typesafe_api_key=key, jev_model="jev-latest", jev_timeout_seconds=3.0)
+def _settings(key="k"):
+    return SimpleNamespace(typesafe_api_key=key, jev_model="jev-latest", jev_timeout_seconds=3.0)
 
 
 class _Response:
@@ -65,17 +65,12 @@ def test_jev_monta_a_requisicao_e_le_choice_e_noul(monkeypatch):
     assert "extra_nao_pedida" not in answers
 
 
-def test_chave_do_openrouter_tem_prioridade(monkeypatch):
-    sent = {}
-
-    def fake_post(url, headers, json, timeout):
-        sent.update(url=url, headers=headers)
-        return _Response({"answers": {"x": {"type": "noul", "noul": 0.9}}})
-
-    monkeypatch.setattr(jev, "get_settings", lambda: _settings(key="ts", openrouter="or"))
-    monkeypatch.setattr(jev.requests, "post", fake_post)
-    jev.ask("estado", {"x": jev.noul("q")})
-    assert sent["url"] == jev.OPENROUTER_URL and sent["headers"]["Authorization"] == "Bearer or"
+def test_chave_antiga_do_openrouter_e_ignorada(monkeypatch):
+    """O único destino é a API oficial da TypeSafe: nem com `OPENROUTER_API_KEY` no ambiente a pergunta vai pra outro lugar."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or")
+    assert not hasattr(jev.get_settings(), "openrouter_api_key")
+    assert not hasattr(jev, "OPENROUTER_URL")
+    assert jev.TYPESAFE_URL == "https://api.typesafe.ai/v1/systemone"
 
 
 def test_jev_sem_chave_nao_faz_chamada(monkeypatch):

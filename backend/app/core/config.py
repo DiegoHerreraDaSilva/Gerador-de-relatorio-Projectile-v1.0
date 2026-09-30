@@ -47,17 +47,15 @@ class Settings(BaseSettings):
     reports_db_enabled: bool = True
 
     # Chat analítico (aba "Chat analítico", só gerente) — ver backend/app/analytics/.
-    # Jev (TypeSafe AI) classifica a pergunta. Duas formas de acesso, mesmo
-    # protocolo: pelo OpenRouter (OPENROUTER_API_KEY, tem prioridade) ou
-    # direto na TypeSafe (TYPESAFE_API_KEY). Sem nenhuma, o Claude classifica.
-    openrouter_api_key: str = ""
+    # Jev (TypeSafe AI) classifica a pergunta pela API oficial da TypeSafe
+    # (TYPESAFE_API_KEY). Sem chave, o Claude classifica.
     typesafe_api_key: str = ""
     jev_model: str = "jev-latest"
     jev_timeout_seconds: float = 3.0
     # Confiança mínima do Jev, senão o Claude interpreta. Vale pra rota e pra
     # toda ESCOLHA feita (intent, período, cliente...); "nenhum" tem limiar
     # próprio, mais baixo. Calibrado em 2026-09-24 com 24 perguntas reais pelo
-    # OpenRouter (metade no meio de conversa): o Jev acerta 22/24, mas a
+    # Jev (metade no meio de conversa): o Jev acerta 22/24, mas a
     # confiança dele é baixa mesmo quando acerta (métrica certa com 0,5–0,7).
     # 0,60/0,40 → 20 aceitas (1 com formato diferente, número certo), 4 pro
     # Claude; 0,80/0,60 → 0 erradas, mas 11 pro Claude.

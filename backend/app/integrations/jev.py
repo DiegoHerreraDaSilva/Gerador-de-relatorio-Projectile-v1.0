@@ -1,7 +1,7 @@
 """Cliente do Jev (TypeSafe AI) — decisões estruturadas com probabilidade,
-não texto. `POST .../v1/systemone` com `{state, model, questions}`, pelo
-OpenRouter ou direto na TypeSafe (mesmo protocolo, muda só endereço e
-chave); cada pergunta é `choice` (até 255 opções, descritas em
+não texto. `POST https://api.typesafe.ai/v1/systemone` (API oficial da
+TypeSafe, `Authorization: Bearer <TYPESAFE_API_KEY>`) com
+`{state, model, questions}`; cada pergunta é `choice` (até 255 opções, descritas em
 `criteria`), `score` ou `noul` (sim/não). Resposta:
 `answers.<nome>.{type, choice|noul, confidence, probabilities}`.
 O Jev só ESCOLHE entre opções — não extrai datas, nomes nem números
@@ -10,7 +10,7 @@ livres, não calcula e não gera texto.
 Nunca recebe credencial nem acesso a banco: só o texto da pergunta e as
 listas de opções montadas pelo backend. Os endereços são fixos aqui, não
 configuráveis: a pergunta e as listas de clientes/colaboradores só podem ir
-pra um desses dois. Sem chave nenhuma, fica desligado e o Claude classifica."""
+pra esse endereço. Sem chave, fica desligado e o Claude classifica."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ import requests
 
 from ..core.config import get_settings
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/systemone"
 TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
 MAX_CHOICE_OPTIONS = 255
 
@@ -38,9 +37,7 @@ class Answer:
 
 
 def _endpoint(settings) -> tuple[str, str] | None:
-    """(url, chave) — OpenRouter tem prioridade sobre a TypeSafe direta."""
-    if settings.openrouter_api_key:
-        return OPENROUTER_URL, settings.openrouter_api_key
+    """(url, chave) da API oficial da TypeSafe; `None` sem chave."""
     if settings.typesafe_api_key:
         return TYPESAFE_URL, settings.typesafe_api_key
     return None
@@ -66,7 +63,7 @@ def ask(state: str, questions: dict[str, dict]) -> dict[str, Answer]:
     settings = get_settings()
     endpoint = _endpoint(settings)
     if endpoint is None:
-        raise ClassifierUnavailableError("Nem OPENROUTER_API_KEY nem TYPESAFE_API_KEY configuradas.")
+        raise ClassifierUnavailableError("TYPESAFE_API_KEY não configurada.")
     url, key = endpoint
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     try:
