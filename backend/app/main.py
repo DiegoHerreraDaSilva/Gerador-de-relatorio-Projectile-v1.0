@@ -2,20 +2,22 @@
 `api/routers/`) e serve o build do frontend. As rotas em si vivem em
 `api/routers/*.py`; este arquivo não deve voltar a acumular endpoints — ver CLAUDE.md "Adicionar
 rota API"."""
+
 import asyncio
 import logging
 import math
 import os
+import time
 
 from dotenv import load_dotenv
 
-# precisa rodar ANTES de qualquer `from .xxx import` — módulos como
-# `management.py` leem variável de ambiente (MANAGEMENT_PANEL_LOGINS) direto
-# no nível do módulo, na hora do import; chamar load_dotenv() depois desses
-# imports (como estava antes) carregava o .env tarde demais e o valor lido
-# já tinha caído no fallback, fazendo qualquer edição no .env parecer não
-# ter efeito nenhum sem reiniciar o processo (e mesmo reiniciando, continuava
-# quebrado por causa da ordem).
+# precisa rodar ANTES de qualquer `from .xxx import`: as allowlists de papel
+# (`core/authz.py`) leem MANAGEMENT_PANEL_LOGINS/COORDINATOR_LOGINS/
+# TRANSLATE_ALLOWED_LOGINS no import do módulo, e `core/config.Settings` lê o
+# `.env` na primeira construção — chamar load_dotenv() depois desses imports
+# carregava o .env tarde demais e o valor lido já tinha caído no fallback,
+# fazendo qualquer edição no .env parecer não ter efeito nenhum sem reiniciar
+# o processo (e mesmo reiniciando, continuava quebrado por causa da ordem).
 load_dotenv()
 
 from fastapi import FastAPI, Request
@@ -40,18 +42,29 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
-from . import email_ingest
-from .auto_generation import scheduler as auto_scheduler
-from .api.dependencies import (  # noqa: F401 — re-exportado: testes fazem `from .main import require_session`
+from .api.dependencies import (  # noqa: F401 — reexportado: testes fazem `from .main import require_session`
     require_manager,
     require_session,
     require_translate_access,
 )
-from .api.routers import analytics, analytics_chat, auth, auto_generation, chat, generation, history, my_hours, my_reviews, parsing
-from .api.errors import GENERIC_MANAGEMENT_DB_ERROR
+from .api.errors import GENERIC_INTERNAL_ERROR, GENERIC_MANAGEMENT_DB_ERROR
+from .api.routers import analytics, analytics_chat, auth, auto_generation, chat, generation, health, history, my_hours, my_reviews, parsing
 from .api.routers import management as management_router
+from .core.config import get_settings
+from .core.logging import capture_exception, configure_logging, get_request_id, sanitize_request_id, set_request_context, set_request_id
 from .services.management_store import ManagementStoreError
 from .services.report_persistence import reconcile_orphaned_generations
+
+# loops de background vivem em `worker.py`; estes nomes continuam neste módulo
+# porque os testes os substituem por versões ociosas (conftest) e os hooks de
+# startup abaixo decidem se sobem (PROCESS_ROLE)
+from .worker import email_polling_loop as _poll_emails_loop  # noqa: F401
+from .worker import jobs_enabled
+from .worker import scheduler_loop as _auto_scheduler_loop  # noqa: F401
+
+# logging estruturado + request-id + Sentry (só com SENTRY_DSN setado) antes
+# de qualquer coisa que logue — ver `core/logging.py`.
+configure_logging()
 
 app = FastAPI(
     title="Automação de Relatório de Horas",
@@ -76,6 +89,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(health.router)
 app.include_router(parsing.router)
 app.include_router(my_hours.router)
 app.include_router(management_router.router)
@@ -86,6 +100,37 @@ app.include_router(analytics.router)
 app.include_router(analytics_chat.router)
 app.include_router(auto_generation.router)
 app.include_router(my_reviews.router)
+
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next):
+    """Dá um request-id a toda requisição (aceita `X-Request-Id` do cliente
+    só se for seguro pra log — ver `core/logging.sanitize_request_id`), marca
+    o contexto de log/Sentry e devolve o id no header da resposta. Também é
+    aqui que requisição lenta vira aviso (`SLOW_REQUEST_MS`; 0 loga toda
+    requisição, negativo desliga)."""
+    request_id = sanitize_request_id(request.headers.get("X-Request-Id"))
+    set_request_id(request_id)
+    set_request_context(request_id)
+    request.state.request_id = request_id
+
+    started = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Request-Id"] = request_id
+        return response
+    finally:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        threshold = get_settings().slow_request_ms
+        # esta linha É o access log do app (o do uvicorn é desligado em
+        # core/logging.py justamente pra ter o request-id certo aqui)
+        message = f"{request.method} {request.url.path} -> {status} em {elapsed_ms} ms"
+        if threshold >= 0 and elapsed_ms >= threshold:
+            logging.getLogger(__name__).warning("Requisição lenta: " + message)
+        else:
+            logging.getLogger(__name__).info(message)
 
 
 @app.middleware("http")
@@ -103,31 +148,13 @@ async def _security_headers_middleware(request: Request, call_next):
     return response
 
 
-async def _poll_emails_loop() -> None:
-    """Ciclo de polling da automação de e-mail (ver `email_ingest.py`) — só
-    roda se as variáveis `AZURE_*`/`GRAPH_MAILBOX`/`ALBERTO_EMAIL` estiverem
-    configuradas no `.env`; sem elas, fica ocioso (não impede o resto do app
-    de funcionar). Idempotência por `message_id` (ver
-    `management.is_message_processed`) torna reinícios do `--reload` no meio
-    de um ciclo inofensivos — na pior hipótese uma mensagem é buscada de novo
-    e descartada por já estar processada."""
-    interval = int(os.environ.get("EMAIL_POLL_INTERVAL_SECONDS", "30"))
-    while True:
-        if os.environ.get("AZURE_CLIENT_ID"):
-            try:
-                await asyncio.to_thread(email_ingest.process_new_emails)
-            except Exception:
-                logging.getLogger(__name__).exception("Falha no ciclo de polling de e-mail")
-        await asyncio.sleep(interval)
-
-
 @app.on_event("startup")
 async def _start_email_polling() -> None:
+    # os loops vivem em `worker.py` (o container `worker` roda só eles);
+    # aqui sobem quando PROCESS_ROLE permite — "web" deixa tudo com o worker
+    if not jobs_enabled():
+        return
     asyncio.create_task(_poll_emails_loop())
-
-
-async def _auto_scheduler_loop() -> None:
-    await auto_scheduler.loop()
 
 
 _background_tasks: set[asyncio.Task] = set()
@@ -137,8 +164,10 @@ _background_tasks: set[asyncio.Task] = set()
 async def _start_auto_scheduler() -> None:
     """Agendador da rodada mensal da geração automática (`auto_generation/scheduler.py`)
     — a referência fica guardada: o loop só tem uma referência fraca no asyncio e
-    o coletor poderia recolhê-lo. Processo único (NSSM); o UNIQUE da rodada protege
-    se houver mais de um."""
+    o coletor poderia recolhê-lo. Com PROCESS_ROLE=web quem roda é o container
+    worker; o UNIQUE da rodada protege se houver mais de um de qualquer forma."""
+    if not jobs_enabled():
+        return
     task = asyncio.create_task(_auto_scheduler_loop())
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
@@ -184,6 +213,18 @@ async def _management_store_exception_handler(request: Request, exc: ManagementS
     detalhe (host, erro do driver) só vai pro log."""
     logging.getLogger(__name__).error("Falha no reports_db (dados de gerência)", exc_info=exc)
     return JSONResponse(status_code=502, content={"detail": GENERIC_MANAGEMENT_DB_ERROR})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Erro não tratado: loga com o request-id da requisição, manda pro
+    Sentry (se `SENTRY_DSN` estiver setado) e devolve um 500 JSON genérico
+    com o mesmo request-id no header — o detalhe real fica só no log."""
+    logging.getLogger(__name__).exception("Erro não tratado: %s %s", request.method, request.url.path)
+    capture_exception(exc)
+    response = JSONResponse(status_code=500, content={"detail": GENERIC_INTERNAL_ERROR})
+    response.headers["X-Request-Id"] = getattr(request.state, "request_id", None) or get_request_id()
+    return response
 
 
 _FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")

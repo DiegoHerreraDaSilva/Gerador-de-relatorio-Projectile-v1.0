@@ -5,6 +5,7 @@ ambiente do projeto (`ANTHROPIC_*`, `AZURE_*`, `PROJECTILE_DB_*`, etc.)
 continuam lidas via `os.environ` direto no ponto de uso, como sempre foram —
 migrá-las todas pra cá é trabalho de uma refatoração maior, não desta
 mudança."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -75,6 +76,38 @@ class Settings(BaseSettings):
     analytics_chat_max_months: int = 12
     # tamanho máximo (JSON) do resultado agregado mandado pro Claude
     analytics_chat_max_claude_payload_bytes: int = 20_000
+
+    # Allowlists de acesso (ver core/authz.py). CSV de logins, normalizados
+    # em minúsculas; fallback por papel aplicado no authz (gerente/tradução
+    # têm fallback "dherrera", coordenador NÃO tem — vazio = nenhum).
+    management_panel_logins: str = ""
+    coordinator_logins: str = ""
+    translate_allowed_logins: str = ""
+
+    # Fase 3 (containers): sessões/rate limit (e a trava de envio) no Redis
+    # quando `SESSIONS_BACKEND=redis` — default `memory` preserva dev/testes
+    # sem exigir container. `REDIS_URL` é obrigatória nesse modo (falha
+    # explícita, nunca cair em memória calado em produção).
+    sessions_backend: str = "memory"
+    redis_url: str = ""
+
+    # Papel do processo na topologia de containers (docker-compose.prod.yml):
+    # "all" = HTTP + background no mesmo processo (NSSM de sempre), "web" =
+    # só HTTP, "worker" = só agendador + polling de e-mail (sem HTTP).
+    process_role: str = "all"
+
+    # Base dos links de notificação por e-mail (o app não sabe o próprio host).
+    app_base_url: str = "http://localhost:8011"
+
+    # Observabilidade (ver core/logging.py e README "Observabilidade"):
+    # formato dos logs do processo ("text" legível ou "json" uma linha por
+    # evento), limiar do aviso de requisição lenta em ms (0 = loga toda
+    # requisição, pra depuração; negativo = desliga) e o DSN do
+    # Sentry/GlitchTip self-hosted — vazio desliga o envio de erro pra fora.
+    log_format: str = "text"
+    slow_request_ms: int = 3000
+    sentry_dsn: str = ""
+    sentry_environment: str = ""
 
 
 @lru_cache
