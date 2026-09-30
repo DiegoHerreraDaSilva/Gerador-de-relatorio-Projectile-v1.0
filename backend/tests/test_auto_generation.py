@@ -1,6 +1,7 @@
 """Geração automática (fase 1): família, rascunho, rodada, números, aprovação
 e memória do mês anterior. Banco em SQLite na memória e Projectile falso —
 nada sai pra rede."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -10,13 +11,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, insert
 from sqlalchemy.pool import StaticPool
 
-from backend.app import management, projectile_db
+from backend.app import management, notifications, projectile_db
 from backend.app.api.shared import build_parse_response
 from backend.app.auto_generation import builder, families, memory, service
+from backend.app.core import authz
 from backend.app.db.reports_schema import metadata, reports
 from backend.app.main import app, require_session
 from backend.app.services import auto_generation_store, management_store
-from backend.app.services.report_files import GeneratePayload
 
 _MANAGER = {"name": "Gerente", "login": "gerente", "email": "g@x"}
 _COLLABORATOR = {"name": "Colaborador", "login": "colab", "email": "c@x"}
@@ -54,7 +55,7 @@ def auto_db(monkeypatch):
     metadata.create_all(engine)
     monkeypatch.setattr(auto_generation_store, "get_engine", lambda: engine)
     monkeypatch.setattr(management_store, "get_engine", lambda: engine)
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
 
     def cached_rows(start, end, *a, **k):
         rows = _HOURS.get(start[:7], [])
@@ -94,16 +95,23 @@ def _payload_from(draft: dict, numbers: dict[str, str] | None = None) -> dict:
                 "header": {
                     "project_code": (numbers or {}).get(p["id"], p["project_code"]),
                     "project_name": p["project_name"],
-                    "location_date": header["location_date"], "month_label": header["month_label"],
-                    "signer1_name": header["signer1_name"] or "Fulano", "signer1_company": header["signer1_company"],
-                    "signer2_name": header["signer2_name"] or "Beltrano", "signer2_company": header["signer2_company"],
+                    "location_date": header["location_date"],
+                    "month_label": header["month_label"],
+                    "signer1_name": header["signer1_name"] or "Fulano",
+                    "signer1_company": header["signer1_company"],
+                    "signer2_name": header["signer2_name"] or "Beltrano",
+                    "signer2_company": header["signer2_company"],
                 },
                 "groups": [
-                    {"name": g["name"], "performance": g["performance"],
-                     "activities": [{"description": a["description"], "hours": a["hours"]} for a in g["activities"]]}
+                    {
+                        "name": g["name"],
+                        "performance": g["performance"],
+                        "activities": [{"description": a["description"], "hours": a["hours"]} for a in g["activities"]],
+                    }
                     for g in p["groups"]
                 ],
-                "pacote_scope": p["pacote_scope"], "language": p["language"],
+                "pacote_scope": p["pacote_scope"],
+                "language": p["language"],
             }
             for p in draft["packages"]
         ],
@@ -117,8 +125,7 @@ def _payload_from(draft: dict, numbers: dict[str, str] | None = None) -> dict:
 
 def test_familia_ignora_o_mes_do_nome():
     assert families.strip_date("Legislation Package - Estribo 08.2026") == "Legislation Package - Estribo"
-    assert families.family_key("Mercedes", "Legislation Package - Estribo 08.2026") == \
-        families.family_key("MERCEDES", "Legislation Package - Estribo 09.2026")
+    assert families.family_key("Mercedes", "Legislation Package - Estribo 08.2026") == families.family_key("MERCEDES", "Legislation Package - Estribo 09.2026")
     # código do pacote e "2025/2026" não são datas de mês
     assert families.strip_date("1546.7.3-001 Câmera - ATEGO 08.2026") == "1546.7.3-001 Câmera - ATEGO"
     assert families.strip_date("MBB_OTC - Sistemas Veiculares 2025/2026") == "MBB_OTC - Sistemas Veiculares 2025/2026"
@@ -135,10 +142,9 @@ def test_rascunho_tem_o_mesmo_conteudo_e_defaults_da_busca_manual():
 
     manual = build_parse_response(*projectile_db.group_hours(rows, split_by_package=True))["packages"]
     assert [p["key"] for p in draft["packages"]] == [p["key"] for p in manual]
-    for mine, theirs in zip(draft["packages"], manual):
+    for mine, theirs in zip(draft["packages"], manual, strict=True):
         assert [g["name"] for g in mine["groups"]] == [g["name"] for g in theirs["groups"]]
-        assert [[a["hours"] for a in g["activities"]] for g in mine["groups"]] == \
-            [[a["hours"] for a in g["activities"]] for g in theirs["groups"]]
+        assert [[a["hours"] for a in g["activities"]] for g in mine["groups"]] == [[a["hours"] for a in g["activities"]] for g in theirs["groups"]]
         # defaults de FileUpload.applyParseResponse
         assert mine["pacote_scope"] == theirs["key"]
         assert all(g["performance"] == 1 for g in mine["groups"])
@@ -191,8 +197,15 @@ def test_erro_em_um_projeto_nao_para_a_rodada(auto_db, monkeypatch):
 
 def test_rodada_em_andamento_nao_roda_de_novo(auto_db):
     with auto_generation_store.write_session() as s:
-        s.insert_run({"id": "01J00000000000000000000000", "competence": "2026-08", "status": "running",
-                      "triggered_by": "outro", "started_at": auto_generation_store.utcnow()})
+        s.insert_run(
+            {
+                "id": "01J00000000000000000000000",
+                "competence": "2026-08",
+                "status": "running",
+                "triggered_by": "outro",
+                "started_at": auto_generation_store.utcnow(),
+            }
+        )
     with pytest.raises(service.RunInProgress):
         service.start_run("2026-08", _MANAGER, background=False)
 
@@ -241,7 +254,7 @@ def test_aprovar_exige_numero_no_formato(auto_db):
     pkg_id = service.detail(item["id"])["draft"]["packages"][0]["id"]
     missing = _approve(item["id"])
     assert missing.status_code == 400 and "Falta o número" in missing.json()["detail"]["errors"][0]
-    wrong = _approve(item["id"], {pkg_id: "SE.26.0511"})              # caso real: um dígito a mais
+    wrong = _approve(item["id"], {pkg_id: "SE.26.0511"})  # caso real: um dígito a mais
     assert wrong.status_code == 400
     assert wrong.json()["detail"]["errors"][0] == 'Número "SE.26.0511" fora do formato SE.##.### (ex.: SE.26.053).'
 
@@ -255,11 +268,21 @@ def test_numero_repetido_na_competencia_ou_de_outro_projeto_no_historico_e_barra
     assert same_run.status_code == 400 and "outro relatório desta competência" in same_run.json()["detail"]["errors"][0]
 
     with auto_db.begin() as conn:
-        conn.execute(insert(reports).values(
-            id="01J00000000000000000000001", report_number="SE.26.050", scope=None, competence_label="Agosto/2026",
-            identity_hash="x" * 64, project_name_snapshot="Outro Projeto", status="active", created_by="alguem",
-            created_by_name_snapshot="Alguém", created_at=datetime(2026, 9, 1), updated_at=datetime(2026, 9, 1),
-        ))
+        conn.execute(
+            insert(reports).values(
+                id="01J00000000000000000000001",
+                report_number="SE.26.050",
+                scope=None,
+                competence_label="Agosto/2026",
+                identity_hash="x" * 64,
+                project_name_snapshot="Outro Projeto",
+                status="active",
+                created_by="alguem",
+                created_by_name_snapshot="Alguém",
+                created_at=datetime(2026, 9, 1),
+                updated_at=datetime(2026, 9, 1),
+            )
+        )
     history = _approve(items["E8"]["id"], {e8["draft"]["packages"][0]["id"]: "SE.26.050"})
     assert history.status_code == 400 and "Outro Projeto" in history.json()["detail"]["errors"][0]
 
@@ -275,8 +298,7 @@ def test_aprovar_congela_o_payload_e_os_arquivos_saem_dele(auto_db):
     assert len(files) == 1 and files[0][0].endswith(".xlsx") and files[0][1][:2] == b"PK"
     # aprovado não se edita mais; reabrir volta pra revisão
     draft = detail["draft"]
-    locked = _client().put(f"/auto-generation/reports/{item['id']}/draft",
-                           json={"draft": draft, "draft_version": detail["draft_version"]})
+    locked = _client().put(f"/auto-generation/reports/{item['id']}/draft", json={"draft": draft, "draft_version": detail["draft_version"]})
     assert locked.status_code == 409
     service.reopen(item["id"], _MANAGER)
     assert service.detail(item["id"])["status"] == "em_revisao"
@@ -311,11 +333,11 @@ def test_memoria_do_mes_aprovado_nasce_no_mes_seguinte_sem_copiar_horas(auto_db)
     assert new["memory_applied"] is True
     assert new["header"]["signer1_name"] == "Diego" and new["header"]["signer2_name"] == "Cliente MBB"
     pkg = new["packages"][0]
-    assert pkg["project_code"] == "" and pkg["suggested_code"] == "SE.26.053"   # só sugestão
+    assert pkg["project_code"] == "" and pkg["suggested_code"] == "SE.26.053"  # só sugestão
     renamed = next(g for g in pkg["groups"] if g["name"] == "Modelagem 3D")
     assert renamed["performance"] == 0.9
     same = next(a for a in renamed["activities"] if a["description"] == "Ajuste do suporte do estribo")
-    assert same["hours"] == 6.0                                  # horas de setembro, não de agosto
+    assert same["hours"] == 6.0  # horas de setembro, não de agosto
     # atividade nova continua como veio (no modo por projeto é a observação inteira)
     assert any(a["description"] == "Modelagem - nova peça" for a in renamed["activities"])
 
@@ -365,9 +387,9 @@ def test_horas_sem_descricao_viram_aviso_e_selo_sem_alarme_de_horas_mudaram(auto
     _HOURS["2026-08"].append(_row(date(2026, 8, 22), 4.5, "", "1546.1-001 Estribo 08.2026", "E8"))
     try:
         item = _run()["E8"]
-        assert item["source_hours"] == 14.5                      # total do Projectile
+        assert item["source_hours"] == 14.5  # total do Projectile
         assert item["badges"]["missing_hours"] == 4.5
-        assert not item["badges"].get("hours_changed")           # nada mudou: só falta descrição
+        assert not item["badges"].get("hours_changed")  # nada mudou: só falta descrição
         issue = service.detail(item["id"])["draft"]["issues"][0]
         assert issue["reason"] == "descricao_vazia" and issue["raw_hours"] == 4.5
         # o revisor adicionou como atividade: o selo some no próximo salvamento
@@ -376,8 +398,7 @@ def test_horas_sem_descricao_viram_aviso_e_selo_sem_alarme_de_horas_mudaram(auto
         draft["packages"][0]["groups"][0]["activities"].append({"id": "novo", "description": "Horas avulsas", "hours": 4.5})
         draft["issues"] = []
         service.save_draft(item["id"], service.Draft.model_validate(draft), detail["draft_version"], _MANAGER)
-        assert "missing_hours" not in next(
-            i for i in service.competence_view("2026-08")["items"] if i["project_id"] == "E8")["badges"]
+        assert "missing_hours" not in next(i for i in service.competence_view("2026-08")["items"] if i["project_id"] == "E8")["badges"]
     finally:
         _HOURS["2026-08"] = _HOURS["2026-08"][:5]
 
@@ -413,14 +434,14 @@ def test_bloco_mostra_o_modo_do_rascunho_e_nao_o_da_configuracao(auto_db):
     key = families.family_key("Mercedes", "Legislation Package - Estribo 08.2026")
     service.set_family_rule(key, {"mode": "pacote"}, _MANAGER)
     e8 = _run()["E8"]
-    service.set_family_rule(key, {}, _MANAGER)                   # configuração mudou depois
+    service.set_family_rule(key, {}, _MANAGER)  # configuração mudou depois
     e8 = next(i for i in service.competence_view("2026-08")["items"] if i["project_id"] == "E8")
     assert e8["badges"]["mode"] == "pacote" and e8["effective"]["mode"] == "projeto"
 
 
 def test_resumo_antigo_sem_campos_novos_e_recalculado(auto_db):
     e8 = _run()["E8"]
-    with auto_generation_store.write_session() as s:               # como um rascunho de antes do campo
+    with auto_generation_store.write_session() as s:  # como um rascunho de antes do campo
         s.update_report(e8["id"], badges_json={"packages": 1, "numbers": [""]})
     e8 = next(i for i in service.competence_view("2026-08")["items"] if i["project_id"] == "E8")
     assert e8["badges"]["mode"] == "projeto"
@@ -434,7 +455,7 @@ def test_modelo_do_numero_vira_regra_e_volta():
     assert rules.pattern_to_model(rules.DEFAULT_NUMBER_PATTERN) == "SE.##.###"
     for model in ("SE-##/####", "ABC ##_#", "Nº ###"):
         assert rules.pattern_to_model(rules.model_to_pattern(model)) == model
-    assert rules.pattern_to_model(r"^SE\.\d{2}\.\d{3,4}$") is None      # regra à mão: tela mostra avançado
+    assert rules.pattern_to_model(r"^SE\.\d{2}\.\d{3,4}$") is None  # regra à mão: tela mostra avançado
     saved = rules.validate_global({"number_model": "SE.##.####"})
     assert saved == {"number_pattern": r"^SE\.\d{2}\.\d{4}$"}
     assert rules.effective(saved, None)["number_model"] == "SE.##.####"
@@ -462,17 +483,29 @@ _OTHER = {"name": "Outra", "login": "outra", "email": "o@x"}
 @pytest.fixture
 def reviewers(monkeypatch):
     monkeypatch.setattr(projectile_db, "fetch_engineering_employees", lambda start, end: _ENGINEERING)
-    monkeypatch.setattr(service, "_reviewers_cache", {"at": 0.0, "items": None})
+    monkeypatch.setattr(service.reviews, "_reviewers_cache", {"at": 0.0, "items": None})
 
 
 def _assign(item_id, login):
     return _client().put(f"/auto-generation/reports/{item_id}/reviewer", json={"login": login})
 
 
+def test_atribuicao_e_envio_disparam_as_notificacoes(auto_db, reviewers, monkeypatch):
+    eventos: list[str] = []
+    monkeypatch.setattr(notifications, "notify_reviewer_assigned", lambda *a: eventos.append("assigned"))
+    monkeypatch.setattr(notifications, "notify_awaiting_approval", lambda *a: eventos.append("submitted"))
+
+    item = _run()["E8"]
+    _assign(item["id"], "colab")
+    service.submit_review(item["id"], _COLLABORATOR)
+
+    assert eventos == ["assigned", "submitted"]
+
+
 def test_revisor_vem_da_lista_da_engenharia_com_nome_do_projectile(auto_db, reviewers):
     item = _run()["E8"]
     listed = _client().get("/auto-generation/reviewers").json()["reviewers"]
-    assert [r["login"] for r in listed] == ["Colab", "outra"]          # sem login não entra
+    assert [r["login"] for r in listed] == ["Colab", "outra"]  # sem login não entra
     assert _assign(item["id"], "ninguem").status_code == 400
     # caixa diferente do login da sessão ("colab") ainda casa; nome é o do Projectile
     assigned = _assign(item["id"], "colab").json()
@@ -501,8 +534,8 @@ def test_revisar_mandar_devolver_e_aprovar(auto_db, reviewers):
     detail = colab().get(f"/my-reviews/{report_id}").json()
     draft = detail["draft"]
     draft["packages"][0]["groups"][0]["name"] = "Modelagem 3D"
-    draft["packages"][0]["project_code"] = "SE.26.999"               # número é do gerente
-    draft["include_performance"] = True                              # e "incluir performance" também
+    draft["packages"][0]["project_code"] = "SE.26.999"  # número é do gerente
+    draft["include_performance"] = True  # e "incluir performance" também
     saved = colab().put(f"/my-reviews/{report_id}/draft", json={"draft": draft, "draft_version": detail["draft_version"]})
     assert saved.status_code == 200, saved.text
     stored = service.detail(report_id)["draft"]
@@ -511,8 +544,7 @@ def test_revisar_mandar_devolver_e_aprovar(auto_db, reviewers):
 
     assert colab().post(f"/my-reviews/{report_id}/submit", json={"comment": "Conferi as horas"}).json() == {"status": "revisado"}
     # mandou pra aprovação: o revisor não edita mais
-    again = colab().put(f"/my-reviews/{report_id}/draft",
-                      json={"draft": draft, "draft_version": service.detail(report_id)["draft_version"]})
+    again = colab().put(f"/my-reviews/{report_id}/draft", json={"draft": draft, "draft_version": service.detail(report_id)["draft_version"]})
     assert again.status_code == 409
     listed = {i["id"]: i for i in service.competence_view("2026-08")["items"]}
     assert listed[report_id]["last_comment"]["comment"] == "Conferi as horas"
@@ -554,8 +586,7 @@ def test_revisor_escolhido_no_mes_atual_vale_quando_o_rascunho_nasce(auto_db, re
     preview = service.preview("2026-09")["projects"][0]
     assert preview["effective"]["reviewer_login"] == "Colab"
     assert _run("2026-09")["E9"]["reviewer_login"] == "Colab"
-    assert [i["project_name"] for i in _client(_COLLABORATOR).get("/my-reviews").json()["to_review"]] == [
-        "Legislation Package - Estribo 09.2026"]
+    assert [i["project_name"] for i in _client(_COLLABORATOR).get("/my-reviews").json()["to_review"]] == ["Legislation Package - Estribo 09.2026"]
 
 
 # --- envio ao cliente (fase 2) ------------------------------------------------------
@@ -584,12 +615,16 @@ def test_enviar_manda_os_arquivos_aprovados_e_lembra_os_destinatarios(auto_db, g
     assert defaults["subject"] == "Relatório de Horas - Legislation Package - Estribo 08.2026 - Agosto/2026"
     assert defaults["sender"] == "g@x" and defaults["counts_in_diagnostics"] is True
 
-    body = {"to": ["cliente@mbb.com", " cliente@mbb.com "], "cc": ["chefe@mbb.com", "CLIENTE@mbb.com"],
-            "subject": defaults["subject"], "message": defaults["message"]}
+    body = {
+        "to": ["cliente@mbb.com", " cliente@mbb.com "],
+        "cc": ["chefe@mbb.com", "CLIENTE@mbb.com"],
+        "subject": defaults["subject"],
+        "message": defaults["message"],
+    }
     response = _client().post(f"/auto-generation/reports/{report_id}/send", json=body)
     assert response.status_code == 200, response.text
     [mail] = graph
-    assert mail["sender_email"] == "g@x"                              # da sessão, nunca do cliente
+    assert mail["sender_email"] == "g@x"  # da sessão, nunca do cliente
     assert mail["to_email"] == ["cliente@mbb.com"] and mail["cc_emails"] == ["chefe@mbb.com"]
     assert [n for n, _ in mail["attachments"]] == defaults["files"]
     listed = {i["id"]: i for i in service.competence_view("2026-08")["items"]}[report_id]
@@ -664,9 +699,9 @@ def test_varios_aprovados_num_email_so(auto_db, graph):
     body = {"report_ids": [first, p1["id"]], "to": ["cliente@mbb.com"], "subject": "Relatórios de Horas - Agosto/2026"}
     response = _client().post("/auto-generation/send", json=body)
     assert response.status_code == 200, response.text
-    [mail] = graph                                                    # UM e-mail
+    [mail] = graph  # UM e-mail
     names = [n for n, _ in mail["attachments"]]
-    assert len(names) == 2 and len(set(names)) == 2                   # cada arquivo um anexo, nome único
+    assert len(names) == 2 and len(set(names)) == 2  # cada arquivo um anexo, nome único
     listed = {i["id"]: i for i in service.competence_view("2026-08")["items"]}
     assert listed[first]["status"] == listed[p1["id"]]["status"] == "enviado"
     # um não aprovado recusa o e-mail inteiro — nada sai
@@ -694,15 +729,24 @@ def test_minhas_revisoes_so_mostram_competencias_da_janela(auto_db, reviewers):
     recent = _run()["E8"]["id"]
     _assign(recent, "colab")
     with auto_generation_store.write_session() as s:
-        s.insert_report({
-            "id": "01J0ANTIGO0000000000000000", "run_id": "R-antigo", "competence": "2019-03", "project_id": "OLD",
-            "family_key": "acme|antigo", "project_name": "Projeto Antigo", "client": "ACME", "status": "em_revisao",
-            "reviewer_login": "Colab", "reviewer_name": "Colaborador do Projectile", "draft_version": 1,
-            "draft_json": service.detail(recent)["draft"],
-        })
+        s.insert_report(
+            {
+                "id": "01J0ANTIGO0000000000000000",
+                "run_id": "R-antigo",
+                "competence": "2019-03",
+                "project_id": "OLD",
+                "family_key": "acme|antigo",
+                "project_name": "Projeto Antigo",
+                "client": "ACME",
+                "status": "em_revisao",
+                "reviewer_login": "Colab",
+                "reviewer_name": "Colaborador do Projectile",
+                "draft_version": 1,
+                "draft_json": service.detail(recent)["draft"],
+            }
+        )
     colab = lambda: _client(_COLLABORATOR)  # noqa: E731
-    assert [i["project_name"] for i in colab().get("/my-reviews").json()["to_review"]] == [
-        "Legislation Package - Estribo 08.2026"]
+    assert [i["project_name"] for i in colab().get("/my-reviews").json()["to_review"]] == ["Legislation Package - Estribo 08.2026"]
     assert colab().get("/my-reviews/summary").json()["to_review"] == 1
     assert colab().get("/my-reviews/01J0ANTIGO0000000000000000").status_code == 404
     assert colab().post("/my-reviews/01J0ANTIGO0000000000000000/submit", json={}).status_code == 404
@@ -731,14 +775,14 @@ def test_numero_digitado_na_previa_vai_pro_rascunho_quando_ele_e_gerado(auto_db)
 
 
 def test_numero_da_previa_e_validado_e_pode_ser_apagado(auto_db):
-    bad = _plan("2026-08", "E8", "SE.26.0511")                      # um dígito a mais (caso real)
+    bad = _plan("2026-08", "E8", "SE.26.0511")  # um dígito a mais (caso real)
     assert bad.status_code == 400 and "fora do formato SE.##.###" in bad.json()["detail"]
     assert _plan("2026-08", "NAO-EXISTE", "SE.26.001").status_code == 404
     assert _plan("2026-08", "E8", "SE.26.001").status_code == 200
-    clash = _plan("2026-08", "P1", "SE.26.001")                     # já reservado pra outro projeto do mês
+    clash = _plan("2026-08", "P1", "SE.26.001")  # já reservado pra outro projeto do mês
     assert clash.status_code == 400 and "já está reservado" in clash.json()["detail"]
-    assert _plan("2026-08", "E8", "").json() == {"number": None}     # vazio apaga
-    assert _plan("2026-08", "P1", "SE.26.001").status_code == 200    # e libera o número
+    assert _plan("2026-08", "E8", "").json() == {"number": None}  # vazio apaga
+    assert _plan("2026-08", "P1", "SE.26.001").status_code == 200  # e libera o número
     assert _client(_COLLABORATOR).put("/auto-generation/competences/2026-08/numbers/E8", json={"number": "SE.26.002"}).status_code == 403
 
 
@@ -750,5 +794,5 @@ def test_numero_da_previa_so_cabe_em_relatorio_de_um_pacote():
     many = {"packages": [{"project_code": ""}, {"project_code": ""}]}
     service._apply_planned_number(many, "SE.26.070")
     assert [p["project_code"] for p in many["packages"]] == ["", ""]
-    service._apply_planned_number(one, None)                        # sem número reservado: não mexe
+    service._apply_planned_number(one, None)  # sem número reservado: não mexe
     assert one["packages"][0]["project_code"] == "SE.26.070"

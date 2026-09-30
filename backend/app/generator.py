@@ -7,19 +7,29 @@ do arquivo original. Em vez disso, copiamos o .xlsx original byte-a-byte e subst
 apenas o XML da planilha (`xl/worksheets/sheet1.xml`), preservando todo o resto
 (`xl/drawings`, `xl/media`, relações, tipos de conteúdo etc.).
 """
+
 from __future__ import annotations
 
 import base64
-import datetime
 import math
 import os
 import re
-import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from openpyxl.worksheet.protection import hash_password
+
+# reexportados de `holidays.py` — a API pública de `generator` continua a
+# mesma pra quem importa daqui (email_ingest, dashboard pessoal, testes)
+from .holidays import _national_holidays as _national_holidays  # noqa: F401
+from .holidays import _strip_accents as _strip_accents
+from .holidays import business_days_between as business_days_between  # noqa: F401
+from .holidays import count_business_days as count_business_days
+from .holidays import is_santo_andre_filiale as is_santo_andre_filiale
+from .holidays import local_holidays_for_filiale as local_holidays_for_filiale
+from .holidays import national_holidays_between as national_holidays_between
+
 
 class NonFiniteValueError(ValueError):
     """Um número (horas/performance) resultou em NaN/±Infinity — normalmente por
@@ -122,14 +132,32 @@ _LABELS = {
 
 _MONTH_NAMES = {
     "en": {
-        "janeiro": "January", "fevereiro": "February", "março": "March", "abril": "April",
-        "maio": "May", "junho": "June", "julho": "July", "agosto": "August",
-        "setembro": "September", "outubro": "October", "novembro": "November", "dezembro": "December",
+        "janeiro": "January",
+        "fevereiro": "February",
+        "março": "March",
+        "abril": "April",
+        "maio": "May",
+        "junho": "June",
+        "julho": "July",
+        "agosto": "August",
+        "setembro": "September",
+        "outubro": "October",
+        "novembro": "November",
+        "dezembro": "December",
     },
     "de": {
-        "janeiro": "Januar", "fevereiro": "Februar", "março": "März", "abril": "April",
-        "maio": "Mai", "junho": "Juni", "julho": "Juli", "agosto": "August",
-        "setembro": "September", "outubro": "Oktober", "novembro": "November", "dezembro": "Dezember",
+        "janeiro": "Januar",
+        "fevereiro": "Februar",
+        "março": "März",
+        "abril": "April",
+        "maio": "Mai",
+        "junho": "Juni",
+        "julho": "Juli",
+        "agosto": "August",
+        "setembro": "September",
+        "outubro": "Oktober",
+        "novembro": "November",
+        "dezembro": "Dezember",
     },
 }
 
@@ -240,14 +268,7 @@ def _row(number: int, cells: list[str], height: float = DEFAULT_ROW_HEIGHT) -> s
     return f'<row r="{number}" ht="{height}" customHeight="1">' + "".join(cells) + "</row>"
 
 
-_MESES_PT = [
-    "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-]
-
-
-def _strip_accents(text: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+_MESES_PT = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 
 
 # nomes de mês em inglês/alemão, minúsculos e sem acento — usado só como
@@ -309,164 +330,6 @@ def parse_period_label(label: str) -> tuple[tuple[int, int], tuple[int, int]] | 
     return start_parsed, end_parsed
 
 
-def _easter_sunday(year: int) -> datetime.date:
-    """Algoritmo anônimo gregoriano (Meeus/Jones/Butcher) para a Páscoa — usado
-    para derivar os feriados móveis (Carnaval, Sexta-feira Santa, Corpus Christi)."""
-    a = year % 19
-    b = year // 100
-    c = year % 100
-    d = b // 4
-    e = b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i = c // 4
-    k = c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    month = (h + l - 7 * m + 114) // 31
-    day = (h + l - 7 * m + 114) % 31 + 1
-    return datetime.date(year, month, day)
-
-
-def _national_holidays(year: int) -> set[datetime.date]:
-    """Feriados nacionais fixos + móveis. Feriados estaduais/municipais não
-    entram aqui — ficam de fora até serem pedidos explicitamente."""
-    easter = _easter_sunday(year)
-    holidays = {
-        datetime.date(year, 1, 1),    # Confraternização Universal
-        datetime.date(year, 4, 21),   # Tiradentes
-        datetime.date(year, 5, 1),    # Dia do Trabalho
-        datetime.date(year, 9, 7),    # Independência
-        datetime.date(year, 10, 12),  # Nossa Senhora Aparecida
-        datetime.date(year, 11, 2),   # Finados
-        datetime.date(year, 11, 15),  # Proclamação da República
-        datetime.date(year, 12, 25),  # Natal
-        easter - datetime.timedelta(days=48),  # Carnaval (segunda)
-        easter - datetime.timedelta(days=47),  # Carnaval (terça)
-        easter - datetime.timedelta(days=2),   # Sexta-feira Santa
-        easter + datetime.timedelta(days=60),  # Corpus Christi
-    }
-    if year >= 2024:
-        holidays.add(datetime.date(year, 11, 20))  # Dia da Consciência Negra (Lei 14.759/2023)
-    return holidays
-
-
-def _sao_paulo_state_holidays(year: int) -> set[datetime.date]:
-    """Feriado estadual de São Paulo — 9 de julho, Revolução Constitucionalista
-    de 1932 (Lei Estadual nº 9.497/1997). Aplicado a todo o Dashboard de horas
-    pessoal (não à geração de relatório nem a `count_business_days`, ver
-    `local_holidays_for_filiale`): toda filial observada no Projectile (São
-    Paulo, São Bernardo do Campo, Santo André) fica dentro do estado de SP."""
-    return {datetime.date(year, 7, 9)}
-
-
-def _santo_andre_municipal_holidays(year: int) -> set[datetime.date]:
-    """Feriado municipal de Santo André — aniversário da cidade, 8 de abril
-    (fundação em 1553, Lei Municipal nº 4.148/1973). Só entra pra quem tem
-    `temployee.pFiliale` de Santo André, ver `local_holidays_for_filiale`."""
-    return {datetime.date(year, 4, 8)}
-
-
-def is_santo_andre_filiale(filiale: str | None) -> bool:
-    """Sem acento/caixa porque o valor real de `temployee.pFiliale` no
-    Projectile vem como texto livre (medido: "Santo André - São Paulo")."""
-    return bool(filiale) and "santo andre" in _strip_accents(filiale).lower()
-
-
-def _bridge_days(holidays: set[datetime.date]) -> set[datetime.date]:
-    """"Ponte"/emenda de feriado — prática comum da empresa (não uma regra de
-    calendário oficial): feriado numa terça-feira emenda com a segunda-feira
-    anterior, feriado numa quinta-feira emenda com a sexta-feira seguinte,
-    formando um feriado prolongado de 4 dias. Recebe o conjunto de feriados
-    JÁ combinado (nacional + estadual/municipal) pra não perder ponte de
-    feriado nacional que caia numa terça/quinta (ex: Corpus Christi é sempre
-    quinta)."""
-    bridges: set[datetime.date] = set()
-    for day in holidays:
-        if day.weekday() == 1:  # terça
-            bridges.add(day - datetime.timedelta(days=1))
-        elif day.weekday() == 3:  # quinta
-            bridges.add(day + datetime.timedelta(days=1))
-    return bridges
-
-
-def local_holidays_for_filiale(year: int, filiale: str | None) -> set[datetime.date]:
-    """Feriado estadual (SP, sempre) + municipal (Santo André, só se a filial
-    do funcionário for de lá) + ponte de qualquer um desses (ou de feriado
-    nacional) que caia numa terça/quinta — usado exclusivamente pelo
-    Dashboard de horas pessoal (`/my-hours`), nunca por
-    `count_business_days`/geração de relatório: aplicar esses feriados
-    globalmente mudaria a classificação de atraso de envio
-    (`email_ingest.py`) pra funcionários de OUTRAS filiais, que não os têm."""
-    holidays = set(_sao_paulo_state_holidays(year))
-    if is_santo_andre_filiale(filiale):
-        holidays |= _santo_andre_municipal_holidays(year)
-    all_holidays = _national_holidays(year) | holidays
-    holidays |= _bridge_days(all_holidays)
-    return holidays
-
-
-def business_days_between(
-    start: datetime.date, end: datetime.date, extra_holidays: set[datetime.date] | None = None
-) -> list[datetime.date]:
-    """Dias úteis (seg-sex, sem feriado nacional) de `start` até `end`, ambos
-    INCLUSIVE — diferente de `count_business_days`, que exclui o `start` (ver
-    o docstring dela). Devolve a lista, não a contagem, porque o Dashboard de
-    horas precisa saber QUAIS dias são úteis pra achar os que ficaram sem
-    apontamento, não só quantos são.
-
-    `extra_holidays` (opcional) soma feriados estadual/municipal por cima dos
-    nacionais — usado só pelo Dashboard de horas pessoal via
-    `local_holidays_for_filiale`; sem esse argumento o comportamento é
-    idêntico a antes (só feriado nacional), preservando `count_business_days`
-    e todo outro chamador existente.
-
-    O intervalo pode cruzar anos, então o conjunto de feriados é recalculado
-    por ano conforme o cursor avança."""
-    holidays_by_year: dict[int, set[datetime.date]] = {}
-    days: list[datetime.date] = []
-    day = start
-    while day <= end:
-        holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
-        is_holiday = day in holidays or (extra_holidays is not None and day in extra_holidays)
-        if day.weekday() < 5 and not is_holiday:
-            days.append(day)
-        day += datetime.timedelta(days=1)
-    return days
-
-
-def national_holidays_between(
-    start: datetime.date, end: datetime.date, extra_holidays: set[datetime.date] | None = None
-) -> list[datetime.date]:
-    """Feriados nacionais no intervalo (inclusive), ordenados — usado pra
-    marcar a célula do dia no calendário do dashboard como feriado em vez de
-    "dia útil sem apontamento". `extra_holidays` funciona igual ao de
-    `business_days_between` (opcional, estadual/municipal)."""
-    holidays_by_year: dict[int, set[datetime.date]] = {}
-    found: list[datetime.date] = []
-    day = start
-    while day <= end:
-        holidays = holidays_by_year.setdefault(day.year, _national_holidays(day.year))
-        if day in holidays or (extra_holidays is not None and day in extra_holidays):
-            found.append(day)
-        day += datetime.timedelta(days=1)
-    return found
-
-
-def count_business_days(start: datetime.date, end: datetime.date) -> int:
-    """Conta dias úteis (seg-sex, sem feriado nacional) estritamente APÓS
-    `start` até `end` inclusive — usado por `email_ingest.py` pra medir quanto
-    tempo depois do fechamento do mês um relatório foi enviado.
-
-    A exclusão do próprio `start` é a semântica de que `email_ingest.py:460` e
-    `management.py` dependem — NÃO mudar. Quem quer o intervalo fechado nas
-    duas pontas usa `business_days_between`."""
-    if end <= start:
-        return 0
-    return len(business_days_between(start + datetime.timedelta(days=1), end))
-
-
 def _replace_header_cell(sheet_xml: str, ref: str, style: int, text: str) -> str:
     pattern = re.compile(rf'<c r="{ref}"[^>]*(?:/>|>.*?</c>)')
     replacement = _inline_str_cell(ref, style, text)
@@ -486,11 +349,7 @@ def _hide_helper_column(sheet_xml: str) -> str:
     if not match:
         raise ValueError("Não encontrei o intervalo de colunas genérico no template.")
     attrs = match.group(1)
-    replacement = (
-        f'<col min="13" max="{idx - 1}"{attrs}/>'
-        f'<col min="{idx}" max="{idx}"{attrs} hidden="1"/>'
-        f'<col min="{idx + 1}" max="16384"{attrs}/>'
-    )
+    replacement = f'<col min="13" max="{idx - 1}"{attrs}/><col min="{idx}" max="{idx}"{attrs} hidden="1"/><col min="{idx + 1}" max="16384"{attrs}/>'
     new_xml, count = pattern.subn(replacement, sheet_xml, count=1)
     if count != 1:
         raise ValueError("Não encontrei o intervalo de colunas genérico no template.")
@@ -502,8 +361,7 @@ def _add_cells(rows_by_number: dict[int, list[str]], row_number: int, cells: lis
 
 
 def _build_group_rows(
-    rows_by_number: dict[int, list[str]], groups: list[GroupInput], include_performance: bool = False,
-    language: str = "pt",
+    rows_by_number: dict[int, list[str]], groups: list[GroupInput], include_performance: bool = False, language: str = "pt"
 ) -> tuple[list[str], list[str], list[str], dict[int, float], int]:
     """Escreve em `rows_by_number` o cabeçalho + atividades de cada grupo, a
     partir de GROUP_START_ROW. Retorna (merges, total_hours_cells,
@@ -556,7 +414,9 @@ def _build_group_rows(
                 # borda/preenchimento, em vez do estilo original do template,
                 # que tinha borda e deixava uma caixinha vazia visível).
                 _inline_str_cell(f"E{header_row}", S_LABEL, _labels(language)["bruto"]) if include_performance else _empty_cell(f"E{header_row}", S_FILLER),
-                _inline_str_cell(f"F{header_row}", S_LABEL, _labels(language)["performance"]) if include_performance else _empty_cell(f"F{header_row}", S_FILLER),
+                _inline_str_cell(f"F{header_row}", S_LABEL, _labels(language)["performance"])
+                if include_performance
+                else _empty_cell(f"F{header_row}", S_FILLER),
                 _empty_cell(f"G{header_row}", S_FILLER),
             ],
         )
@@ -674,10 +534,7 @@ def _build_totals_row(
         rows_by_number,
         total_row,
         [
-            _inline_str_cell(
-                f"B{total_row}", S_TOTAL_LABEL,
-                _labels(language)["total_hours"].format(month=_translate_month_label(month_label, language)),
-            ),
+            _inline_str_cell(f"B{total_row}", S_TOTAL_LABEL, _labels(language)["total_hours"].format(month=_translate_month_label(month_label, language))),
             _formula_cell(f"C{total_row}", S_TOTAL_VALUE, total_value.lstrip("=")),
             _inline_str_cell(f"E{total_row}", S_LABEL, _labels(language)["bruto"]) if include_performance else _empty_cell(f"E{total_row}", S_FILLER),
             _inline_str_cell(f"F{total_row}", S_LABEL, _labels(language)["performance"]) if include_performance else _empty_cell(f"F{total_row}", S_FILLER),
@@ -698,25 +555,14 @@ def _build_totals_row(
     return bruto_row
 
 
-def _build_groups_xml(
-    groups: list[GroupInput], month_label: str, pacote_scope: str | None = None, include_performance: bool = False,
-    language: str = "pt",
-):
+def _build_groups_xml(groups: list[GroupInput], month_label: str, pacote_scope: str | None = None, include_performance: bool = False, language: str = "pt"):
     """Retorna (linhas_xml, merges, ultima_linha_de_dados)."""
     rows_by_number: dict[int, list[str]] = {}
 
-    merges, total_hours_cells, total_bruto_cells, row_heights, next_row = _build_group_rows(
-        rows_by_number, groups, include_performance, language
-    )
-    bruto_row = _build_totals_row(
-        rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells, pacote_scope, include_performance,
-        language,
-    )
+    merges, total_hours_cells, total_bruto_cells, row_heights, next_row = _build_group_rows(rows_by_number, groups, include_performance, language)
+    bruto_row = _build_totals_row(rows_by_number, next_row, month_label, total_hours_cells, total_bruto_cells, pacote_scope, include_performance, language)
 
-    rows = [
-        _row(number, cells, height=row_heights.get(number, DEFAULT_ROW_HEIGHT))
-        for number, cells in sorted(rows_by_number.items())
-    ]
+    rows = [_row(number, cells, height=row_heights.get(number, DEFAULT_ROW_HEIGHT)) for number, cells in sorted(rows_by_number.items())]
     return rows, merges, bruto_row
 
 
@@ -846,9 +692,7 @@ def generate_report(
     sheet_xml = _replace_header_cell(sheet_xml, "B8", 27, header.project_code)
     sheet_xml = _replace_header_cell(sheet_xml, "C8", 8, header.location_date)
     sheet_xml = _replace_header_cell(sheet_xml, "C9", 16, header.project_name)
-    sheet_xml = _replace_header_cell(
-        sheet_xml, "B11", 12, labels["subtitle"].format(month=_translate_month_label(header.month_label, language))
-    )
+    sheet_xml = _replace_header_cell(sheet_xml, "B11", 12, labels["subtitle"].format(month=_translate_month_label(header.month_label, language)))
     # cabeçalho de coluna da tabela de atividades ("Descritivo de
     # Atividades"/"Horas") — texto ESTÁTICO do template original (shared
     # string, nunca reescrito antes desta mudança), por isso sempre saía em
@@ -867,9 +711,7 @@ def generate_report(
     sheet_xml = _replace_header_cell(sheet_xml, "K13", S_FILLER, "")
     sheet_xml = _hide_helper_column(sheet_xml)
 
-    data_rows, group_merges, last_data_row = _build_groups_xml(
-        groups, header.month_label, pacote_scope, include_performance, language
-    )
+    data_rows, group_merges, last_data_row = _build_groups_xml(groups, header.month_label, pacote_scope, include_performance, language)
 
     start = sheet_xml.index(f'<row r="{GROUP_START_ROW}"')
     end = sheet_xml.index("</sheetData>")
@@ -883,28 +725,19 @@ def generate_report(
     protection_password = os.environ.get("REPORT_PROTECTION_PASSWORD", "").strip()
     password_attr = f' password="{hash_password(protection_password)}"' if protection_password else ""
     sheet_xml = sheet_xml.replace(
-        "</sheetData>",
-        f'</sheetData><sheetProtection sheet="1" objects="1" scenarios="1" '
-        f'selectLockedCells="0" selectUnlockedCells="0"{password_attr}/>',
-        1,
+        "</sheetData>", f'</sheetData><sheetProtection sheet="1" objects="1" scenarios="1" selectLockedCells="0" selectUnlockedCells="0"{password_attr}/>', 1
     )
 
     all_merges = ["A14:E14"] + group_merges
     merge_xml = f'<mergeCells count="{len(all_merges)}">' + "".join(f'<mergeCell ref="{m}"/>' for m in all_merges) + "</mergeCells>"
-    sheet_xml, merge_count = re.subn(
-        r"<mergeCells count=\"\d+\">.*?</mergeCells>", merge_xml, sheet_xml, count=1, flags=re.DOTALL
-    )
+    sheet_xml, merge_count = re.subn(r"<mergeCells count=\"\d+\">.*?</mergeCells>", merge_xml, sheet_xml, count=1, flags=re.DOTALL)
     if merge_count != 1:
         raise ValueError("Não encontrei o bloco <mergeCells> no template.")
 
     contents[SHEET_PART] = sheet_xml.encode("utf-8")
 
     offset = last_data_row - ORIGINAL_LAST_DATA_ROW
-    chart_images = [
-        base64.b64decode(b64)
-        for b64 in (chart_image_bar_b64, chart_image_pie_b64)
-        if b64
-    ]
+    chart_images = [base64.b64decode(b64) for b64 in (chart_image_bar_b64, chart_image_pie_b64) if b64]
     # com gráfico, empurra a assinatura mais pra baixo pra reservar o espaço da imagem
     chart_rows = CHART_ROWS_RESERVED if chart_images else 0
     signature_offset = offset + chart_rows
@@ -914,15 +747,10 @@ def generate_report(
         drawing_xml = _replace_signature_names(drawing_xml, header)
         contents[DRAWING_PART] = drawing_xml.encode("utf-8")
         if chart_images:
-            _embed_chart_images(
-                contents, names, chart_images,
-                anchor_row=SIGNATURE_ANCHOR_THRESHOLD + offset - CHART_ROW_LIFT,
-            )
+            _embed_chart_images(contents, names, chart_images, anchor_row=SIGNATURE_ANCHOR_THRESHOLD + offset - CHART_ROW_LIFT)
 
     workbook_xml = contents[WORKBOOK_PART].decode("utf-8")
-    workbook_xml, calc_pr_count = re.subn(
-        r'<calcPr calcId="(\d+)"/>', r'<calcPr calcId="\1" fullCalcOnLoad="1"/>', workbook_xml
-    )
+    workbook_xml, calc_pr_count = re.subn(r'<calcPr calcId="(\d+)"/>', r'<calcPr calcId="\1" fullCalcOnLoad="1"/>', workbook_xml)
     if calc_pr_count != 1:
         raise ValueError("Não encontrei o elemento <calcPr> no template.")
     print_area_row = SIGNATURE_ANCHOR_THRESHOLD + 5 + signature_offset

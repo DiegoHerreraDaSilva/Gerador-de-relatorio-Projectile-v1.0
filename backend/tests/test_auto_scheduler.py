@@ -1,8 +1,9 @@
 """Agendador da rodada mensal: a decisão (pura, com fuso e recuperação), o
 `tick` com banco e o que a tela mostra. Nada aqui espera o relógio de verdade."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -19,7 +20,7 @@ def sp(year, month, day, hour=0, minute=0) -> datetime:
 
 
 def utc_naive(moment: datetime) -> datetime:
-    return moment.astimezone(timezone.utc).replace(tzinfo=None)
+    return moment.astimezone(UTC).replace(tzinfo=None)
 
 
 def run_row(status="done", started_at=None):
@@ -41,8 +42,8 @@ def test_so_vence_a_partir_do_horario_do_dia_1_em_sao_paulo():
 
 def test_o_fuso_manda_nao_o_utc():
     # 08:59 UTC = 05:59 em São Paulo (UTC-3): ainda não; 09:00 UTC = 06:00: agora
-    early = datetime(2026, 10, 1, 8, 59, tzinfo=timezone.utc).astimezone(SP)
-    late = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc).astimezone(SP)
+    early = datetime(2026, 10, 1, 8, 59, tzinfo=UTC).astimezone(SP)
+    late = datetime(2026, 10, 1, 9, 0, tzinfo=UTC).astimezone(SP)
     assert scheduler.decide(early, {}, None, [], None) is None
     assert scheduler.decide(late, {}, None, [], None).competence == "2026-09"
 
@@ -100,8 +101,7 @@ def test_uma_tentativa_por_hora_e_no_maximo_cinco():
     now = sp(2026, 10, 1, 12, 0)
 
     def state(attempts, minutes_ago, competence="2026-09"):
-        return {"competence": competence, "attempts": attempts,
-                "last_attempt_at": (utc_naive(now) - timedelta(minutes=minutes_ago)).isoformat()}
+        return {"competence": competence, "attempts": attempts, "last_attempt_at": (utc_naive(now) - timedelta(minutes=minutes_ago)).isoformat()}
 
     failed = run_row("failed")
     assert scheduler.decide(now, {}, failed, [], state(1, 30)) is None
@@ -119,10 +119,17 @@ def test_padrao_ligado_dia_1_as_6():
     assert (effective["schedule_enabled"], effective["schedule_day"], effective["schedule_time"]) == (True, 1, "06:00")
 
 
-@pytest.mark.parametrize("raw", [
-    {"schedule_day": 0}, {"schedule_day": 29}, {"schedule_time": "24:00"}, {"schedule_time": "6:00"},
-    {"schedule_time": "06:60"}, {"schedule_enabled": "talvez"},
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"schedule_day": 0},
+        {"schedule_day": 29},
+        {"schedule_time": "24:00"},
+        {"schedule_time": "6:00"},
+        {"schedule_time": "06:60"},
+        {"schedule_enabled": "talvez"},
+    ],
+)
 def test_agenda_invalida_e_recusada(raw):
     with pytest.raises(ValueError):
         rules.validate_global(raw)
@@ -148,7 +155,7 @@ def test_tick_gera_a_rodada_e_os_pedidos_e_nao_repete(custom_db):
     assert {i["project_id"] for i in service.competence_view("2026-08")["items"]} == {"E8", "P1", "F1"}
     assert len(store.list_custom()) == 1 and service.custom_view()["requests"] == []
     assert store.get_scheduler_state()["attempts"] == 1
-    assert scheduler.tick(sp(2026, 9, 1, 6, 5)) is None           # nada mais a fazer
+    assert scheduler.tick(sp(2026, 9, 1, 6, 5)) is None  # nada mais a fazer
     assert len(service.competence_view("2026-08")["items"]) == 3
 
 
@@ -164,11 +171,11 @@ def test_rodada_que_falha_e_tentada_de_hora_em_hora_ate_cinco(custom_db, monkeyp
     monkeypatch.setattr(builder, "month_projects", down)
     start = sp(2026, 9, 1, 6, 0)
     assert scheduler.tick(start) is not None and store.get_run("2026-08")["status"] == "failed"
-    assert scheduler.tick(start + timedelta(minutes=30)) is None                     # cedo demais
+    assert scheduler.tick(start + timedelta(minutes=30)) is None  # cedo demais
     for attempt in range(2, 6):
         assert scheduler.tick(start + timedelta(hours=attempt)) is not None, attempt
     assert store.get_scheduler_state()["attempts"] == 5
-    assert scheduler.tick(start + timedelta(hours=9)) is None                        # esgotou
+    assert scheduler.tick(start + timedelta(hours=9)) is None  # esgotou
 
 
 def test_depois_de_falhar_volta_a_funcionar_quando_o_projectile_volta(custom_db, monkeypatch):
@@ -191,7 +198,7 @@ def test_outro_processo_rodando_nao_vira_erro(custom_db, monkeypatch):
         raise service.RunInProgress("2026-08")
 
     monkeypatch.setattr(service, "start_run", busy)
-    assert scheduler.tick(sp(2026, 9, 1, 6, 0)) is not None                          # não levanta
+    assert scheduler.tick(sp(2026, 9, 1, 6, 0)) is not None  # não levanta
 
 
 def test_rodada_feita_a_mao_antes_nao_e_refeita_pelo_agendador(custom_db):

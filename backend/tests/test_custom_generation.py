@@ -1,6 +1,7 @@
 """Geração personalizada: recorte livre de colaborador/cliente/projeto/pacote,
 período qualquer, entrando na mesma esteira da automática. Banco em SQLite na
 memória e Projectile falso — nada sai pra rede."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -12,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app import management, projectile_db
 from backend.app.auto_generation import builder, custom, service
+from backend.app.core import authz
 from backend.app.db.reports_schema import metadata
 from backend.app.generator import parse_period_label
 from backend.app.main import app, require_session
@@ -38,8 +40,15 @@ _PKG_A9 = "1546.1-001 Estribo 09.2026"
 
 def _row(day, hours, note, package, project, employee, start):
     return {
-        "data": day, "observacao": note, "horas": hours, "pacote": package, "project_id": project,
-        "employee_id": employee, "person": "Lucca" if employee == "10" else "Ana", "inicio": start, "fim": start,
+        "data": day,
+        "observacao": note,
+        "horas": hours,
+        "pacote": package,
+        "project_id": project,
+        "employee_id": employee,
+        "person": "Lucca" if employee == "10" else "Ana",
+        "inicio": start,
+        "fim": start,
     }
 
 
@@ -60,13 +69,14 @@ def custom_db(monkeypatch):
     metadata.create_all(engine)
     monkeypatch.setattr(store, "get_engine", lambda: engine)
     monkeypatch.setattr(management_store, "get_engine", lambda: engine)
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
 
     def custom_hours(start, end, project_ids=None, employee_ids=None, conn=None):
         if not project_ids and not employee_ids:
             return []
         return [
-            dict(r) for r in _HOURS
+            dict(r)
+            for r in _HOURS
             if start <= r["data"].isoformat() <= end
             and (not project_ids or r["project_id"] in project_ids)
             and (not employee_ids or r["employee_id"] in employee_ids)
@@ -81,14 +91,12 @@ def custom_db(monkeypatch):
     monkeypatch.setattr(projectile_db, "fetch_custom_hours", custom_hours)
     monkeypatch.setattr(projectile_db, "fetch_project_hours", project_hours)
     monkeypatch.setattr(management, "_get_cached_rows", cached_rows)
-    monkeypatch.setattr(projectile_db, "fetch_project_details",
-                        lambda ids, conn=None: {i: _DETAILS[i] for i in ids if i in _DETAILS})
-    monkeypatch.setattr(projectile_db, "fetch_project_ids_for_clients",
-                        lambda clients, conn=None: [p for p, d in _DETAILS.items() if d["client"] in clients])
+    monkeypatch.setattr(projectile_db, "fetch_project_details", lambda ids, conn=None: {i: _DETAILS[i] for i in ids if i in _DETAILS})
+    monkeypatch.setattr(projectile_db, "fetch_project_ids_for_clients", lambda clients, conn=None: [p for p, d in _DETAILS.items() if d["client"] in clients])
     monkeypatch.setattr(projectile_db, "fetch_engineering_employees", lambda start, end: _ENGINEERING)
     monkeypatch.setattr(custom, "_employees_cache", {"since": None, "at": 0.0, "items": None})
-    monkeypatch.setattr(service, "_reviewers_cache", {"at": 0.0, "items": None})
-    monkeypatch.setattr(service, "_current_competence", lambda: "2026-08")  # "mês atual" dos testes
+    monkeypatch.setattr(service.reviews, "_reviewers_cache", {"at": 0.0, "items": None})
+    monkeypatch.setattr(service.custom_flow, "_current_competence", lambda: "2026-08")  # "mês atual" dos testes
     monkeypatch.setattr(service.GenerationGuard, "begin", lambda self, *a, **k: None)
     yield engine
     app.dependency_overrides.pop(require_session, None)
@@ -101,8 +109,7 @@ def _client(user=_MANAGER) -> TestClient:
 
 
 def _scope(blocks, start="2026-08", end="2026-08", split_by="nenhum", unit="projeto", **extra):
-    return {"period": {"start": start, "end": end}, "blocks": blocks, "split_by": split_by,
-            "package_unit": unit, **extra}
+    return {"period": {"start": start, "end": end}, "blocks": blocks, "split_by": split_by, "package_unit": unit, **extra}
 
 
 def _plan(scope):
@@ -154,7 +161,7 @@ def test_filtros_do_mesmo_bloco_se_cruzam(custom_db):
 
 def test_cliente_com_projeto_escolhido_pega_so_a_intersecao(custom_db):
     _resolved, reports, _w = _plan(_scope([{"clients": ["Mercedes"], "project_ids": ["E8", "P1"]}]))
-    assert _total(reports) == 10.0                      # P1 é da ACME: fica de fora
+    assert _total(reports) == 10.0  # P1 é da ACME: fica de fora
 
 
 def test_pacotes_de_um_projeto(custom_db):
@@ -196,12 +203,19 @@ def test_cobertura_por_projeto_e_pacote():
 # --- organização: split_by × package_unit --------------------------------------------------
 
 
-@pytest.mark.parametrize("split_by,unit,expected", [
-    ("nenhum", "projeto", 1), ("nenhum", "pacote", 1),
-    ("projeto", "projeto", 3), ("projeto", "pacote", 3),
-    ("pacote", "projeto", 4), ("pacote", "pacote", 4),
-    ("colaborador", "projeto", 2), ("colaborador", "pacote", 2),
-])
+@pytest.mark.parametrize(
+    "split_by,unit,expected",
+    [
+        ("nenhum", "projeto", 1),
+        ("nenhum", "pacote", 1),
+        ("projeto", "projeto", 3),
+        ("projeto", "pacote", 3),
+        ("pacote", "projeto", 4),
+        ("pacote", "pacote", 4),
+        ("colaborador", "projeto", 2),
+        ("colaborador", "pacote", 2),
+    ],
+)
 def test_cada_organizacao_soma_as_mesmas_horas(custom_db, split_by, unit, expected):
     blocks = [{"clients": ["Mercedes", "ACME"]}]
     _resolved, reports, _w = _plan(_scope(blocks, split_by=split_by, unit=unit))
@@ -248,7 +262,7 @@ def test_varios_meses_juntam_o_mesmo_trabalho_pela_familia(custom_db):
     assert package["project_name"] == "Legislation Package - Estribo" and _draft_hours(report) == 17.5
     assert report.draft["header"]["month_label"] == "Agosto a Setembro/2026"
     by_project = _plan(_scope(blocks, start="2026-08", end="2026-09", split_by="projeto"))[1]
-    assert len(by_project) == 1                           # um relatório da família, não um por mês
+    assert len(by_project) == 1  # um relatório da família, não um por mês
     # unidade pacote não junta: o capJob traz o mês no nome
     per_package = _plan(_scope(blocks, start="2026-08", end="2026-09", unit="pacote"))[1][0]
     assert len(per_package.draft["packages"]) == 3
@@ -257,16 +271,19 @@ def test_varios_meses_juntam_o_mesmo_trabalho_pela_familia(custom_db):
 # --- validação --------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("scope,message", [
-    (_scope([]), "pelo menos um recorte"),
-    (_scope([{}]), "está vazio"),
-    (_scope([{"project_ids": ["E8", "P1"], "packages": [_PKG_A8]}]), "exatamente um projeto"),
-    (_scope([{"employee_ids": ["999"]}]), "Colaborador não encontrado"),
-    (_scope([{"employee_ids": ["10"]}], start="2026-09", end="2026-08"), "antes do inicial"),
-    (_scope([{"employee_ids": ["10"]}], start="2026-13", end="2026-13"), "Período inválido"),
-    (_scope([{"employee_ids": ["10"]}], start="2020-01", end="2026-08"), "máximo"),
-    (_scope([{"project_ids": ["E8"]}], start="2025-01", end="2025-01"), "Nenhuma hora"),
-])
+@pytest.mark.parametrize(
+    "scope,message",
+    [
+        (_scope([]), "pelo menos um recorte"),
+        (_scope([{}]), "está vazio"),
+        (_scope([{"project_ids": ["E8", "P1"], "packages": [_PKG_A8]}]), "exatamente um projeto"),
+        (_scope([{"employee_ids": ["999"]}]), "Colaborador não encontrado"),
+        (_scope([{"employee_ids": ["10"]}], start="2026-09", end="2026-08"), "antes do inicial"),
+        (_scope([{"employee_ids": ["10"]}], start="2026-13", end="2026-13"), "Período inválido"),
+        (_scope([{"employee_ids": ["10"]}], start="2020-01", end="2026-08"), "máximo"),
+        (_scope([{"project_ids": ["E8"]}], start="2025-01", end="2025-01"), "Nenhuma hora"),
+    ],
+)
 def test_recorte_invalido_e_recusado_com_a_mensagem(custom_db, scope, message):
     with pytest.raises(service.InvalidRequest) as error:
         _plan(scope)
@@ -330,7 +347,7 @@ def test_quem_revisa_so_ve_o_periodo_e_o_resumo_do_recorte(custom_db):
     reviewer = {"name": "Lucca Silva", "login": "lucca", "email": "l@x"}
     listed = _client(reviewer).get("/my-reviews").json()["to_review"]
     assert [i["id"] for i in listed] == [created["id"]]
-    for_reviewer = exposed - {"blocks"}                 # quem entrou no recorte é do gerente
+    for_reviewer = exposed - {"blocks"}  # quem entrou no recorte é do gerente
     assert set(listed[0]["scope_json"]) == for_reviewer
     detail = _client(reviewer).get(f"/my-reviews/{created['id']}").json()
     # o recorte em si (blocos, ids de colaborador) nunca vai pro revisor
@@ -355,7 +372,7 @@ def test_revisor_na_criacao_vem_da_lista_da_engenharia(custom_db):
     assert detail["reviewer_login"] == "lucca" and detail["reviewer_name"] == "Lucca Silva"
     with pytest.raises(service.InvalidRequest):
         service.create_custom(_scope([{"project_ids": ["E8"]}], reviewer_login="ninguem"), _MANAGER)
-    assert len(service.custom_view()["items"]) == 1        # nada foi criado na falha
+    assert len(service.custom_view()["items"]) == 1  # nada foi criado na falha
 
 
 def test_regenerar_relê_o_recorte_e_descarta_as_edicoes(custom_db, monkeypatch):
@@ -374,10 +391,7 @@ def test_regenerar_relê_o_recorte_e_descarta_as_edicoes(custom_db, monkeypatch)
 
 
 def test_regenerar_com_a_parte_que_sumiu_do_recorte(custom_db, monkeypatch):
-    [a, b] = sorted(
-        service.create_custom(_scope([{"clients": ["Mercedes", "ACME"]}], split_by="projeto"), _MANAGER)["created"][:2],
-        key=lambda c: c["title"],
-    )
+    [a, b] = sorted(service.create_custom(_scope([{"clients": ["Mercedes", "ACME"]}], split_by="projeto"), _MANAGER)["created"][:2], key=lambda c: c["title"])
     only_acme = [dict(r) for r in _HOURS if r["project_id"] == "P1"]
     monkeypatch.setattr(projectile_db, "fetch_custom_hours", lambda *a, **k: [dict(r) for r in only_acme])
     with pytest.raises(service.WorkflowError):
@@ -446,7 +460,7 @@ def test_dividido_por_projeto_cada_relatorio_leva_a_configuracao_do_seu_projeto(
 
 
 def test_configuracao_vale_pela_familia_inclusive_em_varios_meses(custom_db):
-    _rule("E8", signer1_name="Diego")                      # a regra é da FAMÍLIA: E9 é o mesmo trabalho
+    _rule("E8", signer1_name="Diego")  # a regra é da FAMÍLIA: E9 é o mesmo trabalho
     _resolved, [report], _w = _plan(_scope([{"clients": ["Mercedes"]}], start="2026-08", end="2026-09"))
     assert report.draft["header"]["signer1_name"] == "Diego"
 
@@ -454,7 +468,7 @@ def test_configuracao_vale_pela_familia_inclusive_em_varios_meses(custom_db):
 def test_associacao_manual_de_familia_tambem_vale(custom_db):
     _rule("E8", signer1_name="Diego")
     with store.write_session() as s:
-        s.set_family_override("P1", _family("E8"), "teste")   # o P1 passou a ser da família do E8
+        s.set_family_override("P1", _family("E8"), "teste")  # o P1 passou a ser da família do E8
     _resolved, [report], _w = _plan(_scope([{"project_ids": ["P1"]}]))
     assert report.draft["header"]["signer1_name"] == "Diego"
 
@@ -507,7 +521,7 @@ def test_configuracao_do_pedido_vale_por_cima_da_do_projeto(custom_db):
     header = report.draft["header"]
     assert header["signer1_name"] == "Própria" and header["signer2_company"] == "Cliente Próprio"
     assert report.draft["formats"] == ["pdf"]
-    assert header["signer1_company"] == "Empresa do projeto"        # o que o pedido não define, herda do projeto
+    assert header["signer1_company"] == "Empresa do projeto"  # o que o pedido não define, herda do projeto
 
 
 def test_config_do_pedido_nao_gera_aviso_de_configuracoes_diferentes(custom_db):
@@ -537,8 +551,10 @@ def test_pedido_agendado_guarda_a_config_e_a_rodada_aplica(custom_db):
 def test_editar_a_configuracao_do_pedido_agendado(custom_db):
     entry = service.schedule_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)
     manager = _client()
-    saved = manager.put(f"/auto-generation/custom/requests/{entry['id']}/config",
-                        json={"package_unit": "pacote", "config": {"signer1_name": "Nova", "formats": ["xlsx", "pdf"]}})
+    saved = manager.put(
+        f"/auto-generation/custom/requests/{entry['id']}/config",
+        json={"package_unit": "pacote", "config": {"signer1_name": "Nova", "formats": ["xlsx", "pdf"]}},
+    )
     assert saved.status_code == 200
     body = saved.json()["request"]
     assert body["package_unit"] == "pacote" and body["config"] == {"signer1_name": "Nova", "formats": ["xlsx", "pdf"]}
@@ -556,8 +572,9 @@ def test_editar_a_configuracao_do_pedido_agendado(custom_db):
 def test_editar_a_configuracao_de_um_personalizado_gerado_e_regenerar(custom_db):
     [created] = service.create_custom(_scope([{"project_ids": ["E8"]}]), _MANAGER)["created"]
     manager = _client()
-    saved = manager.put(f"/auto-generation/custom/{created['id']}/config",
-                        json={"package_unit": "pacote", "config": {"signer1_name": "Nova", "formats": ["pdf"]}})
+    saved = manager.put(
+        f"/auto-generation/custom/{created['id']}/config", json={"package_unit": "pacote", "config": {"signer1_name": "Nova", "formats": ["pdf"]}}
+    )
     assert saved.status_code == 200
     view = next(i for i in service.custom_view()["items"] if i["id"] == created["id"])
     assert view["scope_json"]["package_unit"] == "pacote" and view["scope_json"]["config"]["signer1_name"] == "Nova"
@@ -605,10 +622,7 @@ def test_so_o_gerente_muda_a_configuracao(custom_db):
 
 
 def test_pedido_guarda_os_recortes_em_nomes(custom_db):
-    blocks = [
-        {"clients": ["Mercedes"], "project_ids": ["E8"], "packages": [_PKG_A8], "employee_ids": ["10"]},
-        {"clients": ["ACME"]},
-    ]
+    blocks = [{"clients": ["Mercedes"], "project_ids": ["E8"], "packages": [_PKG_A8], "employee_ids": ["10"]}, {"clients": ["ACME"]}]
     entry = service.schedule_custom(_scope(blocks), _MANAGER)
     assert entry["blocks"] == [
         {"clients": ["Mercedes"], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [_PKG_A8], "employees": ["Lucca Silva"]},
@@ -620,22 +634,20 @@ def test_pedido_guarda_os_recortes_em_nomes(custom_db):
 
 def test_pedido_antigo_sem_recortes_e_completado_ao_listar(custom_db):
     entry = service.schedule_custom(_scope([{"project_ids": ["E8"], "employee_ids": ["10"]}]), _MANAGER)
-    with store.write_session() as s:                           # simula um pedido de antes do campo existir
+    with store.write_session() as s:  # simula um pedido de antes do campo existir
         old = [{k: v for k, v in e.items() if k != "blocks"} for e in s.custom_requests("2026-08")]
         s.set_custom_requests("2026-08", old)
     assert "blocks" not in store.get_custom_requests()["2026-08"][0]
     [request] = service.custom_view()["requests"]
     assert request["id"] == entry["id"]
     assert request["blocks"] == [{"clients": [], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [], "employees": ["Lucca Silva"]}]
-    assert store.get_custom_requests()["2026-08"][0]["blocks"] == request["blocks"]       # gravado: não refaz
+    assert store.get_custom_requests()["2026-08"][0]["blocks"] == request["blocks"]  # gravado: não refaz
 
 
 def test_relatorio_gerado_expoe_os_recortes_em_nomes(custom_db):
     service.create_custom(_scope([{"project_ids": ["E8"], "employee_ids": ["20"]}]), _MANAGER)
     [item] = service.custom_view()["items"]
-    assert item["scope_json"]["blocks"] == [
-        {"clients": [], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [], "employees": ["Ana Souza"]},
-    ]
+    assert item["scope_json"]["blocks"] == [{"clients": [], "projects": ["Legislation Package - Estribo 08.2026"], "packages": [], "employees": ["Ana Souza"]}]
 
 
 # --- apagar --------------------------------------------------------------------------------------
@@ -651,7 +663,7 @@ def test_apagar_tira_o_rascunho_e_a_linha_do_tempo(custom_db):
     service.delete_custom(a["id"], _MANAGER)
     assert store.get_report(a["id"]) is None and _events(a["id"]) == []
     assert a["id"] not in {i["id"] for i in service.custom_view()["items"]}
-    assert store.get_report(b["id"]) is not None            # só o escolhido
+    assert store.get_report(b["id"]) is not None  # só o escolhido
     with pytest.raises(service.NotFound):
         service.delete_custom(a["id"], _MANAGER)
 
@@ -747,13 +759,13 @@ def test_a_rodada_gera_os_pedidos_junto_com_os_projetos(custom_db):
     entry = _schedule(reviewer_login="lucca")
     service.start_run("2026-08", _MANAGER, background=False)
     month = service.competence_view("2026-08")
-    assert {i["project_id"] for i in month["items"]} == {"E8", "P1", "F1"}          # os mensais de sempre
+    assert {i["project_id"] for i in month["items"]} == {"E8", "P1", "F1"}  # os mensais de sempre
     view = service.custom_view()
-    assert len(view["items"]) == 3 and view["requests"] == []                        # o pedido saiu da fila
+    assert len(view["items"]) == 3 and view["requests"] == []  # o pedido saiu da fila
     assert all(i["kind"] == "avulso" and i["reviewer_login"] == "lucca" for i in view["items"])
     assert entry["id"] not in {r["id"] for r in view["requests"]}
     run = store.get_run("2026-08")
-    assert run["counts_json"]["personalizados"] == 1                                  # 1 pedido gerado (vira 3 itens)
+    assert run["counts_json"]["personalizados"] == 1  # 1 pedido gerado (vira 3 itens)
 
 
 def test_rodar_de_novo_nao_duplica_o_pedido(custom_db):
@@ -773,7 +785,7 @@ def test_gerar_so_alguns_projetos_nao_leva_o_pedido(custom_db):
 
 
 def test_pedido_de_outro_mes_espera_a_rodada_dele(custom_db, monkeypatch):
-    monkeypatch.setattr(service, "_current_competence", lambda: "2026-09")
+    monkeypatch.setattr(service.custom_flow, "_current_competence", lambda: "2026-09")
     _schedule_sep = service.schedule_custom(_scope([{"project_ids": ["E9"]}], start="2026-09", end="2026-09"), _MANAGER)
     service.start_run("2026-08", _MANAGER, background=False)
     assert store.list_custom() == [] and [r["id"] for r in service.custom_view()["requests"]] == [_schedule_sep["id"]]
@@ -783,17 +795,16 @@ def test_pedido_de_outro_mes_espera_a_rodada_dele(custom_db, monkeypatch):
 
 def test_pedido_que_falha_fica_com_o_motivo_e_nao_derruba_a_rodada(custom_db, monkeypatch):
     good = _schedule([{"project_ids": ["E8"]}])
-    empty = _schedule([{"project_ids": ["F1"], "employee_ids": ["10"]}])       # o Lucca não tem hora no F1
+    empty = _schedule([{"project_ids": ["F1"], "employee_ids": ["10"]}])  # o Lucca não tem hora no F1
     service.start_run("2026-08", _MANAGER, background=False)
     assert store.get_run("2026-08")["status"] == "done"
     view = service.custom_view()
-    assert len(view["items"]) == 1                                              # o bom saiu
+    assert len(view["items"]) == 1  # o bom saiu
     [left] = view["requests"]
     assert left["id"] == empty["id"] and left["status"] == "erro" and "Nenhuma hora" in left["error"]
     assert good["id"] not in {r["id"] for r in view["requests"]}
     # com hora (recorte ajustado no Projectile), a próxima rodada tenta de novo
-    monkeypatch.setattr(projectile_db, "fetch_custom_hours",
-                        lambda *a, **k: [dict(_HOURS[3])])
+    monkeypatch.setattr(projectile_db, "fetch_custom_hours", lambda *a, **k: [dict(_HOURS[3])])
     service.start_run("2026-08", _MANAGER, background=False)
     assert service.custom_view()["requests"] == [] and len(store.list_custom()) == 2
 
@@ -805,7 +816,7 @@ def test_cancelar_pedido_agendado(custom_db):
     with pytest.raises(service.NotFound):
         service.delete_custom_request(entry["id"], _MANAGER)
     service.start_run("2026-08", _MANAGER, background=False)
-    assert store.list_custom() == []                                            # cancelado não gera
+    assert store.list_custom() == []  # cancelado não gera
 
 
 def test_rota_de_cancelar_e_so_do_gerente(custom_db):
@@ -827,23 +838,33 @@ def _approve(report_id, number="SE.26.101"):
         "packages": [
             {
                 "header": {
-                    "project_code": number if i == 0 else f"SE.26.1{i:02d}", "project_name": p["project_name"],
-                    "location_date": header["location_date"], "month_label": header["month_label"],
-                    "signer1_name": "Fulano", "signer1_company": header["signer1_company"],
-                    "signer2_name": "Beltrano", "signer2_company": header["signer2_company"],
+                    "project_code": number if i == 0 else f"SE.26.1{i:02d}",
+                    "project_name": p["project_name"],
+                    "location_date": header["location_date"],
+                    "month_label": header["month_label"],
+                    "signer1_name": "Fulano",
+                    "signer1_company": header["signer1_company"],
+                    "signer2_name": "Beltrano",
+                    "signer2_company": header["signer2_company"],
                 },
-                "groups": [{"name": g["name"], "performance": g["performance"],
-                            "activities": [{"description": a["description"], "hours": a["hours"]} for a in g["activities"]]}
-                           for g in p["groups"]],
-                "pacote_scope": p["pacote_scope"], "language": p["language"],
+                "groups": [
+                    {
+                        "name": g["name"],
+                        "performance": g["performance"],
+                        "activities": [{"description": a["description"], "hours": a["hours"]} for a in g["activities"]],
+                    }
+                    for g in p["groups"]
+                ],
+                "pacote_scope": p["pacote_scope"],
+                "language": p["language"],
             }
             for i, p in enumerate(detail["draft"]["packages"])
         ],
-        "formats": detail["draft"]["formats"], "include_performance": False,
+        "formats": detail["draft"]["formats"],
+        "include_performance": False,
     }
     pkg_ids = [p["id"] for p in detail["draft"]["packages"]]
-    service.set_numbers(report_id, {pid: payload["packages"][i]["header"]["project_code"] for i, pid in enumerate(pkg_ids)},
-                        detail["draft_version"], _MANAGER)
+    service.set_numbers(report_id, {pid: payload["packages"][i]["header"]["project_code"] for i, pid in enumerate(pkg_ids)}, detail["draft_version"], _MANAGER)
     fresh = service.detail(report_id)
     return service.approve(report_id, payload, fresh["draft_version"], _MANAGER)
 
@@ -861,7 +882,7 @@ def test_aprovar_e_enviar_avulso_nao_toca_a_memoria_das_familias(custom_db, monk
     defaults = service.send_defaults(created["id"], _MANAGER)
     assert defaults["to"] == [] and defaults["cc"] == []
     assert defaults["subject"].startswith("Relatório de Horas - ") and "Agosto/2026" in defaults["subject"]
-    assert "do projeto" not in defaults["message"]        # o recorte pode ser uma pessoa, vários projetos…
+    assert "do projeto" not in defaults["message"]  # o recorte pode ser uma pessoa, vários projetos…
     service.send_report(created["id"], ["cliente@mbb.com"], [], defaults["subject"], defaults["message"], _MANAGER)
     assert len(sent) == 1 and service.detail(created["id"])["status"] == "enviado"
     assert store.get_memories() == {}

@@ -1,0 +1,211 @@
+"""Orquestração da geração automática: rodada por competência, rascunho,
+números, aprovação e o que a tela lista.
+
+Estados (`STATUS_*`), transições validadas aqui — nunca confiar no que a tela
+mostra:
+    gerando → em_revisao → revisado → aprovado → enviado
+       ↓          ↑   ↓        ↓
+      erro    devolvido ←──────┘
+    pulado (desativado / fechado) · o gerente aprova direto de em_revisao
+
+Revisão por colaborador: o gerente atribui um revisor (`reviewer_login`); ele
+vê o relatório em "Minhas revisões" (`/my-reviews/*`, só os atribuídos a ele —
+o resto é 404), edita em `em_revisao`/`devolvido` e manda pra aprovação
+(`revisado`). O gerente aprova ou devolve com um comentário (`devolvido`).
+
+Fachada do pacote: reexporta a API pública (e alguns nomes
+privados usados por testes) dos módulos por domínio — `run`, `views`, `drafts`,
+`custom_flow`, `reviews`, `send`, `approval` — pra que `from .service import x`
+continue valendo igual à antiga `service.py`.
+"""
+
+from __future__ import annotations
+
+# objetos de módulo/classes que o código externo consome via fachada
+# (`service.email_ingest`/`service.Draft` nos testes, `service.GenerationGuard`
+# no fluxo) — a antiga `service.py` os tinha no namespace por import direto
+from ... import email_ingest, management, projectile_db
+from ...services import auto_generation_store as store
+from ...services.report_persistence import GenerationGuard
+from ..schemas import Draft
+from .approval import _MAX_BULK, _number_errors, _payload_hours, _persist_approval_files, approve, approved_files, approved_files_many
+from .common import (
+    _STALE_RUN,
+    APPROVABLE,
+    EDITABLE,
+    REGENERABLE,
+    REVIEW_LIST_STATUSES,
+    REVIEWER_EDITABLE,
+    SENDABLE,
+    STATUS_APPROVED,
+    STATUS_ERROR,
+    STATUS_GENERATING,
+    STATUS_IN_REVIEW,
+    STATUS_RETURNED,
+    STATUS_REVIEWED,
+    STATUS_SENT,
+    STATUS_SKIPPED,
+    STATUSES,
+    ApprovalRejected,
+    InvalidRequest,
+    NotFound,
+    RunInProgress,
+    WorkflowError,
+    _badges,
+    _load,
+    _pattern_label,
+    _public,
+    _public_run,
+    _transition,
+)
+from .config import _family_for, _family_labels, get_configuration, set_family_override, set_family_rule, set_global_config
+from .custom_flow import (
+    DELETABLE_CUSTOM,
+    _backfill_request_blocks,
+    _current_competence,
+    _custom_plan,
+    _custom_scope,
+    _public_request,
+    _regenerate_custom,
+    create_custom,
+    custom_view,
+    delete_custom,
+    delete_custom_request,
+    generate_custom_requests,
+    preview_custom,
+    schedule_custom,
+    update_custom_config,
+    update_custom_request_config,
+)
+from .drafts import detail, regenerate, reopen, save_draft, set_numbers, skip
+from .reviews import (
+    _REVIEW_DONE_LIMIT,
+    _REVIEWERS_TTL_SECONDS,
+    _REVIEWERS_WINDOW_DAYS,
+    _is_assigned,
+    _keep_manager_fields,
+    _load_assigned,
+    _resolve_reviewer,
+    _reviewers_cache,
+    _without_blocks,
+    assign_reviewer,
+    my_reviews,
+    return_to_reviewer,
+    review_detail,
+    review_save,
+    review_summary,
+    reviewer_candidates,
+    submit_review,
+)
+from .run import _apply_planned_number, _execute_run, _generate_one, start_run
+from .send import _EMAIL_RE, _MAX_RECIPIENTS, _clean_addresses, _default_texts, _pick_formats, _sending, _sending_lock, send_defaults, send_report, send_reports
+from .views import _attach_activity, _backfill_badges, _count_statuses, competence_view, list_competences, preview, set_planned_number
+
+__all__ = [
+    "APPROVABLE",
+    "ApprovalRejected",
+    "DELETABLE_CUSTOM",
+    "EDITABLE",
+    "GenerationGuard",
+    "InvalidRequest",
+    "NotFound",
+    "REGENERABLE",
+    "REVIEWER_EDITABLE",
+    "REVIEW_LIST_STATUSES",
+    "RunInProgress",
+    "SENDABLE",
+    "STATUSES",
+    "STATUS_APPROVED",
+    "STATUS_ERROR",
+    "STATUS_GENERATING",
+    "STATUS_IN_REVIEW",
+    "STATUS_RETURNED",
+    "STATUS_REVIEWED",
+    "STATUS_SENT",
+    "STATUS_SKIPPED",
+    "WorkflowError",
+    "_EMAIL_RE",
+    "_MAX_BULK",
+    "_MAX_RECIPIENTS",
+    "_REVIEWERS_TTL_SECONDS",
+    "_REVIEWERS_WINDOW_DAYS",
+    "_REVIEW_DONE_LIMIT",
+    "_STALE_RUN",
+    "_apply_planned_number",
+    "_attach_activity",
+    "_backfill_badges",
+    "_backfill_request_blocks",
+    "_badges",
+    "_clean_addresses",
+    "_count_statuses",
+    "_current_competence",
+    "_custom_plan",
+    "_custom_scope",
+    "_default_texts",
+    "_execute_run",
+    "_family_for",
+    "_family_labels",
+    "_generate_one",
+    "_is_assigned",
+    "_keep_manager_fields",
+    "_load",
+    "_load_assigned",
+    "_number_errors",
+    "_pattern_label",
+    "_payload_hours",
+    "_persist_approval_files",
+    "_pick_formats",
+    "_public",
+    "_public_request",
+    "_public_run",
+    "_regenerate_custom",
+    "_resolve_reviewer",
+    "_reviewers_cache",
+    "_sending",
+    "_sending_lock",
+    "_transition",
+    "_without_blocks",
+    "approve",
+    "approved_files",
+    "approved_files_many",
+    "assign_reviewer",
+    "competence_view",
+    "create_custom",
+    "custom_view",
+    "delete_custom",
+    "delete_custom_request",
+    "detail",
+    "Draft",
+    "email_ingest",
+    "generate_custom_requests",
+    "get_configuration",
+    "list_competences",
+    "management",
+    "my_reviews",
+    "preview",
+    "preview_custom",
+    "projectile_db",
+    "regenerate",
+    "reopen",
+    "return_to_reviewer",
+    "review_detail",
+    "review_save",
+    "review_summary",
+    "reviewer_candidates",
+    "save_draft",
+    "schedule_custom",
+    "send_defaults",
+    "send_report",
+    "send_reports",
+    "set_family_override",
+    "set_family_rule",
+    "set_global_config",
+    "set_numbers",
+    "set_planned_number",
+    "skip",
+    "start_run",
+    "store",
+    "submit_review",
+    "update_custom_config",
+    "update_custom_request_config",
+]
