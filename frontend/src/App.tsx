@@ -21,17 +21,54 @@ import { Preview } from "./components/Preview/Preview";
 import { GenerateFooter } from "./components/GenerateFooter";
 import { Chat } from "./components/Chat";
 import { useReportStore } from "./store/useReportStore";
+import { useAutoGenerationStore } from "./store/useAutoGenerationStore";
+import { useMyReviewsStore } from "./store/useMyReviewsStore";
 import { computeGrandTotalFor } from "./utils/calc";
+import { BASE_TITLE, parseDeepLink, titleWithPending } from "./utils/deepLink";
 import { fmtNum } from "./utils/fmt";
 
 export default function App() {
-  const [view, setView] = useState<AppView>("report");
+  // deep link dos avisos por e-mail (`?view=…&report=…`) abre a guia certa
+  const [view, setView] = useState<AppView>(() => parseDeepLink(window.location.search).view ?? "report");
   const authStatus = useAuthStore((s) => s.status);
   const checkSession = useAuthStore((s) => s.checkSession);
 
   useEffect(() => {
     checkSession();
   }, [checkSession]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") return;
+    const { view: targetView, reportId } = parseDeepLink(window.location.search);
+    if (!targetView && !reportId) return;
+    if (reportId && targetView) {
+      const role = targetView === "my-reviews" ? "reviewer" : "manager";
+      void useAutoGenerationStore
+        .getState()
+        .openInEditor(reportId, role)
+        .then(() => setView("report"))
+        .catch(() => {});
+    } else if (targetView) {
+      setView(targetView);
+    }
+    // limpa a query pra um F5 não reabrir a guia por cima do que o usuário fizer
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [authStatus]);
+
+  // contador de pendências no título da aba (mesmo summary do menu)
+  useEffect(() => {
+    const apply = () => {
+      document.title =
+        authStatus === "authenticated" ? titleWithPending(useMyReviewsStore.getState().summary) : BASE_TITLE;
+    };
+    apply();
+    if (authStatus !== "authenticated") return;
+    void useMyReviewsStore
+      .getState()
+      .loadSummary()
+      .catch(() => {});
+    return useMyReviewsStore.subscribe(apply);
+  }, [authStatus]);
 
   // footer height sync: keep --footer-height accurate? Legacy fixed 100px, we keep CSS var.
   // Update generateTotal for non-footer? Already handled in GenerateFooter.
@@ -107,23 +144,27 @@ function ReportView() {
                   <span className="summary-label">Grupo{activePkg.groups.length === 1 ? "" : "s"}</span>
                 </div>
                 <div className="summary-stat">
-                  <span className="summary-value">{activePkg.groups.reduce((sum, g) => sum + g.activities.length, 0)}</span>
+                  <span className="summary-value">
+                    {activePkg.groups.reduce((sum, g) => sum + g.activities.length, 0)}
+                  </span>
                   <span className="summary-label">Atividade</span>
                 </div>
               </>
             )}
           </div>
           <div id="summaryBarActions">
-            {!isAutoTab && <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                resetForNewImport();
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-            >
-              Alterar dados
-            </button>}
+            {!isAutoTab && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  resetForNewImport();
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              >
+                Alterar dados
+              </button>
+            )}
           </div>
         </div>
       )}

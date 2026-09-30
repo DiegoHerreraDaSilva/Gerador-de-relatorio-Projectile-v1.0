@@ -3,6 +3,7 @@
 A família só guarda o que DIFERE do padrão (campo ausente = herda). Tudo que
 entra aqui vem do gerente pela API e é validado por `GlobalConfig`/`FamilyRule`
 (`extra="forbid"`), nunca aceito cru."""
+
 from __future__ import annotations
 
 import re
@@ -29,6 +30,9 @@ DEFAULTS: dict = {
     # só no padrão global
     "location": "Santo André",
     "number_pattern": DEFAULT_NUMBER_PATTERN,
+    # avisos por e-mail (fase 4): revisor atribuído/devolvido e aguardando
+    # aprovação. Opt-out do Padrão geral; defaults ligado.
+    "notify_email": True,
     # agendador da rodada mensal (`scheduler.py`): gera os rascunhos do mês que
     # fechou no dia e na hora (America/Sao_Paulo). Decisão do usuário,
     # 2026-09-29: ligado, dia 1, 06:00. Só no padrão global (não é por família).
@@ -43,7 +47,7 @@ _Text = Field(default=None, max_length=200)
 
 
 def model_to_pattern(model: str) -> str:
-    r""""SE.##.###" → `^SE\.\d{2}\.\d{3}$` (o formato que o backend confere)."""
+    r""" "SE.##.###" → `^SE\.\d{2}\.\d{3}$` (o formato que o backend confere)."""
     out, i = [], 0
     while i < len(model):
         if model[i] == "#":
@@ -83,6 +87,7 @@ def pattern_to_model(pattern: str) -> str | None:
 
 class FamilyRule(BaseModel):
     """O que uma família sobrescreve do padrão (tudo opcional)."""
+
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool | None = None
@@ -102,6 +107,8 @@ class FamilyRule(BaseModel):
 class GlobalConfig(FamilyRule):
     location: str | None = Field(default=None, max_length=100)
     number_pattern: str | None = Field(default=None, max_length=200)
+    # avisos por e-mail (revisor atribuído/devolvido, aguardando aprovação)
+    notify_email: bool | None = None
     # o que a tela manda: "SE.##.###" (`#` = dígito) — vira `number_pattern`
     number_model: str | None = Field(default=None, min_length=1, max_length=60)
     schedule_enabled: bool | None = None
