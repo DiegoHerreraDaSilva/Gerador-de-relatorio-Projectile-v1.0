@@ -31,6 +31,9 @@ export function hasCoordinatorAccess(user: User | null): boolean {
 interface AuthState {
   user: User | null;
   status: "loading" | "authenticated" | "unauthenticated";
+  // true só depois de um logout EXPLÍCITO (botão Sair): sessão expirada não conta.
+  // Quem guarda rascunho local usa isso pra apagá-lo só quando a pessoa saiu de propósito.
+  loggedOut: boolean;
   checkSession: () => Promise<void>;
   login: (login: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -39,6 +42,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   status: "loading",
+  loggedOut: false,
 
   checkSession: async () => {
     try {
@@ -48,7 +52,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
       const user = toUser(await res.json());
-      set({ user, status: "authenticated" });
+      set({ user, status: "authenticated", loggedOut: false });
     } catch {
       set({ user: null, status: "unauthenticated" });
     }
@@ -65,11 +69,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       throw new Error((data as any)?.detail || "Login ou senha incorretos.");
     }
     const user = toUser(await res.json());
-    set({ user, status: "authenticated" });
+    set({ user, status: "authenticated", loggedOut: false });
   },
 
   logout: async () => {
     await fetch("/auth/logout", { method: "POST" });
-    set({ user: null, status: "unauthenticated" });
+    set({ user: null, status: "unauthenticated", loggedOut: true });
   },
 }));

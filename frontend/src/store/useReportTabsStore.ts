@@ -2,8 +2,12 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { genId, useReportStore, serializeTabBundle, applyTabBundle, blankTabBundle } from "./useReportStore";
 import type { AutoDraftExtras } from "../utils/autoDraft";
+import { useAuthStore } from "./useAuthStore";
 
 const STORAGE_KEY = "relatorio-horas:tabs:v1";
+// login de quem é dono das guias salvas em STORAGE_KEY: a chave de guias é uma só
+// por navegador, então sem este marcador o próximo login herdava os rascunhos manuais
+const OWNER_KEY = "relatorio-horas:tabs:owner:v1";
 // tempo parado digitando antes de gravar em disco — junta várias teclas
 // numa escrita só, sem deixar passar tanto tempo que uma queda de energia
 // de verdade perca trabalho relevante.
@@ -56,6 +60,8 @@ interface ReportTabsState {
   openAutoTab: (auto: AutoTabMeta, label: string, bundle: string) => void;
   updateAutoMeta: (reportId: string, patch: Partial<AutoTabMeta>) => void;
   closeAutoTabs: () => void;
+  /** Descarta TODAS as guias (em memória e no disco) e volta a uma em branco. */
+  resetAll: () => void;
   closeTab: (id: string) => void;
   switchTab: (id: string) => void;
   renameTab: (id: string, label: string) => void;
@@ -192,6 +198,23 @@ export const useReportTabsStore = create<ReportTabsState>()(
       });
       if (activeIsAuto) loadBundleIntoLiveStore(get().bundles[get().activeTabId]);
       get().persist();
+    },
+
+    resetAll: () => {
+      const id = genId();
+      const blank = blankTabBundle();
+      set((st) => {
+        st.tabs = [{ id, label: "Guia 1", labelEdited: false }];
+        st.bundles = { [id]: blank };
+        st.activeTabId = id;
+        st.pendingSave = false;
+      });
+      loadBundleIntoLiveStore(blank);
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // sem acesso ao localStorage: nada a limpar
+      }
     },
 
     closeTab: (id) => {
@@ -337,6 +360,41 @@ function hydrate() {
 }
 
 hydrate();
+
+function readTabsOwner(): string | null {
+  try {
+    return localStorage.getItem(OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeTabsOwner(login: string | null) {
+  try {
+    if (login) localStorage.setItem(OWNER_KEY, login);
+    else localStorage.removeItem(OWNER_KEY);
+  } catch {
+    // modo privado / cota: sem marcador, o próximo login só perde os rascunhos
+  }
+}
+
+/** Guias manuais são do login que as criou. Sair de propósito apaga tudo;
+ * entrar com OUTRO login também (o boot restaura do disco antes de saber quem
+ * é, mas isso só é exibido depois do login). Sessão expirada mantém os
+ * rascunhos — quem voltar é o mesmo usuário. Guias antigas, sem dono
+ * registrado, passam a ser de quem entrar primeiro. */
+useAuthStore.subscribe((state, prev) => {
+  if (state.loggedOut && !prev.loggedOut) {
+    useReportTabsStore.getState().resetAll();
+    writeTabsOwner(null);
+    return;
+  }
+  const login = state.user?.login?.toLowerCase();
+  if (!login || login === prev.user?.login?.toLowerCase()) return;
+  const owner = readTabsOwner();
+  if (owner !== null && owner !== login) useReportTabsStore.getState().resetAll();
+  writeTabsOwner(login);
+});
 
 /** Uma guia inativa só existe como bundle serializado (não está carregada
  * em `useReportStore`) — usado pra decidir se fechar essa guia deve pedir

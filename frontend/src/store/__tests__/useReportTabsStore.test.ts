@@ -213,3 +213,92 @@ describe("useReportTabsStore", () => {
     });
   });
 });
+
+describe("rascunhos manuais são do login que os criou", () => {
+  const USER_A = {
+    name: "Ana",
+    login: "ana",
+    email: "a@x",
+    isManager: false,
+    isCoordinator: false,
+    translateAllowed: false,
+  };
+  const USER_B = { ...USER_A, name: "Beto", login: "Beto", email: "b@x" };
+
+  async function boot() {
+    const tabs = await import("../useReportTabsStore");
+    const report = await import("../useReportStore");
+    const auth = await import("../useAuthStore");
+    return { tabs: tabs.useReportTabsStore, report: report.useReportStore, auth: auth.useAuthStore };
+  }
+
+  function draftWith(report: Awaited<ReturnType<typeof boot>>["report"], name: string) {
+    report.setState((s) => {
+      s.packages = [fakePackage({ projectName: name })];
+    });
+  }
+
+  it("outro login no mesmo navegador não herda os rascunhos de quem saiu por sessão expirada", async () => {
+    const a = await boot();
+    a.auth.setState({ user: USER_A, status: "authenticated" });
+    draftWith(a.report, "Rascunho da Ana");
+    a.tabs.getState().persist();
+
+    vi.resetModules(); // F5: o boot lê o disco antes de saber quem é
+    const b = await boot();
+    expect(b.tabs.getState().bundles[b.tabs.getState().activeTabId]).toContain("Rascunho da Ana");
+    b.auth.setState({ user: USER_B, status: "authenticated" });
+
+    expect(b.report.getState().packages).toHaveLength(0);
+    expect(b.tabs.getState().tabs).toHaveLength(1);
+    expect(localStorage.getItem("relatorio-horas:tabs:v1")).toBeNull();
+    expect(JSON.stringify([...Object.values(b.tabs.getState().bundles)])).not.toContain("Rascunho da Ana");
+  });
+
+  it("o mesmo login recarregando (ou com a sessão expirada) mantém os rascunhos", async () => {
+    const a = await boot();
+    a.auth.setState({ user: USER_A, status: "authenticated" });
+    draftWith(a.report, "Rascunho da Ana");
+    a.tabs.getState().persist();
+
+    a.auth.setState({ user: null, status: "unauthenticated" }); // sessão expirada, sem logout explícito
+    expect(a.report.getState().packages).toHaveLength(1);
+
+    vi.resetModules();
+    const again = await boot();
+    again.auth.setState({ user: { ...USER_A, login: "ANA" }, status: "authenticated" }); // caixa não importa
+    expect(again.report.getState().packages[0].projectName).toBe("Rascunho da Ana");
+  });
+
+  it("sair de propósito apaga os rascunhos da memória e do disco", async () => {
+    const a = await boot();
+    a.auth.setState({ user: USER_A, status: "authenticated" });
+    a.tabs.getState().addTab();
+    draftWith(a.report, "Rascunho da Ana");
+    a.tabs.getState().persist();
+
+    a.auth.setState({ user: null, status: "unauthenticated", loggedOut: true });
+
+    expect(a.tabs.getState().tabs).toHaveLength(1);
+    expect(a.report.getState().packages).toHaveLength(0);
+    expect(localStorage.getItem("relatorio-horas:tabs:v1")).toBeNull();
+    expect(localStorage.getItem("relatorio-horas:tabs:owner:v1")).toBeNull();
+
+    vi.resetModules();
+    const next = await boot();
+    next.auth.setState({ user: USER_B, status: "authenticated", loggedOut: false });
+    expect(next.report.getState().packages).toHaveLength(0);
+  });
+
+  it("guias antigas, sem dono registrado, ficam com quem entrar primeiro", async () => {
+    const a = await boot();
+    draftWith(a.report, "Rascunho antigo");
+    a.tabs.getState().persist();
+    vi.resetModules();
+
+    const b = await boot();
+    b.auth.setState({ user: USER_A, status: "authenticated" });
+    expect(b.report.getState().packages[0].projectName).toBe("Rascunho antigo");
+    expect(localStorage.getItem("relatorio-horas:tabs:owner:v1")).toBe("ana");
+  });
+});
