@@ -11,6 +11,7 @@ Nunca recebe credencial nem acesso a banco: só o texto da pergunta e as
 listas de opções montadas pelo backend. Os endereços são fixos aqui, não
 configuráveis: a pergunta e as listas de clientes/colaboradores só podem ir
 pra um desses dois. Sem chave nenhuma, fica desligado e o Claude classifica."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -70,10 +71,7 @@ def ask(state: str, questions: dict[str, dict]) -> dict[str, Answer]:
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     try:
         response = requests.post(
-            url,
-            headers=headers,
-            json={"state": state, "model": settings.jev_model, "questions": questions},
-            timeout=settings.jev_timeout_seconds,
+            url, headers=headers, json={"state": state, "model": settings.jev_model, "questions": questions}, timeout=settings.jev_timeout_seconds
         )
         response.raise_for_status()
         answers = response.json()["answers"]
@@ -86,11 +84,7 @@ def ask(state: str, questions: dict[str, dict]) -> dict[str, Answer]:
             continue
         if answer.get("type") == "noul":
             value = float(answer.get("noul") or 0.0)
-            parsed[name] = Answer(
-                choice="yes" if value >= 0.5 else "no",
-                confidence=abs(value - 0.5) * 2,
-                probabilities={"yes": value, "no": 1 - value},
-            )
+            parsed[name] = Answer(choice="yes" if value >= 0.5 else "no", confidence=abs(value - 0.5) * 2, probabilities={"yes": value, "no": 1 - value})
         elif answer.get("type") == "choice" and isinstance(answer.get("choice"), str):
             parsed[name] = Answer(
                 choice=answer["choice"],

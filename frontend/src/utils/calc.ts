@@ -1,9 +1,7 @@
 import type { Group, WorkPackage } from "../api/types";
 
 export function computeGroupTotals(group: Group) {
-  const realActivities = group.activities.filter(
-    (a) => a.hours !== null && a.hours !== undefined
-  );
+  const realActivities = group.activities.filter((a) => a.hours !== null && a.hours !== undefined);
   const bruto = realActivities.reduce((sum, a) => sum + (parseFloat(String(a.hours)) || 0), 0);
   const performance = parseFloat(String(group.performance)) || 0;
   const resultado = bruto * performance;

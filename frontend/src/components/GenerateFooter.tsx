@@ -24,7 +24,10 @@ export function GenerateFooter() {
   const grandTotalAll = packages.reduce((sum, p) => sum + computeGrandTotalFor(p.groups), 0);
   const singleTotal = packages[0] ? computeGrandTotalFor(packages[0].groups) : 0;
 
-  const defaultName = computeDefaultFileName(header.monthLabel, packages.map((p) => ({ projectCode: p.projectCode, projectName: p.projectName })));
+  const defaultName = computeDefaultFileName(
+    header.monthLabel,
+    packages.map((p) => ({ projectCode: p.projectCode, projectName: p.projectName })),
+  );
   const displayFileName = fileNameEdited ? fileName : defaultName;
 
   const handleGenerate = async () => {
@@ -105,7 +108,13 @@ export function GenerateFooter() {
           <div className="filename-with-performance">
             <div className="filename-field">
               <label>{isZipOutput ? "Nome do arquivo (.zip)" : "Nome do arquivo"}</label>
-              <input type="text" autoComplete="off" value={inputValue} onChange={(e) => onFileNameChange(e.target.value)} title={inputValue} />
+              <input
+                type="text"
+                autoComplete="off"
+                value={inputValue}
+                onChange={(e) => onFileNameChange(e.target.value)}
+                title={inputValue}
+              />
             </div>
           </div>
         </div>

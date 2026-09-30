@@ -3,6 +3,7 @@ contra um reports-mysql REAL (não mockado) — precisa de
 `docker compose up -d reports-mysql` + `alembic upgrade head` rodados
 antes. Pulados automaticamente se REPORTS_DB_HOST não estiver setado (ver
 conftest.py:reports_db_engine)."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -12,11 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from backend.app.db.reports_schema import report_artifacts, report_generation, report_versions, reports
-from backend.app.services.report_persistence import (
-    begin_generation,
-    finish_generation_failure,
-    finish_generation_success,
-)
+from backend.app.services.report_persistence import begin_generation, finish_generation_failure, finish_generation_success
 
 pytestmark = pytest.mark.reports_db
 
@@ -33,9 +30,7 @@ def _pkg_data(report_number="SE.TESTE.001", month_label="Julho/2026", hours=8.0)
             "signer2_name": "Beltrano",
             "signer2_company": "Cliente Teste",
         },
-        "groups": [
-            {"name": "Grupo A", "performance": 100.0, "activities": [{"description": "Atividade 1", "hours": hours}]}
-        ],
+        "groups": [{"name": "Grupo A", "performance": 100.0, "activities": [{"description": "Atividade 1", "hours": hours}]}],
         "pacote_scope": None,
         "language": "pt",
         "has_chart_bar": False,
@@ -51,9 +46,7 @@ def test_begin_generation_cria_report_version_snapshot_e_generation(reports_db_e
     with reports_db_engine.begin() as conn:
         report_row = conn.execute(select(reports).where(reports.c.id == handle.report_id)).first()
         version_row = conn.execute(select(report_versions).where(report_versions.c.id == handle.version_id)).first()
-        generation_row = conn.execute(
-            select(report_generation).where(report_generation.c.id == handle.generation_id)
-        ).first()
+        generation_row = conn.execute(select(report_generation).where(report_generation.c.id == handle.generation_id)).first()
 
     assert report_row is not None
     assert report_row.report_number == "SE.TESTE.001"
@@ -68,18 +61,11 @@ def test_finish_generation_success_marca_sucesso_e_cria_artifact(reports_db_engi
     fake_file = tmp_path / "relatorio.xlsx"
     fake_file.write_bytes(b"conteudo fake de teste")
 
-    finish_generation_success(
-        handle, str(fake_file), "Relatorio.xlsx", "xlsx",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    finish_generation_success(handle, str(fake_file), "Relatorio.xlsx", "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     with reports_db_engine.begin() as conn:
-        generation_row = conn.execute(
-            select(report_generation).where(report_generation.c.id == handle.generation_id)
-        ).first()
-        artifact_row = conn.execute(
-            select(report_artifacts).where(report_artifacts.c.generation_id == handle.generation_id)
-        ).first()
+        generation_row = conn.execute(select(report_generation).where(report_generation.c.id == handle.generation_id)).first()
+        artifact_row = conn.execute(select(report_artifacts).where(report_artifacts.c.generation_id == handle.generation_id)).first()
 
     assert generation_row.status == "success"
     assert generation_row.duration_ms is not None
@@ -95,9 +81,7 @@ def test_finish_generation_failure_nunca_deixa_started_pra_sempre(reports_db_eng
     finish_generation_failure(handle, ValueError("template corrompido de teste"))
 
     with reports_db_engine.begin() as conn:
-        generation_row = conn.execute(
-            select(report_generation).where(report_generation.c.id == handle.generation_id)
-        ).first()
+        generation_row = conn.execute(select(report_generation).where(report_generation.c.id == handle.generation_id)).first()
 
     assert generation_row.status == "failed"
     assert "template corrompido" in generation_row.error_message
@@ -107,16 +91,12 @@ def test_versoes_sucessivas_sao_imutaveis(reports_db_engine):
     """Criar v2 nunca pode alterar os registros de v1."""
     handle_v1 = begin_generation(_pkg_data(hours=8.0), "xlsx", "dherrera", "Diego Herrera")
     with reports_db_engine.begin() as conn:
-        v1_before = dict(
-            conn.execute(select(report_versions).where(report_versions.c.id == handle_v1.version_id)).first()._mapping
-        )
+        v1_before = dict(conn.execute(select(report_versions).where(report_versions.c.id == handle_v1.version_id)).first()._mapping)
 
     handle_v2 = begin_generation(_pkg_data(hours=9.0), "xlsx", "dherrera", "Diego Herrera")
 
     with reports_db_engine.begin() as conn:
-        v1_after = dict(
-            conn.execute(select(report_versions).where(report_versions.c.id == handle_v1.version_id)).first()._mapping
-        )
+        v1_after = dict(conn.execute(select(report_versions).where(report_versions.c.id == handle_v1.version_id)).first()._mapping)
 
     assert handle_v2.report_id == handle_v1.report_id
     assert handle_v2.version_number == handle_v1.version_number + 1

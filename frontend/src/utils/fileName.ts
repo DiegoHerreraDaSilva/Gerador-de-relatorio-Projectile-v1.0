@@ -4,7 +4,7 @@ export function sanitizeForFileName(text: string): string {
 
 export function computeDefaultFileName(
   monthLabel: string,
-  packages: Array<{ projectCode: string; projectName: string }>
+  packages: Array<{ projectCode: string; projectName: string }>,
 ): string {
   const mesAno = (monthLabel || "").replace(/\//g, ".").trim();
   if (packages.length === 1) {
@@ -18,7 +18,7 @@ export function computeDefaultFileName(
 
 export function computeDefaultFileNameFor(
   pkg: { projectCode: string; projectName: string },
-  monthLabel: string
+  monthLabel: string,
 ): string {
   const mesAno = (monthLabel || "").replace(/\//g, ".").trim();
   const codigo = sanitizeForFileName(pkg.projectCode);

@@ -1,7 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Sun, Moon, LogOut, LayoutDashboard, Stethoscope, FileText, Activity, History, BarChart3, MessagesSquare, CalendarClock,
-  ChevronLeft, Menu, X, Plus, ClipboardCheck,
+  Sun,
+  Moon,
+  LogOut,
+  LayoutDashboard,
+  Stethoscope,
+  FileText,
+  Activity,
+  History,
+  BarChart3,
+  MessagesSquare,
+  CalendarClock,
+  ChevronLeft,
+  Menu,
+  X,
+  Plus,
+  ClipboardCheck,
 } from "lucide-react";
 import { getInitialTheme, applyTheme, type Theme } from "../utils/theme";
 import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
@@ -55,13 +69,7 @@ const NAV_ITEMS: Array<{ view: AppView; label: string; icon: typeof FileText; ac
 // o que aguarda a aprovação dele
 const SUMMARY_POLL_MS = 2 * 60 * 1000;
 
-export function Sidebar({
-  view,
-  onNavigate,
-}: {
-  view: AppView;
-  onNavigate: (view: AppView) => void;
-}) {
+export function Sidebar({ view, onNavigate }: { view: AppView; onNavigate: (view: AppView) => void }) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const canAccess = (access: NavAccess) =>
@@ -83,9 +91,8 @@ export function Sidebar({
   const visible = (item: (typeof NAV_ITEMS)[number]) =>
     canAccess(item.access) && (item.view !== "my-reviews" || (summary?.assigned ?? 0) > 0 || view === "my-reviews");
   const countFor = (v: AppView): number =>
-    v === "my-reviews" ? summary?.to_review ?? 0 : v === "auto-generation" ? summary?.awaiting_approval ?? 0 : 0;
-  const countLabel = (v: AppView, n: number) =>
-    v === "my-reviews" ? `${n} pra revisar` : `${n} aguardando aprovação`;
+    v === "my-reviews" ? (summary?.to_review ?? 0) : v === "auto-generation" ? (summary?.awaiting_approval ?? 0) : 0;
+  const countLabel = (v: AppView, n: number) => (v === "my-reviews" ? `${n} pra revisar` : `${n} aguardando aprovação`);
 
   const [theme, setTheme] = useState<Theme>(() => {
     const t = document.documentElement.dataset.theme as Theme | undefined;
@@ -177,7 +184,9 @@ export function Sidebar({
                 id="appLogo"
               />
             ) : (
-              <span className="sidebar-logo-mark" aria-hidden="true">S</span>
+              <span className="sidebar-logo-mark" aria-hidden="true">
+                S
+              </span>
             )}
             {showLabels && <span className="sidebar-app-name">Relatório de Horas</span>}
           </div>
@@ -224,7 +233,9 @@ export function Sidebar({
                 </span>
                 {showLabels && <span>{item.label}</span>}
                 {showLabels && count > 0 && (
-                  <span className="sidebar-nav-count" aria-hidden="true" title={countLabel(item.view, count)}>{count}</span>
+                  <span className="sidebar-nav-count" aria-hidden="true" title={countLabel(item.view, count)}>
+                    {count}
+                  </span>
                 )}
               </button>
             );
@@ -252,7 +263,9 @@ export function Sidebar({
 
         {user && (
           <div className={`sidebar-footer ${showLabels ? "expanded" : "compact"}`}>
-            <span className="sidebar-avatar" aria-hidden="true">{initialsFor(user.name)}</span>
+            <span className="sidebar-avatar" aria-hidden="true">
+              {initialsFor(user.name)}
+            </span>
             {showLabels && (
               <div className="sidebar-footer-text">
                 <span className="sidebar-user-name">{user.name}</span>

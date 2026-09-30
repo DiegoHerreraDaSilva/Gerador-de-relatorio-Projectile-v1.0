@@ -11,5 +11,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <App />
       <ConfirmHost />
     </ErrorBoundary>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

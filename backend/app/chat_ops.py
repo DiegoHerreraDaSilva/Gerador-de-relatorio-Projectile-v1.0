@@ -15,6 +15,7 @@ o alvo, e nomes duplicados eram um erro explícito porque não dava pra saber
 qual dos dois grupos era o pretendido — um `id` opaco elimina as duas
 fragilidades: é um token curto fácil de copiar de volta sem erro, e nunca é
 ambíguo mesmo com nomes repetidos."""
+
 from __future__ import annotations
 
 import copy
@@ -84,10 +85,7 @@ Regras:
 
 _ACTIVITY_INPUT_SCHEMA = {
     "type": "object",
-    "properties": {
-        "description": {"type": "string"},
-        "hours": {"type": ["number", "null"]},
-    },
+    "properties": {"description": {"type": "string"}, "hours": {"type": ["number", "null"]}},
     "required": ["description"],
 }
 
@@ -97,10 +95,17 @@ _OPERATION_SCHEMA = {
         "op": {
             "type": "string",
             "enum": [
-                "rename_group", "set_group_performance", "add_group", "remove_group",
-                "set_activity_hours", "set_activity_description", "add_activity", "remove_activity",
+                "rename_group",
+                "set_group_performance",
+                "add_group",
+                "remove_group",
+                "set_activity_hours",
+                "set_activity_description",
+                "add_activity",
+                "remove_activity",
                 "sort_activities_alphabetically",
-                "set_package_field", "set_shared_field",
+                "set_package_field",
+                "set_shared_field",
             ],
         },
         "packageKey": {"type": "string", "description": "Chave do pacote alvo (não usado em set_shared_field)."},
@@ -112,10 +117,7 @@ _OPERATION_SCHEMA = {
         "hours": {"type": ["number", "null"], "description": "Usado em set_activity_hours e add_activity."},
         "description": {"type": "string", "description": "Usado em add_activity (descrição da atividade nova)."},
         "name": {"type": "string", "description": "Usado em add_group (nome do grupo novo)."},
-        "activities": {
-            "type": "array", "items": _ACTIVITY_INPUT_SCHEMA,
-            "description": "Usado em add_group (atividades iniciais do grupo novo, opcional).",
-        },
+        "activities": {"type": "array", "items": _ACTIVITY_INPUT_SCHEMA, "description": "Usado em add_group (atividades iniciais do grupo novo, opcional)."},
         "field": {"type": "string", "description": "Usado em set_package_field/set_shared_field."},
         "value": {"type": "string", "description": "Usado em set_package_field/set_shared_field."},
     },
@@ -169,10 +171,7 @@ def _find_activity(group: dict, activity_id: str) -> dict:
 
 
 _PACKAGE_FIELDS = {"projectCode", "projectName"}
-_SHARED_FIELDS = {
-    "locationDate", "monthLabel",
-    "signer1Name", "signer1Company", "signer2Name", "signer2Company",
-}
+_SHARED_FIELDS = {"locationDate", "monthLabel", "signer1Name", "signer1Company", "signer2Name", "signer2Company"}
 
 
 def _find_target_group(state: dict, op: dict) -> dict:
@@ -197,16 +196,8 @@ def _apply_one(state: dict, op: dict) -> None:
         pkg = _find_package(state, op["packageKey"])
         if any(g["name"] == op["name"] for g in pkg["groups"]):
             raise OperationError(f'Já existe um grupo "{op["name"]}" no pacote "{pkg["key"]}".')
-        initial_activities = [
-            {"id": _new_id(), "description": a["description"], "hours": a.get("hours")}
-            for a in op.get("activities") or []
-        ]
-        pkg["groups"].append({
-            "id": _new_id(),
-            "name": op["name"],
-            "performance": float(op.get("performance", 1)),
-            "activities": initial_activities,
-        })
+        initial_activities = [{"id": _new_id(), "description": a["description"], "hours": a.get("hours")} for a in op.get("activities") or []]
+        pkg["groups"].append({"id": _new_id(), "name": op["name"], "performance": float(op.get("performance", 1)), "activities": initial_activities})
     elif kind == "remove_group":
         pkg = _find_package(state, op["packageKey"])
         target = _find_group(pkg, op["groupId"])

@@ -5,15 +5,18 @@
 // replicado aqui também.
 export type Language = "pt" | "en" | "de";
 
-export const LABELS: Record<Language, {
-  title: string;
-  subtitle: string;
-  activityDescription: string;
-  hours: string;
-  bruto: string;
-  performance: string;
-  totalHours: string;
-}> = {
+export const LABELS: Record<
+  Language,
+  {
+    title: string;
+    subtitle: string;
+    activityDescription: string;
+    hours: string;
+    bruto: string;
+    performance: string;
+    totalHours: string;
+  }
+> = {
   pt: {
     title: "RELATÓRIO DE HORAS",
     subtitle: "Relatório de horas referentes ao mês de {month}",
@@ -45,14 +48,32 @@ export const LABELS: Record<Language, {
 
 const MONTH_NAMES: Partial<Record<Language, Record<string, string>>> = {
   en: {
-    janeiro: "January", fevereiro: "February", março: "March", abril: "April",
-    maio: "May", junho: "June", julho: "July", agosto: "August",
-    setembro: "September", outubro: "October", novembro: "November", dezembro: "December",
+    janeiro: "January",
+    fevereiro: "February",
+    março: "March",
+    abril: "April",
+    maio: "May",
+    junho: "June",
+    julho: "July",
+    agosto: "August",
+    setembro: "September",
+    outubro: "October",
+    novembro: "November",
+    dezembro: "December",
   },
   de: {
-    janeiro: "Januar", fevereiro: "Februar", março: "März", abril: "April",
-    maio: "Mai", junho: "Juni", julho: "Juli", agosto: "August",
-    setembro: "September", outubro: "Oktober", novembro: "November", dezembro: "Dezember",
+    janeiro: "Januar",
+    fevereiro: "Februar",
+    março: "März",
+    abril: "April",
+    maio: "Mai",
+    junho: "Juni",
+    julho: "Juli",
+    agosto: "August",
+    setembro: "September",
+    outubro: "Oktober",
+    novembro: "November",
+    dezembro: "Dezember",
   },
 };
 

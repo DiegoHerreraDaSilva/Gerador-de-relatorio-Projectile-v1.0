@@ -2,6 +2,7 @@
 navegador (o servidor não guarda sessão de chat), então é validado como
 qualquer entrada: formato fixo, tamanhos limitados, e ainda revalidado
 contra o catálogo e as opções antes de ser usado (`crossquery.build_spec`)."""
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -28,6 +29,7 @@ class ChatSpec(BaseModel):
     """Consulta cruzada anterior (`QuerySpec.as_context()`), pra follow-up
     de cruzamento ("e em julho?"). Só formato aqui; o conteúdo é revalidado
     por `crossquery.build_spec` como se viesse do planner."""
+
     model_config = ConfigDict(extra="forbid")
     measures: list[_Key] = Field(default_factory=list, max_length=4)
     group_by: list[_Key] = Field(default_factory=list, max_length=2)
@@ -69,11 +71,10 @@ class AnalyticsChatRequest(BaseModel):
 class ExportRequest(BaseModel):
     """`POST /analytics/chat/export` — a tabela JÁ exibida vira .xlsx. Não
     consulta nada: o servidor só formata o que o navegador já tem."""
+
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=200)
     columns: list[Annotated[str, Field(max_length=200)]] = Field(min_length=1, max_length=60)
     column_types: list[_Key] | None = Field(default=None, max_length=60)
-    rows: list[Annotated[list[Annotated[_Cell, Field(union_mode="left_to_right")]], Field(max_length=60)]] = Field(
-        max_length=5000,
-    )
+    rows: list[Annotated[list[Annotated[_Cell, Field(union_mode="left_to_right")]], Field(max_length=60)]] = Field(max_length=5000)
     totals: list[_Cell] | None = Field(default=None, max_length=60)

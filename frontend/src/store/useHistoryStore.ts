@@ -28,8 +28,14 @@ export type VersionSummary = {
 export type SnapshotActivity = { description: string; hours: number | null };
 export type SnapshotGroup = { name: string; performance: number; activities: SnapshotActivity[] };
 export type SnapshotHeader = {
-  project_code: string; project_name: string; location_date: string; month_label: string;
-  signer1_name: string; signer1_company: string; signer2_name: string; signer2_company: string;
+  project_code: string;
+  project_name: string;
+  location_date: string;
+  month_label: string;
+  signer1_name: string;
+  signer1_company: string;
+  signer2_name: string;
+  signer2_company: string;
 };
 
 export type VersionDetail = VersionSummary & {
@@ -183,8 +189,11 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
 
   selectReport: async (reportId) => {
     set({
-      selectedReportId: reportId, detailLoading: true, detailError: "",
-      selectedVersionId: null, selectedVersionDetail: null,
+      selectedReportId: reportId,
+      detailLoading: true,
+      detailError: "",
+      selectedVersionId: null,
+      selectedVersionDetail: null,
     });
     try {
       const [report, versions, generations, artifacts, audit] = await Promise.all([
@@ -195,8 +204,11 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
         fetchJson<Paginated<AuditEvent>>(`/reports/${reportId}/audit?page_size=100`),
       ]);
       set({
-        selectedReport: report, versions: versions.items, generations: generations.items,
-        artifacts: artifacts.items, auditEvents: audit.items,
+        selectedReport: report,
+        versions: versions.items,
+        generations: generations.items,
+        artifacts: artifacts.items,
+        auditEvents: audit.items,
       });
     } catch {
       set({ detailError: "Não consegui carregar o detalhe deste relatório. Tenta de novo em instantes." });
@@ -207,8 +219,14 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
 
   clearSelection: () =>
     set({
-      selectedReportId: null, selectedReport: null, versions: [], generations: [], artifacts: [], auditEvents: [],
-      selectedVersionId: null, selectedVersionDetail: null,
+      selectedReportId: null,
+      selectedReport: null,
+      versions: [],
+      generations: [],
+      artifacts: [],
+      auditEvents: [],
+      selectedVersionId: null,
+      selectedVersionDetail: null,
     }),
 
   loadVersionDetail: async (versionId) => {

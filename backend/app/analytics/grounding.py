@@ -3,6 +3,7 @@ ter vindo do resultado que o backend mandou pra ele. Senão o texto é
 descartado e vale o do formatter determinístico. É o que garante "Claude
 explica, não calcula" (o planner e o finalizer não recebem banco nenhum,
 mas poderiam errar uma conta de cabeça)."""
+
 from __future__ import annotations
 
 import re

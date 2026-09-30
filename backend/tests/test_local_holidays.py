@@ -1,11 +1,6 @@
 import datetime
 
-from backend.app.generator import (
-    business_days_between,
-    is_santo_andre_filiale,
-    local_holidays_for_filiale,
-    national_holidays_between,
-)
+from backend.app.generator import business_days_between, is_santo_andre_filiale, local_holidays_for_filiale, national_holidays_between
 
 
 class TestIsSantoAndreFiliale:
@@ -77,33 +72,25 @@ class TestBusinessDaysBetweenComExtraHolidays:
 
     def test_com_extra_holidays_exclui_o_feriado_estadual(self):
         extra = local_holidays_for_filiale(2026, "Santo André - São Paulo")
-        days = business_days_between(
-            datetime.date(2026, 7, 9), datetime.date(2026, 7, 9), extra_holidays=extra
-        )
+        days = business_days_between(datetime.date(2026, 7, 9), datetime.date(2026, 7, 9), extra_holidays=extra)
         assert days == []
 
     def test_com_extra_holidays_exclui_o_municipal_de_santo_andre(self):
         # 8 de abril de 2026 é uma quarta-feira
         extra = local_holidays_for_filiale(2026, "Santo André - São Paulo")
-        days = business_days_between(
-            datetime.date(2026, 4, 8), datetime.date(2026, 4, 8), extra_holidays=extra
-        )
+        days = business_days_between(datetime.date(2026, 4, 8), datetime.date(2026, 4, 8), extra_holidays=extra)
         assert days == []
 
     def test_municipal_nao_afeta_quem_nao_e_de_santo_andre(self):
         extra = local_holidays_for_filiale(2026, "São Paulo")
-        days = business_days_between(
-            datetime.date(2026, 4, 8), datetime.date(2026, 4, 8), extra_holidays=extra
-        )
+        days = business_days_between(datetime.date(2026, 4, 8), datetime.date(2026, 4, 8), extra_holidays=extra)
         assert days == [datetime.date(2026, 4, 8)]
 
 
 class TestNationalHolidaysBetweenComExtraHolidays:
     def test_marca_o_feriado_estadual_quando_passado(self):
         extra = local_holidays_for_filiale(2026, "São Paulo")
-        found = national_holidays_between(
-            datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), extra_holidays=extra
-        )
+        found = national_holidays_between(datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), extra_holidays=extra)
         assert datetime.date(2026, 7, 9) in found
 
     def test_sem_extra_holidays_nao_marca_feriado_estadual(self):

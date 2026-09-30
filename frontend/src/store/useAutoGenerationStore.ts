@@ -15,7 +15,7 @@ import type { ReportHeader, RowIssue, WorkPackage } from "../api/types";
  * `backend/app/api/routers/auto_generation.py`. */
 
 export type AutoStatus =
-  | "gerando" | "erro" | "em_revisao" | "revisado" | "devolvido" | "aprovado" | "enviado" | "pulado";
+  "gerando" | "erro" | "em_revisao" | "revisado" | "devolvido" | "aprovado" | "enviado" | "pulado";
 
 export const EDITABLE_STATUSES: AutoStatus[] = ["em_revisao", "revisado", "devolvido"];
 // o revisor edita até mandar pra aprovação; depois disso, só o gerente
@@ -32,17 +32,33 @@ function reportUrl(role: AutoTabMeta["role"], reportId: string): string {
   return role === "reviewer" ? `/my-reviews/${reportId}` : `/auto-generation/reports/${reportId}`;
 }
 
-export type ReviewComment = { action: "submitted" | "returned"; comment: string | null; actor_name: string | null; created_at: string };
+export type ReviewComment = {
+  action: "submitted" | "returned";
+  comment: string | null;
+  actor_name: string | null;
+  created_at: string;
+};
 
 export type Reviewer = { login: string; name: string };
 
 export type SendDefaults = {
-  to: string[]; cc: string[]; subject: string; message: string; files: string[]; sender: string;
+  to: string[];
+  cc: string[];
+  subject: string;
+  message: string;
+  files: string[];
+  sender: string;
   // o Diagnóstico só conta "Enviado" pra remetentes de ALBERTO_EMAIL
   counts_in_diagnostics: boolean;
 };
 
-export type SendRequest = { to: string[]; cc: string[]; subject: string; message: string; formats?: Array<"xlsx" | "pdf"> };
+export type SendRequest = {
+  to: string[];
+  cc: string[];
+  subject: string;
+  message: string;
+  formats?: Array<"xlsx" | "pdf">;
+};
 
 export type AutoBadges = {
   // geração personalizada: `partial` = não cobre o projeto/pacote inteiro
@@ -69,7 +85,11 @@ export type AutoItem = {
   kind?: "mensal" | "avulso";
   // o período, o resumo e a configuração PRÓPRIA do recorte (o recorte inteiro é do backend)
   scope_json?: {
-    label: string; summary: string; package_unit?: CustomUnit | null; config?: CustomConfigValues; blocks?: CustomBlockView[];
+    label: string;
+    summary: string;
+    package_unit?: CustomUnit | null;
+    config?: CustomConfigValues;
+    blocks?: CustomBlockView[];
   } | null;
   competence: string;
   project_id: string;
@@ -174,8 +194,14 @@ export const CUSTOM_KEY = "custom";
 
 // a lista dos personalizados reaproveita a tela da rodada mensal: `run` fictício, sempre concluído
 const CUSTOM_RUN: AutoRun = {
-  id: CUSTOM_KEY, competence: CUSTOM_KEY, status: "done", triggered_by: null, started_at: "", finished_at: null,
-  counts_json: null, error: null,
+  id: CUSTOM_KEY,
+  competence: CUSTOM_KEY,
+  status: "done",
+  triggered_by: null,
+  started_at: "",
+  finished_at: null,
+  counts_json: null,
+  error: null,
 };
 
 /** Um recorte da geração personalizada: os filtros do MESMO bloco se cruzam
@@ -200,7 +226,9 @@ export type CustomScopeInput = {
  * (ex.: recorte sem horas); `error` traz o motivo e a próxima rodada tenta de novo. */
 /** A configuração própria de um personalizado — os mesmos campos da de um projeto
  * (o "Relatório" é o `package_unit`). Vazio = herda a do projeto e, sem ela, o padrão geral. */
-export type CustomConfigValues = Partial<Pick<ProjectRule, "signer1_name" | "signer1_company" | "signer2_name" | "signer2_company" | "formats">>;
+export type CustomConfigValues = Partial<
+  Pick<ProjectRule, "signer1_name" | "signer1_company" | "signer2_name" | "signer2_company" | "formats">
+>;
 
 export type CustomConfigTarget = { requestId: string; unit: CustomUnit } | { reportId: string; unit: CustomUnit };
 
@@ -226,7 +254,13 @@ export type CustomPreview = {
   period_label: string;
   summary: string;
   reports: Array<{
-    key: string; title: string; client: string; hours: number; packages: number; partial: boolean; issues: number;
+    key: string;
+    title: string;
+    client: string;
+    hours: number;
+    packages: number;
+    partial: boolean;
+    issues: number;
     projects: string[];
   }>;
   total_hours: number;
@@ -299,19 +333,29 @@ function schedulePoll() {
 /** Estado do editor de uma guia: a ativa está viva em `useReportStore`; as
  * outras só existem como bundle serializado. */
 function tabContent(tabId: string): {
-  packages: WorkPackage[]; header: ReportHeader; includePerformance: boolean; issues: RowIssue[];
+  packages: WorkPackage[];
+  header: ReportHeader;
+  includePerformance: boolean;
+  issues: RowIssue[];
 } | null {
   const tabs = useReportTabsStore.getState();
   if (tabs.activeTabId === tabId) {
     const s = useReportStore.getState();
-    return { packages: s.packages, header: s.header, includePerformance: s.includePerformanceInExport, issues: s.currentIssues };
+    return {
+      packages: s.packages,
+      header: s.header,
+      includePerformance: s.includePerformanceInExport,
+      issues: s.currentIssues,
+    };
   }
   const bundle = tabs.bundles[tabId];
   if (!bundle) return null;
   try {
     const parsed = JSON.parse(bundle);
     return {
-      packages: parsed.packages, header: parsed.header, includePerformance: parsed.includePerformanceInExport,
+      packages: parsed.packages,
+      header: parsed.header,
+      includePerformance: parsed.includePerformanceInExport,
       issues: parsed.currentIssues ?? [],
     };
   } catch {
@@ -345,14 +389,25 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     const login = useAuthStore.getState().user?.login ?? null;
     if (get()._loadedForLogin !== login) {
       set({
-        current: null, previous: null, runs: [], selected: null, view: null, preview: null, config: null, schedule: null,
-        reviewers: null, reviewersError: "", _loadedForLogin: login,
+        current: null,
+        previous: null,
+        runs: [],
+        selected: null,
+        view: null,
+        preview: null,
+        config: null,
+        schedule: null,
+        reviewers: null,
+        reviewersError: "",
+        _loadedForLogin: login,
       });
     }
     if (!get().reviewers) void get().loadReviewers();
     set({ loading: true, error: "" });
     try {
-      const data = await api<{ current: string; previous: string; runs: AutoRun[]; schedule: Schedule }>("/auto-generation/competences");
+      const data = await api<{ current: string; previous: string; runs: AutoRun[]; schedule: Schedule }>(
+        "/auto-generation/competences",
+      );
       if (get()._loadedForLogin !== login) return;
       set({ current: data.current, previous: data.previous, runs: data.runs, schedule: data.schedule });
       await get().select(get().selected ?? data.previous);
@@ -373,7 +428,9 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     try {
       if (competence === CUSTOM_KEY) {
         const [custom, config] = await Promise.all([
-          api<{ items: AutoItem[]; counts: Record<string, number>; requests: CustomRequestItem[] }>("/auto-generation/custom"),
+          api<{ items: AutoItem[]; counts: Record<string, number>; requests: CustomRequestItem[] }>(
+            "/auto-generation/custom",
+          ),
           get().config ? Promise.resolve(get().config as AutoConfig) : api<AutoConfig>("/auto-generation/config"),
         ]);
         if (get().selected !== competence || get()._loadedForLogin !== login) return;
@@ -381,8 +438,19 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
         const effective = config.effective as unknown as EffectiveConfig;
         const items = custom.items.map((i) => ({ ...i, hours_now: null, rule: {}, effective }));
         set({
-          config, preview: null, loading: false, error: "", customRequests: custom.requests,
-          view: { competence: CUSTOM_KEY, month_label: "Personalizados", run: CUSTOM_RUN, items, counts: custom.counts, new_projects: [] },
+          config,
+          preview: null,
+          loading: false,
+          error: "",
+          customRequests: custom.requests,
+          view: {
+            competence: CUSTOM_KEY,
+            month_label: "Personalizados",
+            run: CUSTOM_RUN,
+            items,
+            counts: custom.counts,
+            new_projects: [],
+          },
         });
         return;
       }
@@ -469,9 +537,14 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
       useReportTabsStore.getState().closeTab(existing.id);
     }
     const detail = await api<{
-      id: string; competence: string; status: AutoStatus; draft_version: number; project_name: string;
+      id: string;
+      competence: string;
+      status: AutoStatus;
+      draft_version: number;
+      project_name: string;
       scope_json?: { label: string } | null;
-      reviewer_name: string | null; draft: AutoDraft | null;
+      reviewer_name: string | null;
+      draft: AutoDraft | null;
       events: Array<{ action: string; comment: string | null }>;
     }>(reportUrl(role, itemId));
     if (!detail.draft) throw new Error("Esse relatório não tem rascunho (gere de novo).");
@@ -487,13 +560,15 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
       extras: editor.extras,
       role,
       reviewerName: detail.reviewer_name,
-      returnComment: detail.status === "devolvido" ? lastReturn?.comment ?? null : null,
+      returnComment: detail.status === "devolvido" ? (lastReturn?.comment ?? null) : null,
     };
-    useReportTabsStore.getState().openAutoTab(
-      meta,
-      detail.project_name,
-      reportTabBundle(editor.packages, editor.header, editor.includePerformance, editor.issues),
-    );
+    useReportTabsStore
+      .getState()
+      .openAutoTab(
+        meta,
+        detail.project_name,
+        reportTabBundle(editor.packages, editor.header, editor.includePerformance, editor.issues),
+      );
     set((s) => ({ saveState: { ...s.saveState, [detail.id]: "saved" } }));
   },
 
@@ -509,7 +584,12 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     if (!tab?.auto || !content) return false;
     const auto = tab.auto;
     const draft = editorToDraft(
-      content.packages, content.header, content.includePerformance, auto.formats, auto.extras, content.issues,
+      content.packages,
+      content.header,
+      content.includePerformance,
+      auto.formats,
+      auto.extras,
+      content.issues,
     );
     set((s) => ({ saveState: { ...s.saveState, [reportId]: "saving" } }));
     const promise = (async () => {
@@ -520,7 +600,12 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
         });
         useReportTabsStore.getState().updateAutoMeta(reportId, { draftVersion: res.draft_version });
         // editou de novo enquanto salvava: continua sujo
-        set((s) => ({ saveState: { ...s.saveState, [reportId]: s.saveState[reportId] === "saving" ? "saved" : s.saveState[reportId] } }));
+        set((s) => ({
+          saveState: {
+            ...s.saveState,
+            [reportId]: s.saveState[reportId] === "saving" ? "saved" : s.saveState[reportId],
+          },
+        }));
         return true;
       } catch (e) {
         const conflict = e instanceof ApiError && e.status === 409;
@@ -566,10 +651,13 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
   assignReviewer: async (item, login) => {
     set((s) => ({ busy: { ...s.busy, [item.id]: true }, error: "" }));
     try {
-      const res = await api<{ status: AutoStatus; reviewer_name: string | null }>(`/auto-generation/reports/${item.id}/reviewer`, {
-        method: "PUT",
-        body: JSON.stringify({ login }),
-      });
+      const res = await api<{ status: AutoStatus; reviewer_name: string | null }>(
+        `/auto-generation/reports/${item.id}/reviewer`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ login }),
+        },
+      );
       useReportTabsStore.getState().updateAutoMeta(item.id, { status: res.status, reviewerName: res.reviewer_name });
       await get().refresh();
       useMyReviewsStore.getState().refreshAll();
@@ -671,9 +759,10 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     api<CustomPreview>("/auto-generation/custom/preview", { method: "POST", body: JSON.stringify(scope) }),
 
   scheduleCustom: async (scope) => {
-    const result = await api<{ request: CustomRequestItem }>(
-      "/auto-generation/custom", { method: "POST", body: JSON.stringify(scope) },
-    );
+    const result = await api<{ request: CustomRequestItem }>("/auto-generation/custom", {
+      method: "POST",
+      body: JSON.stringify(scope),
+    });
     // o pedido agendado aparece na aba "Personalizados"; o rascunho só nasce na rodada do mês
     await get().select(CUSTOM_KEY);
     return result.request;
@@ -685,9 +774,10 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
     for (const key of ["signer1_name", "signer1_company", "signer2_name", "signer2_company", "formats"] as const) {
       if (rest[key] !== undefined) config[key] = rest[key];
     }
-    const url = "requestId" in target
-      ? `/auto-generation/custom/requests/${target.requestId}/config`
-      : `/auto-generation/custom/${target.reportId}/config`;
+    const url =
+      "requestId" in target
+        ? `/auto-generation/custom/requests/${target.requestId}/config`
+        : `/auto-generation/custom/${target.reportId}/config`;
     await api(url, {
       method: "PUT",
       body: JSON.stringify({ package_unit: mode ?? target.unit, config: Object.keys(config).length ? config : null }),

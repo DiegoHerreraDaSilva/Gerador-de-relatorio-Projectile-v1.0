@@ -70,15 +70,26 @@ export function ConfirmHost() {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="confirm-head">
-          {current.danger && <span className="confirm-icon" aria-hidden="true"><AlertTriangle size={18} strokeWidth={2} /></span>}
+          {current.danger && (
+            <span className="confirm-icon" aria-hidden="true">
+              <AlertTriangle size={18} strokeWidth={2} />
+            </span>
+          )}
           <h2 id="confirm-title">{current.title}</h2>
         </div>
-        <p id="confirm-message" className="confirm-message">{current.message}</p>
+        <p id="confirm-message" className="confirm-message">
+          {current.message}
+        </p>
         <div className="modal-actions">
           <button ref={cancelRef} type="button" className="btn-secondary" onClick={() => answer(false)}>
             {current.cancelLabel ?? "Cancelar"}
           </button>
-          <button ref={okRef} type="button" className={current.danger ? "primary confirm-danger" : "primary"} onClick={() => answer(true)}>
+          <button
+            ref={okRef}
+            type="button"
+            className={current.danger ? "primary confirm-danger" : "primary"}
+            onClick={() => answer(true)}
+          >
             {current.confirmLabel ?? "Confirmar"}
           </button>
         </div>

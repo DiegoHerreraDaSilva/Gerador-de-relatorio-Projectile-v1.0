@@ -11,6 +11,7 @@ em `test_auto_generation.py` quebra se um dos lados mudar sozinho.
 Projectile e cache do Painel acessados como ATRIBUTO do módulo
 (`management._get_cached_rows`), nunca por `from import` — senão o
 `monkeypatch` dos testes não alcança (ver CLAUDE.md, "Gotcha de teste")."""
+
 from __future__ import annotations
 
 import calendar
@@ -23,10 +24,7 @@ from ..api.shared import build_parse_response
 from ..projectile_db import group_hours, group_hours_by_project
 from . import families, memory
 
-MONTH_NAMES_PT = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-]
+MONTH_NAMES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 _COMPETENCE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 DRAFT_SCHEMA = 1
 
@@ -48,7 +46,7 @@ def competence_range(competence: str) -> tuple[str, str]:
 
 
 def month_label(competence: str) -> str:
-    """"2026-08" → "Agosto/2026" (mesmo formato de `createInitialHeader`)."""
+    """ "2026-08" → "Agosto/2026" (mesmo formato de `createInitialHeader`)."""
     year, month = parse_competence(competence)
     return f"{MONTH_NAMES_PT[month - 1]}/{year}"
 
@@ -73,12 +71,14 @@ def month_projects(competence: str) -> list[dict]:
         info = details.get(pid)
         if not info:
             continue
-        projects.append({
-            "project_id": pid,
-            "name": families.clean(info.get("name")) or pid,
-            "client": families.clean(info.get("client")) or "Sem cliente",
-            "hours": round(total, 2),
-        })
+        projects.append(
+            {
+                "project_id": pid,
+                "name": families.clean(info.get("name")) or pid,
+                "client": families.clean(info.get("client")) or "Sem cliente",
+                "hours": round(total, 2),
+            }
+        )
     return sorted(projects, key=lambda p: (p["client"].casefold(), p["name"].casefold()))
 
 
@@ -90,48 +90,47 @@ def _draft_packages(parsed: dict, mode: str) -> list[dict]:
     packages = []
     for pkg in parsed["packages"]:
         name = pkg.get("project_name") or pkg["key"]
-        packages.append({
-            "id": _new_id(),
-            "key": pkg["key"],
-            # no modo "projeto" a chave é o project_id (muda todo mês) — a
-            # memória casa pelo nome do projeto sem a data. É o nome do
-            # PACOTE do rascunho, não o de um "projeto único": a geração
-            # personalizada junta vários projetos num relatório só
-            "source_key": families.normalize_key(pkg["key"] if mode == "pacote" else name),
-            "project_code": "",
-            "suggested_code": "",
-            "project_name": name,
-            "pacote_scope": pkg["key"] if mode == "pacote" else None,
-            "language": "pt",
-            "chart_bar": False,
-            "chart_pie": False,
-            "groups": [
-                {
-                    "id": _new_id(),
-                    "source_key": families.normalize_key(group["name"]),
-                    "name": group["name"],
-                    "performance": 1,
-                    "activities": [
-                        {
-                            "id": _new_id(),
-                            "source_key": families.normalize_key(activity["description"]),
-                            "description": activity["description"],
-                            "hours": activity["hours"],
-                        }
-                        for activity in group["activities"]
-                    ],
-                }
-                for group in pkg["groups"]
-            ],
-        })
+        packages.append(
+            {
+                "id": _new_id(),
+                "key": pkg["key"],
+                # no modo "projeto" a chave é o project_id (muda todo mês) — a
+                # memória casa pelo nome do projeto sem a data. É o nome do
+                # PACOTE do rascunho, não o de um "projeto único": a geração
+                # personalizada junta vários projetos num relatório só
+                "source_key": families.normalize_key(pkg["key"] if mode == "pacote" else name),
+                "project_code": "",
+                "suggested_code": "",
+                "project_name": name,
+                "pacote_scope": pkg["key"] if mode == "pacote" else None,
+                "language": "pt",
+                "chart_bar": False,
+                "chart_pie": False,
+                "groups": [
+                    {
+                        "id": _new_id(),
+                        "source_key": families.normalize_key(group["name"]),
+                        "name": group["name"],
+                        "performance": 1,
+                        "activities": [
+                            {
+                                "id": _new_id(),
+                                "source_key": families.normalize_key(activity["description"]),
+                                "description": activity["description"],
+                                "hours": activity["hours"],
+                            }
+                            for activity in group["activities"]
+                        ],
+                    }
+                    for group in pkg["groups"]
+                ],
+            }
+        )
     return packages
 
 
 def draft_hours(draft: dict) -> float:
-    return round(sum(
-        a.get("hours") or 0
-        for p in draft.get("packages", []) for g in p.get("groups", []) for a in g.get("activities", [])
-    ), 3)
+    return round(sum(a.get("hours") or 0 for p in draft.get("packages", []) for g in p.get("groups", []) for a in g.get("activities", [])), 3)
 
 
 def period_label(start: str, end: str) -> str:
@@ -173,9 +172,7 @@ def _draft(mode: str, label: str, config: dict, today: date, packages, issues) -
     }
 
 
-def build_draft(
-    competence: str, project: dict, rows: list[dict], config: dict, remembered: dict | None, today: date,
-) -> dict:
+def build_draft(competence: str, project: dict, rows: list[dict], config: dict, remembered: dict | None, today: date) -> dict:
     """Rascunho de UM projeto a partir das linhas dele (`fetch_project_hours`)."""
     mode = config.get("mode", "projeto")
     if mode == "projeto":
@@ -187,9 +184,7 @@ def build_draft(
     return draft
 
 
-def build_custom_draft(
-    rows: list[dict], names: dict[str, str], label: str, unit: str, config: dict, today: date,
-) -> dict:
+def build_custom_draft(rows: list[dict], names: dict[str, str], label: str, unit: str, config: dict, today: date) -> dict:
     """Rascunho de um relatório PERSONALIZADO: as linhas podem vir de vários
     projetos (e de vários colaboradores), num período qualquer. `unit` diz o
     que vira "pacote" do relatório: "projeto" (um por projeto, o pacote de

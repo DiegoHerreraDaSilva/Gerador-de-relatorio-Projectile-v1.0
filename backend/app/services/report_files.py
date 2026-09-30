@@ -3,6 +3,7 @@ geração — compartilhado entre `/generate`, `/send-report`
 (`api/routers/generation.py`) e a geração automática
 (`auto_generation/service.py`, aprovação e envio), pra que os três produzam
 exatamente o mesmo arquivo pro mesmo conteúdo."""
+
 from __future__ import annotations
 
 import re
@@ -90,31 +91,19 @@ def persistence_headers(handle) -> dict[str, str]:
     nada aditivo pra incluir, e a resposta continua idêntica à de hoje."""
     if handle is None:
         return {}
-    return {
-        "X-Report-Id": handle.report_id,
-        "X-Report-Version-Id": handle.version_id,
-        "X-Report-Version-Number": str(handle.version_number),
-    }
+    return {"X-Report-Id": handle.report_id, "X-Report-Version-Id": handle.version_id, "X-Report-Version-Number": str(handle.version_number)}
 
 
 def report_groups(pkg_payload: ReportPackagePayload) -> tuple[ReportHeader, list[GroupInput]]:
     header = ReportHeader(**pkg_payload.header.model_dump())
     groups = [
-        GroupInput(
-            name=g.name,
-            performance=g.performance,
-            activities=[ActivityInput(description=a.description, hours=a.hours) for a in g.activities],
-        )
+        GroupInput(name=g.name, performance=g.performance, activities=[ActivityInput(description=a.description, hours=a.hours) for a in g.activities])
         for g in pkg_payload.groups
     ]
     return header, groups
 
 
-def build_report_file(
-    pkg_payload: ReportPackagePayload,
-    output_path: str,
-    fmt: Literal["xlsx", "pdf"] = "xlsx",
-) -> ReportHeader:
+def build_report_file(pkg_payload: ReportPackagePayload, output_path: str, fmt: Literal["xlsx", "pdf"] = "xlsx") -> ReportHeader:
     """Todo XLSX/PDF que sai do sistema passa por aqui (`/generate`,
     `/send-report`, aprovação e envio da geração automática) — e NUNCA com as
     colunas de Bruto/Performance (decisão do usuário, 2026-09-28: relatório
@@ -148,10 +137,7 @@ def build_report_file(
     return header
 
 
-FORMAT_MEDIA_TYPES = {
-    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "pdf": "application/pdf",
-}
+FORMAT_MEDIA_TYPES = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "pdf": "application/pdf"}
 
 
 def build_download_name(month_label: str, project_name: str) -> str:

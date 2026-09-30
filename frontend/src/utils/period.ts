@@ -4,9 +4,8 @@ export const EARLIEST_REPORT_YEAR = 2008;
 
 /** Anos com dados disponíveis no Projectile, do atual até 2008. */
 export function getReportYearOptions(currentYear = new Date().getFullYear()): string[] {
-  return Array.from(
-    { length: Math.max(0, currentYear - EARLIEST_REPORT_YEAR + 1) },
-    (_, index) => String(currentYear - index),
+  return Array.from({ length: Math.max(0, currentYear - EARLIEST_REPORT_YEAR + 1) }, (_, index) =>
+    String(currentYear - index),
   );
 }
 
@@ -57,7 +56,7 @@ function canonicalMonth(value: string): string | null {
 export function parsePeriodLabelForControls(
   label: string,
   fallbackEndLabel = label,
-  fallbackYear = String(new Date().getFullYear())
+  fallbackYear = String(new Date().getFullYear()),
 ): MonthYearRange {
   const crossYear = /^([^/]+)\/(\d{4})\s+a\s+([^/]+)\/(\d{4})$/i.exec(label.trim());
   if (crossYear) {

@@ -3,6 +3,7 @@ geração automática) nunca mostra Bruto/Performance — decisão do usuário
 (2026-09-28). O pedido pode vir com `include_performance: true` (guia
 antiga, chamada direta na API): o arquivo sai igual, sem as colunas. A
 performance continua no CÁLCULO das horas."""
+
 from __future__ import annotations
 
 import io
@@ -23,17 +24,23 @@ _USER = {"name": "Fulano", "login": "fulano", "email": "f@x", "employee_id": "1"
 
 def _payload(formats: list[str]) -> dict:
     return {
-        "packages": [{
-            "header": {
-                "project_code": "SE.26.001", "project_name": "Projeto", "location_date": "Santo André, 01.09.2026",
-                "month_label": "Agosto/2026", "signer1_name": "A", "signer1_company": "Schwaben Engineering",
-                "signer2_name": "B", "signer2_company": "Cliente",
-            },
-            "groups": [{"name": "Grupo A", "performance": 1.1,
-                        "activities": [{"description": "Ativ 1", "hours": 10.0}]}],
-        }],
+        "packages": [
+            {
+                "header": {
+                    "project_code": "SE.26.001",
+                    "project_name": "Projeto",
+                    "location_date": "Santo André, 01.09.2026",
+                    "month_label": "Agosto/2026",
+                    "signer1_name": "A",
+                    "signer1_company": "Schwaben Engineering",
+                    "signer2_name": "B",
+                    "signer2_company": "Cliente",
+                },
+                "groups": [{"name": "Grupo A", "performance": 1.1, "activities": [{"description": "Ativ 1", "hours": 10.0}]}],
+            }
+        ],
         "formats": formats,
-        "include_performance": True,   # pedido explícito — tem que ser ignorado
+        "include_performance": True,  # pedido explícito — tem que ser ignorado
     }
 
 
@@ -53,8 +60,7 @@ def _xlsx_values(data: bytes) -> list:
 def test_download_pedindo_performance_sai_sem_as_colunas(client):
     response = client.post("/generate", json=_payload(["xlsx", "pdf"]))
     assert response.status_code == 200, response.text
-    files = {n: zipfile.ZipFile(io.BytesIO(response.content)).read(n)
-             for n in zipfile.ZipFile(io.BytesIO(response.content)).namelist()}
+    files = {n: zipfile.ZipFile(io.BytesIO(response.content)).read(n) for n in zipfile.ZipFile(io.BytesIO(response.content)).namelist()}
     xlsx = next(v for n, v in files.items() if n.endswith(".xlsx"))
     pdf = next(v for n, v in files.items() if n.endswith(".pdf"))
     values = _xlsx_values(xlsx)

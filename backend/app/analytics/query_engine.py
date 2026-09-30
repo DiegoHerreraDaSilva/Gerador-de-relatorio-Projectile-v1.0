@@ -3,6 +3,7 @@ repository. Não existe caminho aqui pra executar SQL arbitrário: cada
 intent tem uma função, e intent fora do catálogo levanta
 `UnknownIntentError` antes de tocar em banco. Horas, faturado e status de
 envio não passam mais por aqui: são consulta cruzada (`crossquery.py`)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -42,9 +43,15 @@ class QueryResult:
     def compact(self) -> dict:
         """Resultado agregado pro Claude — nunca linha crua."""
         return {
-            "intent": self.intent, "source": self.source, "unit": self.unit,
-            "dimension": self.dimension, "filters": self.filters.as_dict(),
-            "total": self.total, "rows": self.rows, "extra": self.extra, "truncated": self.truncated,
+            "intent": self.intent,
+            "source": self.source,
+            "unit": self.unit,
+            "dimension": self.dimension,
+            "filters": self.filters.as_dict(),
+            "total": self.total,
+            "rows": self.rows,
+            "extra": self.extra,
+            "truncated": self.truncated,
         }
 
 
@@ -60,10 +67,7 @@ def run(intent: str, filters: Filters, _unused=None, max_rows: int = 1000) -> Qu
     if intent == "report_count":
         result.total = report_analytics_repository.count_generated_reports(period.start, period.end)
     elif intent == "reports_by_month":
-        result.rows = [
-            {**row, "label": month_label(row["label"])}
-            for row in report_analytics_repository.generated_reports_by_month(period.start, period.end)
-        ]
+        result.rows = [{**row, "label": month_label(row["label"])} for row in report_analytics_repository.generated_reports_by_month(period.start, period.end)]
         result.total = sum(row["value"] for row in result.rows)
     elif intent == "version_count":
         result.total = report_analytics_repository.count_versions(period.start, period.end)
@@ -74,10 +78,7 @@ def run(intent: str, filters: Filters, _unused=None, max_rows: int = 1000) -> Qu
     elif intent == "generation_failures":
         data = report_analytics_repository.generation_failures(period.start, period.end)
         result.total = data["failed"]
-        result.extra = {
-            "generations": data["total"],
-            "failure_rate_percent": round(data["failed"] / data["total"] * 100, 1) if data["total"] else None,
-        }
+        result.extra = {"generations": data["total"], "failure_rate_percent": round(data["failed"] / data["total"] * 100, 1) if data["total"] else None}
     elif intent == "report_hours_by_project":
         result.rows = report_analytics_repository.report_hours_by_project(period.start, period.end, max_rows)
         result.total = round(sum(row["value"] for row in result.rows), 2)

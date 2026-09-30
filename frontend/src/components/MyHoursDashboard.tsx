@@ -55,10 +55,7 @@ export function MyHoursDashboard() {
   // o período anterior — vem pronto do backend sobre o período INTEIRO,
   // porque jornada é uma propriedade da pessoa, não do cliente/projeto
   // filtrado; por isso os cards que usam esses valores dizem isso.
-  const filteredEntries = useMemo(
-    () => applyMyHoursFilters(s.entries, s.filters),
-    [s.entries, s.filters]
-  );
+  const filteredEntries = useMemo(() => applyMyHoursFilters(s.entries, s.filters), [s.entries, s.filters]);
 
   const total = totalHours(filteredEntries);
   const daysWorked = distinctDaysWorked(filteredEntries);
@@ -71,14 +68,11 @@ export function MyHoursDashboard() {
   // lacuna recalculada sobre o FILTRADO: um dia útil sem apontamento NESTE
   // recorte (ex.: filtrado por Cliente X, um dia trabalhado só noutro
   // cliente também conta como lacuna do recorte).
-  const gapDays = useMemo(
-    () => computeGapDays(perDay, s.businessDays.closed),
-    [perDay, s.businessDays.closed]
-  );
+  const gapDays = useMemo(() => computeGapDays(perDay, s.businessDays.closed), [perDay, s.businessDays.closed]);
 
   const projectNames = useMemo(
     () => Array.from(new Set(filteredEntries.map((e) => e.project_name).filter(Boolean))),
-    [filteredEntries]
+    [filteredEntries],
   );
 
   const closedCount = s.businessDays.closed_count;
@@ -94,7 +88,7 @@ export function MyHoursDashboard() {
   // globais, afeta só a tabela
   const filtered = useMemo(
     () => filteredEntries.filter((e) => s.selectedDate === null || e.date === s.selectedDate),
-    [filteredEntries, s.selectedDate]
+    [filteredEntries, s.selectedDate],
   );
 
   const sort = useSortableRows<MyHoursEntry>(filtered, (e, key) => {
@@ -128,7 +122,9 @@ export function MyHoursDashboard() {
       <div className="myh-page page-container" aria-busy="true">
         <MyHoursHeader s={s} />
         <EmployeePicker />
-        <p className="sr-only" aria-live="polite">Carregando suas horas</p>
+        <p className="sr-only" aria-live="polite">
+          Carregando suas horas
+        </p>
         <MyHoursSkeleton />
       </div>
     );
@@ -147,7 +143,9 @@ export function MyHoursDashboard() {
           <AlertTriangle size={15} strokeWidth={2} />
           <span>{s.error}</span>
           {s.fetchedAt && <span className="muted">Mostrando dados de {s.fetchedAt}.</span>}
-          <button type="button" onClick={() => s.load(true)}>Tentar de novo</button>
+          <button type="button" onClick={() => s.load(true)}>
+            Tentar de novo
+          </button>
         </div>
       )}
 
@@ -158,33 +156,30 @@ export function MyHoursDashboard() {
       )}
 
       <p className="sr-only" aria-live="polite">
-        {s.refreshing
-          ? "Atualizando"
-          : `${filtered.length} lançamentos, ${fmtNum(total)} horas no recorte filtrado`}
+        {s.refreshing ? "Atualizando" : `${filtered.length} lançamentos, ${fmtNum(total)} horas no recorte filtrado`}
       </p>
 
       {!empty && (
-        <MyHoursFilters
-          entries={s.entries}
-          filters={s.filters}
-          onChange={s.setFilter}
-          onReset={s.resetFilters}
-        />
+        <MyHoursFilters entries={s.entries} filters={s.filters} onChange={s.setFilter} onReset={s.resetFilters} />
       )}
 
       {empty ? (
         <div className="myh-card myh-empty">
           <CalendarX2 size={28} strokeWidth={1.5} />
-          <h3>Nenhum lançamento entre {brDate(s.startDate)} e {brDate(s.endDate)}</h3>
+          <h3>
+            Nenhum lançamento entre {brDate(s.startDate)} e {brDate(s.endDate)}
+          </h3>
           <p className="muted">
-            Ou não houve apontamento nesse recorte, ou suas horas estão sob outro
-            nome no Projectile. O período tem {s.businessDays.count} dias úteis.
+            Ou não houve apontamento nesse recorte, ou suas horas estão sob outro nome no Projectile. O período tem{" "}
+            {s.businessDays.count} dias úteis.
           </p>
           <div className="myh-empty-actions">
             <button type="button" className="btn-primary" onClick={() => s.setPeriod("last_3")}>
               Ampliar para 3 meses
             </button>
-            <button type="button" onClick={() => s.load(true)}>Atualizar</button>
+            <button type="button" onClick={() => s.load(true)}>
+              Atualizar
+            </button>
           </div>
         </div>
       ) : emptyFiltered ? (
@@ -204,7 +199,10 @@ export function MyHoursDashboard() {
           <div className="myh-col-12 myh-kpi-row">
             <section className="myh-card">
               <h3 className="myh-card-title">Horas apontadas</h3>
-              <p className="myh-big-number">{fmtNum(total)}<span> h</span></p>
+              <p className="myh-big-number">
+                {fmtNum(total)}
+                <span> h</span>
+              </p>
               <p className="myh-card-foot muted">
                 {daysWorked} {daysWorked === 1 ? "dia" : "dias"} com apontamento
                 {filtersActive && " neste filtro"}
@@ -227,7 +225,8 @@ export function MyHoursDashboard() {
             <section className="myh-card">
               <h3 className="myh-card-title">Média por dia apontado</h3>
               <p className="myh-big-number">
-                {avgPerDay !== null ? fmtNum(avgPerDay) : "—"}<span> h/dia</span>
+                {avgPerDay !== null ? fmtNum(avgPerDay) : "—"}
+                <span> h/dia</span>
               </p>
               <p className="myh-card-foot muted">
                 {fmtNum(total)} h ÷ {daysWorked} {daysWorked === 1 ? "dia" : "dias"}
@@ -240,7 +239,8 @@ export function MyHoursDashboard() {
                 <>
                   <p className="myh-big-number">
                     {s.reference.allows_percentage ? "" : "~"}
-                    {fmtNum(s.expected.closed)}<span> h</span>
+                    {fmtNum(s.expected.closed)}
+                    <span> h</span>
                   </p>
                   <p className="myh-card-foot muted">
                     {s.reference.allows_percentage ? "esperado" : "estimado"} até hoje ·{" "}
@@ -285,8 +285,8 @@ export function MyHoursDashboard() {
                   </>
                 ) : (
                   <>
-                    Amplitude entre dias da semana de apenas {fmtNum(weekday.amplitude)} h — não
-                    há padrão por dia da semana.
+                    Amplitude entre dias da semana de apenas {fmtNum(weekday.amplitude)} h — não há padrão por dia da
+                    semana.
                   </>
                 )}
               </p>
@@ -321,16 +321,13 @@ export function MyHoursDashboard() {
                       </button>
                     ))}
                     {gapDays.length > MAX_GAP_CHIPS && (
-                      <span className="muted">
-                        e outros {gapDays.length - MAX_GAP_CHIPS}
-                      </span>
+                      <span className="muted">e outros {gapDays.length - MAX_GAP_CHIPS}</span>
                     )}
                   </div>
                 </>
               )}
               <p className="myh-card-foot muted">
-                Férias, atestado, folga e feriado municipal não são conhecidos por
-                esta tela.
+                Férias, atestado, folga e feriado municipal não são conhecidos por esta tela.
               </p>
             </section>
 
@@ -338,27 +335,19 @@ export function MyHoursDashboard() {
               <h3 className="myh-card-title">Onde seu tempo foi</h3>
               {projectNames.length > 0 && (
                 <p className="myh-card-sub muted">
-                  {projectNames.length === 1
-                    ? `Projeto ${projectNames[0]}`
-                    : `${projectNames.length} projetos`}
+                  {projectNames.length === 1 ? `Projeto ${projectNames[0]}` : `${projectNames.length} projetos`}
                   {" · "}
                   {billing.worthShowing
                     ? `${fmtNum(billing.externo)} h externo / ${fmtNum(billing.interno)} h interno`
                     : billing.interno === billing.total
-                    ? "Todo o período é trabalho interno"
-                    : billing.externo === billing.total
-                    ? "Todo o período é trabalho externo"
-                    : "Classificação do projeto indisponível"}
+                      ? "Todo o período é trabalho interno"
+                      : billing.externo === billing.total
+                        ? "Todo o período é trabalho externo"
+                        : "Classificação do projeto indisponível"}
                 </p>
               )}
-              <PacoteBars
-                items={pacotes}
-                selected={s.filters.pacotes}
-                onSelect={s.togglePacoteFilter}
-              />
-              <p className="myh-card-foot muted">
-                Externo/interno é a classificação do projeto, não faturamento.
-              </p>
+              <PacoteBars items={pacotes} selected={s.filters.pacotes} onSelect={s.togglePacoteFilter} />
+              <p className="myh-card-foot muted">Externo/interno é a classificação do projeto, não faturamento.</p>
             </section>
           </div>
 
@@ -368,8 +357,7 @@ export function MyHoursDashboard() {
             <MonthlyColumns series={s.monthlySeries} />
             {filtersActive && (
               <p className="myh-card-foot muted">
-                Não considera os filtros de Competência/Cliente/Projeto/Pacote — é sobre
-                todo o seu histórico.
+                Não considera os filtros de Competência/Cliente/Projeto/Pacote — é sobre todo o seu histórico.
               </p>
             )}
           </section>
@@ -387,11 +375,7 @@ export function MyHoursDashboard() {
 
             {s.selectedDate && (
               <div className="myh-active-filters">
-                <button
-                  type="button"
-                  className="myh-chip is-selected"
-                  onClick={() => s.toggleDate(s.selectedDate!)}
-                >
+                <button type="button" className="myh-chip is-selected" onClick={() => s.toggleDate(s.selectedDate!)}>
                   {brDate(s.selectedDate)} <X size={12} strokeWidth={2.5} />
                 </button>
                 <button type="button" className="myh-link" onClick={() => s.toggleDate(s.selectedDate!)}>
@@ -400,23 +384,51 @@ export function MyHoursDashboard() {
               </div>
             )}
 
-            <div
-              className="myh-table-wrap"
-              tabIndex={0}
-              role="region"
-              aria-label="Tabela de lançamentos, rolável"
-            >
+            <div className="myh-table-wrap" tabIndex={0} role="region" aria-label="Tabela de lançamentos, rolável">
               <table className="myh-table">
-                <caption className="sr-only">
-                  Lançamentos de horas do período, ordenável por coluna
-                </caption>
+                <caption className="sr-only">Lançamentos de horas do período, ordenável por coluna</caption>
                 <thead>
                   <tr>
-                    <SortableTh sortKey="date" activeKey={sort.sortKey} direction={sort.direction} onSort={sort.toggleSort}>Data</SortableTh>
-                    <SortableTh sortKey="time" activeKey={sort.sortKey} direction={sort.direction} onSort={sort.toggleSort}>Horário</SortableTh>
-                    <SortableTh sortKey="pacote" activeKey={sort.sortKey} direction={sort.direction} onSort={sort.toggleSort}>Pacote</SortableTh>
-                    <SortableTh sortKey="observacao" activeKey={sort.sortKey} direction={sort.direction} onSort={sort.toggleSort}>Observação</SortableTh>
-                    <SortableTh sortKey="hours" activeKey={sort.sortKey} direction={sort.direction} onSort={sort.toggleSort}>Horas</SortableTh>
+                    <SortableTh
+                      sortKey="date"
+                      activeKey={sort.sortKey}
+                      direction={sort.direction}
+                      onSort={sort.toggleSort}
+                    >
+                      Data
+                    </SortableTh>
+                    <SortableTh
+                      sortKey="time"
+                      activeKey={sort.sortKey}
+                      direction={sort.direction}
+                      onSort={sort.toggleSort}
+                    >
+                      Horário
+                    </SortableTh>
+                    <SortableTh
+                      sortKey="pacote"
+                      activeKey={sort.sortKey}
+                      direction={sort.direction}
+                      onSort={sort.toggleSort}
+                    >
+                      Pacote
+                    </SortableTh>
+                    <SortableTh
+                      sortKey="observacao"
+                      activeKey={sort.sortKey}
+                      direction={sort.direction}
+                      onSort={sort.toggleSort}
+                    >
+                      Observação
+                    </SortableTh>
+                    <SortableTh
+                      sortKey="hours"
+                      activeKey={sort.sortKey}
+                      direction={sort.direction}
+                      onSort={sort.toggleSort}
+                    >
+                      Horas
+                    </SortableTh>
                   </tr>
                 </thead>
                 <tbody>
@@ -429,12 +441,14 @@ export function MyHoursDashboard() {
                   )}
                   {sort.sortedRows.map((e) => (
                     <tr key={e.id}>
-                      <td><time dateTime={e.date}>{brDate(e.date)}</time></td>
-                      <td className="myh-td-time">
-                        {e.start && e.end ? `${e.start}–${e.end}` : "—"}
+                      <td>
+                        <time dateTime={e.date}>{brDate(e.date)}</time>
                       </td>
+                      <td className="myh-td-time">{e.start && e.end ? `${e.start}–${e.end}` : "—"}</td>
                       <td>{e.pacote}</td>
-                      <td className="myh-td-obs" title={e.observacao}>{e.observacao}</td>
+                      <td className="myh-td-obs" title={e.observacao}>
+                        {e.observacao}
+                      </td>
                       <td className="myh-td-num">{fmtNum(e.hours)}</td>
                     </tr>
                   ))}
@@ -454,13 +468,12 @@ export function MyHoursDashboard() {
             <summary>Limites destes dados</summary>
             <ul>
               <li>
-                <strong>Motivo de um dia sem apontamento</strong> não é conhecido:
-                férias, atestado e folga não têm fonte confiável neste banco. A tela
-                mostra o fato, nunca a causa.
+                <strong>Motivo de um dia sem apontamento</strong> não é conhecido: férias, atestado e folga não têm
+                fonte confiável neste banco. A tela mostra o fato, nunca a causa.
               </li>
               <li>
-                <strong>Dias úteis considerados</strong>: {s.businessDays.note}. Feriado
-                municipal de outras cidades não entra.
+                <strong>Dias úteis considerados</strong>: {s.businessDays.note}. Feriado municipal de outras cidades não
+                entra.
               </li>
               <li>
                 <strong>Jornada de referência</strong>: {s.reference.label.toLowerCase()}
@@ -469,24 +482,21 @@ export function MyHoursDashboard() {
                   " — por não ser jornada de contrato declarada, esta tela não afirma percentual de cumprimento."}
               </li>
               <li>
-                <strong>Referência, tendência de 13 meses, projeção e comparação</strong> sempre
-                olham o período completo do usuário — não reagem aos filtros de
-                Competência/Cliente/Projeto/Pacote, porque descrevem sua jornada e seu
-                histórico, não um recorte de trabalho.
+                <strong>Referência, tendência de 13 meses, projeção e comparação</strong> sempre olham o período
+                completo do usuário — não reagem aos filtros de Competência/Cliente/Projeto/Pacote, porque descrevem sua
+                jornada e seu histórico, não um recorte de trabalho.
               </li>
               <li>
-                <strong>Planejado vs realizado por pacote</strong> não está disponível:
-                os jobs deste usuário não têm estimativa cadastrada no Projectile.
+                <strong>Planejado vs realizado por pacote</strong> não está disponível: os jobs deste usuário não têm
+                estimativa cadastrada no Projectile.
               </li>
               <li>
-                <strong>Conferência/aprovação e faturamento</strong> não existem como
-                dado: os campos correspondentes estão vazios em todos os lançamentos.
-                “Externo/interno” é classificação do projeto, não receita.
+                <strong>Conferência/aprovação e faturamento</strong> não existem como dado: os campos correspondentes
+                estão vazios em todos os lançamentos. “Externo/interno” é classificação do projeto, não receita.
               </li>
               <li>
-                <strong>Comparação com colegas</strong> está fora de escopo: o centro
-                de custo tem gente demais de menos pra uma média não identificar
-                indivíduos. Visão de equipe é papel do Painel de Gerência.
+                <strong>Comparação com colegas</strong> está fora de escopo: o centro de custo tem gente demais de menos
+                pra uma média não identificar indivíduos. Visão de equipe é papel do Painel de Gerência.
               </li>
             </ul>
           </details>
@@ -507,8 +517,8 @@ function MyHoursHeader({ s }: { s: ReturnType<typeof useMyHoursStore.getState> }
     ref.source === "empirical" && ref.sample_days
       ? `Mediana de ${ref.sample_days} dias`
       : ref.source === "calendar"
-      ? "Sem contrato cadastrado"
-      : null;
+        ? "Sem contrato cadastrado"
+        : null;
 
   return (
     <header className="myh-head">
@@ -537,7 +547,10 @@ function MyHoursHeader({ s }: { s: ReturnType<typeof useMyHoursStore.getState> }
               {ref.allows_percentage ? "" : "~"}
               {fmtNum(ref.hours_per_day)} h/dia
             </strong>
-            <span>{ref.label}{refDetail && ` · ${refDetail}`}</span>
+            <span>
+              {ref.label}
+              {refDetail && ` · ${refDetail}`}
+            </span>
           </span>
         ) : (
           <span className="myh-ref-chip is-missing">
@@ -546,11 +559,7 @@ function MyHoursHeader({ s }: { s: ReturnType<typeof useMyHoursStore.getState> }
           </span>
         )}
 
-        <PeriodSegmented
-          value={s.period}
-          disabled={s.refreshing}
-          onChange={(p: MyHoursPeriod) => s.setPeriod(p)}
-        />
+        <PeriodSegmented value={s.period} disabled={s.refreshing} onChange={(p: MyHoursPeriod) => s.setPeriod(p)} />
         <button
           type="button"
           className="myh-refresh"

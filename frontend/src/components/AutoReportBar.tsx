@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { CalendarClock, Check, ClipboardCheck, CloudOff, Download, Loader2, RefreshCw, Send, Undo2, UserRound } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  ClipboardCheck,
+  CloudOff,
+  Download,
+  Loader2,
+  RefreshCw,
+  Send,
+  Undo2,
+  UserRound,
+} from "lucide-react";
 import { useReportStore } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import { canEditAutoTab, errorList, useAutoGenerationStore, type AutoStatus } from "../store/useAutoGenerationStore";
@@ -24,7 +35,7 @@ type Messages = { kind: "error" | "ok" | "warn"; items: string[] } | null;
 export function AutoReportBar() {
   const tab = useReportTabsStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
   const auto = tab?.auto;
-  const saveState = useAutoGenerationStore((s) => (auto ? s.saveState[auto.reportId] ?? "saved" : "saved"));
+  const saveState = useAutoGenerationStore((s) => (auto ? (s.saveState[auto.reportId] ?? "saved") : "saved"));
   const packages = useReportStore((s) => s.packages);
   const header = useReportStore((s) => s.header);
   const [messages, setMessages] = useState<Messages>(null);
@@ -64,14 +75,20 @@ export function AutoReportBar() {
   };
 
   const approve = () => {
-    const missing = packages.filter((p) => !p.projectCode.trim()).map((p) => `Falta o número do relatório de "${p.projectName}".`);
-    if (!header.signer1Name.trim() || !header.signer2Name.trim()) missing.push("Preencha o nome de quem assina (Schwaben e cliente).");
+    const missing = packages
+      .filter((p) => !p.projectCode.trim())
+      .map((p) => `Falta o número do relatório de "${p.projectName}".`);
+    if (!header.signer1Name.trim() || !header.signer2Name.trim())
+      missing.push("Preencha o nome de quem assina (Schwaben e cliente).");
     const emptyDesc = findEmptyActivityDescriptionMessage(packages, "aprovar");
     if (emptyDesc) missing.push(emptyDesc);
     if (missing.length) return setMessages({ kind: "error", items: missing });
     void run(async () => {
       const { warnings } = await useAutoGenerationStore.getState().approve(auto.reportId);
-      return { kind: warnings.length ? "warn" : "ok", items: ["Aprovado. Os arquivos foram para o histórico e estão prontos para envio.", ...warnings] };
+      return {
+        kind: warnings.length ? "warn" : "ok",
+        items: ["Aprovado. Os arquivos foram para o histórico e estão prontos para envio.", ...warnings],
+      };
     });
   };
 
@@ -99,16 +116,34 @@ export function AutoReportBar() {
     <div className="auto-bar card" role="region" aria-label="Relatório da geração automática">
       <div className="auto-bar-main">
         <span className="auto-bar-kind">
-          {reviewer ? <><ClipboardCheck size={16} strokeWidth={2} /> Revisão</> : <><CalendarClock size={16} strokeWidth={2} /> Geração automática</>}
+          {reviewer ? (
+            <>
+              <ClipboardCheck size={16} strokeWidth={2} /> Revisão
+            </>
+          ) : (
+            <>
+              <CalendarClock size={16} strokeWidth={2} /> Geração automática
+            </>
+          )}
         </span>
-        <span className="auto-bar-title">{tab?.label} · {auto.periodLabel ?? competenceLabel(auto.competence)}</span>
+        <span className="auto-bar-title">
+          {tab?.label} · {auto.periodLabel ?? competenceLabel(auto.competence)}
+        </span>
         <StatusPill status={status} />
         {!reviewer && auto.reviewerName && (
-          <span className="auto-bar-reviewer"><UserRound size={14} strokeWidth={2} aria-hidden="true" /> {auto.reviewerName}</span>
+          <span className="auto-bar-reviewer">
+            <UserRound size={14} strokeWidth={2} aria-hidden="true" /> {auto.reviewerName}
+          </span>
         )}
         {editable && (
           <span className={`auto-save auto-save-${saveState}`} role="status" aria-live="polite">
-            {saveState === "saving" ? <Loader2 size={14} className="spin" /> : saveState === "saved" ? <Check size={14} /> : <CloudOff size={14} />}
+            {saveState === "saving" ? (
+              <Loader2 size={14} className="spin" />
+            ) : saveState === "saved" ? (
+              <Check size={14} />
+            ) : (
+              <CloudOff size={14} />
+            )}
             {SAVE_TEXT[saveState]}
           </span>
         )}
@@ -117,21 +152,35 @@ export function AutoReportBar() {
       {editable && status === "devolvido" && auto.returnComment && (
         <p className="auto-review-note auto-review-note-returned">
           <Undo2 size={14} strokeWidth={2} aria-hidden="true" />
-          <span><strong>O gerente pediu:</strong> {auto.returnComment}</span>
+          <span>
+            <strong>O gerente pediu:</strong> {auto.returnComment}
+          </span>
         </p>
       )}
 
       {saveState === "conflict" && (
         <div className="auto-bar-conflict">
-          <p>O rascunho foi alterado em outro lugar depois que você abriu. Recarregue pra ver a versão atual — o que você mudou aqui desde o último salvamento se perde.</p>
-          <button type="button" className="btn-secondary" onClick={() => void reload()}><RefreshCw size={14} /> Recarregar do servidor</button>
+          <p>
+            O rascunho foi alterado em outro lugar depois que você abriu. Recarregue pra ver a versão atual — o que você
+            mudou aqui desde o último salvamento se perde.
+          </p>
+          <button type="button" className="btn-secondary" onClick={() => void reload()}>
+            <RefreshCw size={14} /> Recarregar do servidor
+          </button>
         </div>
       )}
 
       {reviewer && editable && (
         <div className="auto-bar-actions">
-          <input className="auto-bar-note" type="text" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)}
-            placeholder="Observação pro gerente (opcional)" aria-label="Observação pro gerente" />
+          <input
+            className="auto-bar-note"
+            type="text"
+            value={note}
+            maxLength={2000}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Observação pro gerente (opcional)"
+            aria-label="Observação pro gerente"
+          />
           <button type="button" className="primary" onClick={submit} disabled={working || saveState === "conflict"}>
             <Send size={14} strokeWidth={2} /> {working ? "Mandando…" : "Mandar pra aprovação"}
           </button>
@@ -143,7 +192,13 @@ export function AutoReportBar() {
         <div className="auto-bar-actions">
           <FormatCheckboxes value={formats} onChange={setFormats} />
           {status === "revisado" && auto.reviewerName && (
-            <button type="button" className="btn-secondary" aria-expanded={showReturn} onClick={() => setShowReturn((v) => !v)} disabled={working}>
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-expanded={showReturn}
+              onClick={() => setShowReturn((v) => !v)}
+              disabled={working}
+            >
               <Undo2 size={14} strokeWidth={2} /> Devolver
             </button>
           )}
@@ -155,8 +210,16 @@ export function AutoReportBar() {
 
       {!reviewer && editable && showReturn && (
         <div className="auto-bar-actions">
-          <input className="auto-bar-note" type="text" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)}
-            placeholder={`O que ${auto.reviewerName ?? "o revisor"} precisa mudar?`} aria-label="O que o revisor precisa mudar" autoFocus />
+          <input
+            className="auto-bar-note"
+            type="text"
+            value={note}
+            maxLength={2000}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={`O que ${auto.reviewerName ?? "o revisor"} precisa mudar?`}
+            aria-label="O que o revisor precisa mudar"
+            autoFocus
+          />
           <button type="button" className="primary" onClick={sendBack} disabled={working}>
             <Undo2 size={14} strokeWidth={2} /> Devolver ao revisor
           </button>
@@ -186,7 +249,9 @@ export function AutoReportBar() {
 
       {messages && (
         <ul className={`auto-bar-messages auto-bar-messages-${messages.kind}`} role="alert">
-          {messages.items.map((m) => <li key={m}>{m}</li>)}
+          {messages.items.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
         </ul>
       )}
     </div>

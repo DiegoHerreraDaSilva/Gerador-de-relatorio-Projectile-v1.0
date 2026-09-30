@@ -184,7 +184,11 @@ export function HistoryPanel() {
       {selectedReportId && (
         <div className="card history-detail">
           <div className="history-detail-head">
-            <h3>{selectedReport ? `${selectedReport.report_number} — ${selectedReport.project_name_snapshot}` : "Carregando..."}</h3>
+            <h3>
+              {selectedReport
+                ? `${selectedReport.report_number} — ${selectedReport.project_name_snapshot}`
+                : "Carregando..."}
+            </h3>
             <button type="button" className="modal-close" aria-label="Fechar detalhe" onClick={clearSelection}>
               <X size={18} strokeWidth={2} />
             </button>
@@ -309,7 +313,10 @@ export function HistoryPanel() {
                     {auditEvents.map((e) => (
                       <li key={e.id}>
                         <span className="history-audit-action">{formatAuditAction(e.action)}</span>
-                        <span className="muted"> por {e.actor_name_snapshot || e.actor_id} em {formatDateTime(e.created_at)}</span>
+                        <span className="muted">
+                          {" "}
+                          por {e.actor_name_snapshot || e.actor_id} em {formatDateTime(e.created_at)}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -359,7 +366,7 @@ export function HistoryPanel() {
               </div>
             </div>
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );

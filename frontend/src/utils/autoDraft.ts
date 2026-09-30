@@ -155,7 +155,12 @@ export function editorToDraft(
         source_key: key(g.id),
         name: g.name,
         performance: g.performance,
-        activities: g.activities.map((a) => ({ id: a.id, source_key: key(a.id), description: a.description, hours: a.hours })),
+        activities: g.activities.map((a) => ({
+          id: a.id,
+          source_key: key(a.id),
+          description: a.description,
+          hours: a.hours,
+        })),
       })),
     })),
     issues,

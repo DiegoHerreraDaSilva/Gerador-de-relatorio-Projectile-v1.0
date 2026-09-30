@@ -17,8 +17,7 @@ export function getReportImportActionState(input: ReportImportActionInput) {
     };
   }
 
-  const missingClientSelection =
-    input.byClient && (!input.hasClient || input.selectedProjectCount === 0);
+  const missingClientSelection = input.byClient && (!input.hasClient || input.selectedProjectCount === 0);
 
   return {
     disabled: input.busy || missingClientSelection,

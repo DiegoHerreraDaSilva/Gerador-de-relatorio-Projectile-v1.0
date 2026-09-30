@@ -28,7 +28,12 @@ function renderIssueDetail(reason: string, message: string) {
       const split = part.split(phrase);
       split.forEach((chunk, idx) => {
         if (chunk) newParts.push(chunk);
-        if (idx < split.length - 1) newParts.push(<span key={idx} className="issue-highlight">{phrase}</span>);
+        if (idx < split.length - 1)
+          newParts.push(
+            <span key={idx} className="issue-highlight">
+              {phrase}
+            </span>,
+          );
       });
     });
     parts = newParts;
@@ -85,7 +90,7 @@ export function ValidationBanner() {
     pkg.groups.map((g) => ({
       value: `${pkg.id}::${g.id}`,
       label: `${pkg.projectCode || pkg.projectName || "Pacote"} — ${g.name}`,
-    }))
+    })),
   );
 
   function toggleChecked(row: number) {
@@ -105,7 +110,7 @@ export function ValidationBanner() {
     const added = addActivitiesFromIssues(
       groupId,
       packageId,
-      selected.map((i) => ({ description: i.raw_description ?? "", hours: i.raw_hours as number }))
+      selected.map((i) => ({ description: i.raw_description ?? "", hours: i.raw_hours as number })),
     );
     if (!added) {
       // grupo/pacote escolhido não existe mais (ex: removido, ou o dropdown
@@ -127,7 +132,9 @@ export function ValidationBanner() {
   return (
     <div className={`validation-banner ${collapsed ? "collapsed" : ""} visible`}>
       <div className="validation-banner-header">
-        <span className="validation-banner-title">⚠ <span>{issues.length}</span> linha(s) ignorada(s) com possível erro de apontamento</span>
+        <span className="validation-banner-title">
+          ⚠ <span>{issues.length}</span> linha(s) ignorada(s) com possível erro de apontamento
+        </span>
         {hasRecoverable && groupOptions.length > 0 && (
           <div className="issue-recover-bulk">
             <Select
@@ -136,7 +143,10 @@ export function ValidationBanner() {
               value={target}
               onChange={setTarget}
               disabled={collapsed}
-              options={[{ value: "", label: "Escolher grupo..." }, ...groupOptions.map((opt) => ({ value: opt.value, label: opt.label }))]}
+              options={[
+                { value: "", label: "Escolher grupo..." },
+                ...groupOptions.map((opt) => ({ value: opt.value, label: opt.label })),
+              ]}
             />
             <button
               type="button"
@@ -148,7 +158,9 @@ export function ValidationBanner() {
             </button>
           </div>
         )}
-        <button type="button" className="btn-toggle" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "▸ Expandir" : "▾ Recolher"}</button>
+        <button type="button" className="btn-toggle" onClick={() => setCollapsed(!collapsed)}>
+          {collapsed ? "▸ Expandir" : "▾ Recolher"}
+        </button>
       </div>
       {addError && <p className="issue-recover-error">{addError}</p>}
       <ul className="validation-list">

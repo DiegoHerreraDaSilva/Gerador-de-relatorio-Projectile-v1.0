@@ -10,13 +10,7 @@ import { useReportTabsStore, bundleHasContent } from "../store/useReportTabsStor
  * uma guia a partir de QUALQUER tela — quem chama decide se precisa trocar
  * de view antes. Quando a sidebar está recolhida, mantém um ícone por guia
  * para preservar acesso rápido sem voltar a ocupar largura horizontal. */
-export function ReportTabsBar({
-  collapsed,
-  onOpenTab,
-}: {
-  collapsed: boolean;
-  onOpenTab: (tabId: string) => void;
-}) {
+export function ReportTabsBar({ collapsed, onOpenTab }: { collapsed: boolean; onOpenTab: (tabId: string) => void }) {
   const tabs = useReportTabsStore((s) => s.tabs);
   const activeTabId = useReportTabsStore((s) => s.activeTabId);
   const bundles = useReportTabsStore((s) => s.bundles);
@@ -82,10 +76,7 @@ export function ReportTabsBar({
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           return (
-            <div
-              key={tab.id}
-              className={`report-tab ${isActive ? "active" : ""}`}
-            >
+            <div key={tab.id} className={`report-tab ${isActive ? "active" : ""}`}>
               {editingId === tab.id ? (
                 <input
                   ref={editInputRef}
@@ -113,7 +104,11 @@ export function ReportTabsBar({
                 </button>
               )}
               {isActive && pendingSave && (
-                <span className="report-tab-unsaved-dot" title="Salvando alterações..." aria-label="Alterações não salvas" />
+                <span
+                  className="report-tab-unsaved-dot"
+                  title="Salvando alterações..."
+                  aria-label="Alterações não salvas"
+                />
               )}
               <button
                 type="button"
@@ -137,14 +132,18 @@ export function ReportTabsBar({
             <div className="modal-card report-tab-close-confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Fechar guia</h2>
-                <button type="button" className="modal-close" onClick={() => setPendingCloseId(null)} aria-label="Fechar">
+                <button
+                  type="button"
+                  className="modal-close"
+                  onClick={() => setPendingCloseId(null)}
+                  aria-label="Fechar"
+                >
                   <X size={18} strokeWidth={2} />
                 </button>
               </div>
               <div className="modal-body">
                 <p>
-                  Essa guia tem um relatório com dados preenchidos. Fechar descarta tudo — não tem como desfazer
-                  depois.
+                  Essa guia tem um relatório com dados preenchidos. Fechar descarta tudo — não tem como desfazer depois.
                 </p>
               </div>
               <div className="modal-actions">
@@ -164,7 +163,7 @@ export function ReportTabsBar({
               </div>
             </div>
           </div>,
-          document.body
+          document.body,
         )}
     </>
   );

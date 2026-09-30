@@ -107,17 +107,22 @@ export function describeBlockView(block: CustomBlockView): string {
   if (block.clients.length) parts.push(block.clients.join(", "));
   if (block.projects.length) parts.push(block.projects.join(", "));
   else parts.push(block.clients.length ? "todos os projetos" : "qualquer cliente e projeto");
-  if (block.packages.length) parts.push(`${block.packages.length === 1 ? "pacote" : "pacotes"}: ${block.packages.join(", ")}`);
-  if (block.employees.length) parts.push(`${block.employees.length === 1 ? "colaborador" : "colaboradores"}: ${block.employees.join(", ")}`);
+  if (block.packages.length)
+    parts.push(`${block.packages.length === 1 ? "pacote" : "pacotes"}: ${block.packages.join(", ")}`);
+  if (block.employees.length)
+    parts.push(`${block.employees.length === 1 ? "colaborador" : "colaboradores"}: ${block.employees.join(", ")}`);
   return parts.join(" · ");
 }
 
 /** Uma frase do bloco pra tela ("Mercedes · 2 projetos · Lucca"). */
 export function describeBlock(
-  block: BlockDraft, employeeName: (id: string) => string, projectName: (id: string) => string,
+  block: BlockDraft,
+  employeeName: (id: string) => string,
+  projectName: (id: string) => string,
 ): string {
   const parts: string[] = [];
-  if (block.clients.length) parts.push(block.clients.length <= 2 ? block.clients.join(", ") : `${block.clients.length} clientes`);
+  if (block.clients.length)
+    parts.push(block.clients.length <= 2 ? block.clients.join(", ") : `${block.clients.length} clientes`);
   if (block.projectIds.length === 1) parts.push(projectName(block.projectIds[0]));
   else if (block.projectIds.length > 1) parts.push(`${block.projectIds.length} projetos`);
   else if (block.clients.length) parts.push("todos os projetos");
@@ -125,7 +130,11 @@ export function describeBlock(
     parts.push(block.packages.length === 1 ? "1 pacote" : `${block.packages.length} pacotes`);
   }
   if (block.employeeIds.length) {
-    parts.push(block.employeeIds.length <= 2 ? block.employeeIds.map(employeeName).join(", ") : `${block.employeeIds.length} colaboradores`);
+    parts.push(
+      block.employeeIds.length <= 2
+        ? block.employeeIds.map(employeeName).join(", ")
+        : `${block.employeeIds.length} colaboradores`,
+    );
   }
   return parts.join(" · ");
 }

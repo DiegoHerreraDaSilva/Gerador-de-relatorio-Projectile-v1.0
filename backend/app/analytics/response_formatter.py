@@ -1,5 +1,6 @@
 """Texto da resposta sem LLM (rota `simple_data`). Também é o texto de
 reserva quando o Claude falha ou devolve número que não veio dos dados."""
+
 from __future__ import annotations
 
 from .query_engine import QueryResult
@@ -50,7 +51,4 @@ def format_reply(result: QueryResult) -> str:
         return f"Total de {unit_total} {scope}, distribuído em {len(result.rows)} meses (detalhe na tabela)."
     total = fmt_hours(result.total) if result.unit == "hours" else fmt_number(result.total)
     more = " Mostrando só os primeiros." if result.truncated else ""
-    return (
-        f"Total de {total} {scope}, em {len(result.rows)} {dimension}(s). "
-        f"Maiores: {_top(result)}.{more}"
-    )
+    return f"Total de {total} {scope}, em {len(result.rows)} {dimension}(s). Maiores: {_top(result)}.{more}"

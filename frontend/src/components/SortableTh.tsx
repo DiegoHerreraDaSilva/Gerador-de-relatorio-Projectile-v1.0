@@ -31,7 +31,11 @@ export function SortableTh({
       <button type="button" className="sortable-th-btn" onClick={() => onSort(sortKey)}>
         {children}
         {active ? (
-          direction === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+          direction === "asc" ? (
+            <ChevronUp size={12} />
+          ) : (
+            <ChevronDown size={12} />
+          )
         ) : (
           <ChevronsUpDown size={12} className="sortable-th-icon-idle" />
         )}

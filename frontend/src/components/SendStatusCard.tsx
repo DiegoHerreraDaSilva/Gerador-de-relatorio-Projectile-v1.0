@@ -69,18 +69,26 @@ export function SendStatusCard({
   const sendStatusSearchNormalized = sendStatusSearch.trim().toLowerCase();
   const sendStatusRowsInPeriod = projectSendStatus
     .filter((r) => displayMonths.has(r.month))
-    .filter((r) =>
-      !sendStatusSearchNormalized ||
-      r.client.toLowerCase().includes(sendStatusSearchNormalized) ||
-      r.project_name.toLowerCase().includes(sendStatusSearchNormalized) ||
-      r.month.includes(sendStatusSearchNormalized)
+    .filter(
+      (r) =>
+        !sendStatusSearchNormalized ||
+        r.client.toLowerCase().includes(sendStatusSearchNormalized) ||
+        r.project_name.toLowerCase().includes(sendStatusSearchNormalized) ||
+        r.month.includes(sendStatusSearchNormalized),
     )
-    .sort((a, b) => a.client.localeCompare(b.client) || a.project_name.localeCompare(b.project_name) || b.month.localeCompare(a.month));
+    .sort(
+      (a, b) =>
+        a.client.localeCompare(b.client) ||
+        a.project_name.localeCompare(b.project_name) ||
+        b.month.localeCompare(a.month),
+    );
   const sendStatusSentCount = sendStatusRowsInPeriod.filter((r) => r.status === "sent").length;
   const sendStatusPartialCount = sendStatusRowsInPeriod.filter((r) => r.status === "partial").length;
   const sendStatusNoneCount = sendStatusRowsInPeriod.filter((r) => r.status === "none").length;
   const sendStatusClosedCount = sendStatusRowsInPeriod.filter((r) => r.status === "closed").length;
-  const sendStatusRows = sendStatusRowsInPeriod.filter((r) => (sendStatusTab === "all" ? true : r.status === sendStatusTab));
+  const sendStatusRows = sendStatusRowsInPeriod.filter((r) =>
+    sendStatusTab === "all" ? true : r.status === sendStatusTab,
+  );
 
   const sendStatusSort = useSortableRows<ProjectSendStatusRow>(sendStatusRows, (r, key) => {
     if (key === "client") return r.client;
@@ -105,19 +113,39 @@ export function SendStatusCard({
       </div>
       {sendStatusActionError && <p className="error-text">{sendStatusActionError}</p>}
       <div className="send-status-tabs">
-        <button type="button" className={sendStatusTab === "all" ? "active" : ""} onClick={() => setSendStatusTab("all")}>
+        <button
+          type="button"
+          className={sendStatusTab === "all" ? "active" : ""}
+          onClick={() => setSendStatusTab("all")}
+        >
           Todos <span className="send-status-tab-count">{sendStatusRowsInPeriod.length}</span>
         </button>
-        <button type="button" className={sendStatusTab === "sent" ? "active" : ""} onClick={() => setSendStatusTab("sent")}>
+        <button
+          type="button"
+          className={sendStatusTab === "sent" ? "active" : ""}
+          onClick={() => setSendStatusTab("sent")}
+        >
           Enviados <span className="send-status-tab-count">{sendStatusSentCount}</span>
         </button>
-        <button type="button" className={sendStatusTab === "partial" ? "active" : ""} onClick={() => setSendStatusTab("partial")}>
+        <button
+          type="button"
+          className={sendStatusTab === "partial" ? "active" : ""}
+          onClick={() => setSendStatusTab("partial")}
+        >
           Enviados parcialmente <span className="send-status-tab-count">{sendStatusPartialCount}</span>
         </button>
-        <button type="button" className={sendStatusTab === "none" ? "active" : ""} onClick={() => setSendStatusTab("none")}>
+        <button
+          type="button"
+          className={sendStatusTab === "none" ? "active" : ""}
+          onClick={() => setSendStatusTab("none")}
+        >
           Não enviados <span className="send-status-tab-count">{sendStatusNoneCount}</span>
         </button>
-        <button type="button" className={sendStatusTab === "closed" ? "active" : ""} onClick={() => setSendStatusTab("closed")}>
+        <button
+          type="button"
+          className={sendStatusTab === "closed" ? "active" : ""}
+          onClick={() => setSendStatusTab("closed")}
+        >
           Fechados <span className="send-status-tab-count">{sendStatusClosedCount}</span>
         </button>
       </div>
@@ -130,7 +158,12 @@ export function SendStatusCard({
           onChange={(e) => setSendStatusSearch(e.target.value)}
         />
         {sendStatusSearch && (
-          <button type="button" className="send-status-search-clear" onClick={() => setSendStatusSearch("")} aria-label="Limpar busca">
+          <button
+            type="button"
+            className="send-status-search-clear"
+            onClick={() => setSendStatusSearch("")}
+            aria-label="Limpar busca"
+          >
             ×
           </button>
         )}
@@ -139,16 +172,46 @@ export function SendStatusCard({
         <table className="kpi-table">
           <thead>
             <tr>
-              <SortableTh sortKey="client" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Cliente</SortableTh>
-              <SortableTh sortKey="project" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Projeto</SortableTh>
-              <SortableTh sortKey="month" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Competência</SortableTh>
-              <SortableTh sortKey="status" activeKey={sendStatusSort.sortKey} direction={sendStatusSort.direction} onSort={sendStatusSort.toggleSort}>Enviado</SortableTh>
+              <SortableTh
+                sortKey="client"
+                activeKey={sendStatusSort.sortKey}
+                direction={sendStatusSort.direction}
+                onSort={sendStatusSort.toggleSort}
+              >
+                Cliente
+              </SortableTh>
+              <SortableTh
+                sortKey="project"
+                activeKey={sendStatusSort.sortKey}
+                direction={sendStatusSort.direction}
+                onSort={sendStatusSort.toggleSort}
+              >
+                Projeto
+              </SortableTh>
+              <SortableTh
+                sortKey="month"
+                activeKey={sendStatusSort.sortKey}
+                direction={sendStatusSort.direction}
+                onSort={sendStatusSort.toggleSort}
+              >
+                Competência
+              </SortableTh>
+              <SortableTh
+                sortKey="status"
+                activeKey={sendStatusSort.sortKey}
+                direction={sendStatusSort.direction}
+                onSort={sendStatusSort.toggleSort}
+              >
+                Enviado
+              </SortableTh>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={4} className="muted">Carregando...</td>
+                <td colSpan={4} className="muted">
+                  Carregando...
+                </td>
               </tr>
             )}
             {!loading && sendStatusRows.length === 0 && (
@@ -168,96 +231,100 @@ export function SendStatusCard({
                 </td>
               </tr>
             )}
-            {!loading && sendStatusSort.sortedRows.map((r) => {
-              const rowKey = `${r.project_id}-${r.month}`;
-              const isExpanded = expandedSendStatusRow === rowKey;
-              return (
-                <Fragment key={rowKey}>
-                  <tr>
-                    <td>{r.client}</td>
-                    <td>{r.project_name}</td>
-                    <td>{r.month}</td>
-                    <td>
-                      {r.status === "closed" ? (
-                        <span
-                          className="send-status-badge closed"
-                          role="img"
-                          aria-label="Cliente/projeto fechado"
-                          title="Fechado — não precisa de relatório por e-mail (ver botão Fechados)"
-                        >
-                          <Lock size={12} strokeWidth={2.5} />
-                        </span>
-                      ) : r.status === "partial" ? (
-                        <button
-                          type="button"
-                          className="send-status-badge-btn"
-                          aria-expanded={isExpanded}
-                          onClick={() => setExpandedSendStatusRow(isExpanded ? null : rowKey)}
-                        >
+            {!loading &&
+              sendStatusSort.sortedRows.map((r) => {
+                const rowKey = `${r.project_id}-${r.month}`;
+                const isExpanded = expandedSendStatusRow === rowKey;
+                return (
+                  <Fragment key={rowKey}>
+                    <tr>
+                      <td>{r.client}</td>
+                      <td>{r.project_name}</td>
+                      <td>{r.month}</td>
+                      <td>
+                        {r.status === "closed" ? (
                           <span
-                            className={`send-status-badge ${r.status}`}
-                            title={`Faltam: ${(r.missing_pacotes ?? []).join(", ")}`}
+                            className="send-status-badge closed"
+                            role="img"
+                            aria-label="Cliente/projeto fechado"
+                            title="Fechado — não precisa de relatório por e-mail (ver botão Fechados)"
                           >
-                            <Minus size={14} strokeWidth={3} />
+                            <Lock size={12} strokeWidth={2.5} />
                           </span>
-                        </button>
-                      ) : r.status === "sent" && r.manual_send_marker_id && r.manual_send_marker_removable ? (
-                        <button
-                          type="button"
-                          className="send-status-badge-btn"
-                          onClick={() => handleUnmarkSent(r.manual_send_marker_id!)}
-                        >
+                        ) : r.status === "partial" ? (
+                          <button
+                            type="button"
+                            className="send-status-badge-btn"
+                            aria-expanded={isExpanded}
+                            onClick={() => setExpandedSendStatusRow(isExpanded ? null : rowKey)}
+                          >
+                            <span
+                              className={`send-status-badge ${r.status}`}
+                              title={`Faltam: ${(r.missing_pacotes ?? []).join(", ")}`}
+                            >
+                              <Minus size={14} strokeWidth={3} />
+                            </span>
+                          </button>
+                        ) : r.status === "sent" && r.manual_send_marker_id && r.manual_send_marker_removable ? (
+                          <button
+                            type="button"
+                            className="send-status-badge-btn"
+                            onClick={() => handleUnmarkSent(r.manual_send_marker_id!)}
+                          >
+                            <span
+                              className="send-status-badge sent manual"
+                              title="Marcado manualmente como enviado — clique pra desmarcar"
+                            >
+                              <Check size={14} strokeWidth={3} />
+                            </span>
+                          </button>
+                        ) : r.status === "sent" ? (
                           <span
-                            className="send-status-badge sent manual"
-                            title="Marcado manualmente como enviado — clique pra desmarcar"
+                            className="send-status-badge sent"
+                            role="img"
+                            aria-label="Relatório enviado"
+                            title="Todos os pacotes de trabalho com hora no mês foram recebidos por e-mail"
                           >
                             <Check size={14} strokeWidth={3} />
                           </span>
-                        </button>
-                      ) : r.status === "sent" ? (
-                        <span
-                          className="send-status-badge sent"
-                          role="img"
-                          aria-label="Relatório enviado"
-                          title="Todos os pacotes de trabalho com hora no mês foram recebidos por e-mail"
-                        >
-                          <Check size={14} strokeWidth={3} />
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="send-status-badge-btn"
-                          onClick={() => handleMarkAsSent(r.project_id, r.month)}
-                        >
-                          <span className="send-status-badge none" title="Clique pra marcar como enviado manualmente" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                  {isExpanded && (
-                    <tr className="send-status-missing-row">
-                      <td colSpan={4}>
-                        <div className="send-status-missing-panel">
-                          <span className="send-status-missing-label">Pacotes faltando neste mês:</span>
-                          <ul>
-                            {(r.missing_pacotes ?? []).map((pacote) => (
-                              <li key={pacote}>{pacote}</li>
-                            ))}
-                          </ul>
+                        ) : (
                           <button
                             type="button"
-                            className="btn-secondary send-status-force-sent-btn"
+                            className="send-status-badge-btn"
                             onClick={() => handleMarkAsSent(r.project_id, r.month)}
                           >
-                            Marcar como enviado mesmo assim
+                            <span
+                              className="send-status-badge none"
+                              title="Clique pra marcar como enviado manualmente"
+                            />
                           </button>
-                        </div>
+                        )}
                       </td>
                     </tr>
-                  )}
-                </Fragment>
-              );
-            })}
+                    {isExpanded && (
+                      <tr className="send-status-missing-row">
+                        <td colSpan={4}>
+                          <div className="send-status-missing-panel">
+                            <span className="send-status-missing-label">Pacotes faltando neste mês:</span>
+                            <ul>
+                              {(r.missing_pacotes ?? []).map((pacote) => (
+                                <li key={pacote}>{pacote}</li>
+                              ))}
+                            </ul>
+                            <button
+                              type="button"
+                              className="btn-secondary send-status-force-sent-btn"
+                              onClick={() => handleMarkAsSent(r.project_id, r.month)}
+                            >
+                              Marcar como enviado mesmo assim
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
           </tbody>
         </table>
       </div>

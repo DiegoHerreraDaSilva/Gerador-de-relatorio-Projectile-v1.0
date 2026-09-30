@@ -8,6 +8,7 @@ Dashboard de horas, Histórico, Minhas revisões) — a tela só esconde; quem
 barra de verdade é o backend. O ano atual está sempre dentro dos últimos 12
 meses até o mês corrente; ele só estende a janela pros meses que ainda vão
 chegar (um relatório de novembro preparado em outubro)."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -16,8 +17,7 @@ from fastapi import HTTPException
 
 from .dependencies import is_manager
 
-_MONTHS = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto",
-           "setembro", "outubro", "novembro", "dezembro")
+_MONTHS = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro")
 
 
 def window(today: date | None = None) -> tuple[date, date]:
@@ -66,7 +66,7 @@ def check_month(user: dict, month: str | None, today: date | None = None) -> Non
 
 
 def allowed_months(today: date | None = None) -> list[str]:
-    """"AAAA-MM" da janela, do mais antigo ao mais novo."""
+    """ "AAAA-MM" da janela, do mais antigo ao mais novo."""
     start, end = window(today)
     months, index = [], start.year * 12 + start.month - 1
     while index <= end.year * 12 + end.month - 1:

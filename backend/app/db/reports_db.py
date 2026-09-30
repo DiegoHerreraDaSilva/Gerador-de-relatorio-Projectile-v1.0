@@ -11,6 +11,7 @@ container `reports-mysql` estiver fora do ar, isso NÃO afeta `/parse`,
 `/auth/login`, `/my-hours` etc., só o caminho que efetivamente tenta
 persistir (ver `services/report_persistence.py`, que é fail-open por
 padrão)."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -46,11 +47,4 @@ def get_engine() -> Engine:
         f"@{settings.reports_db_host}:{settings.reports_db_port}/{settings.reports_db_name}"
         "?charset=utf8mb4"
     )
-    return create_engine(
-        url,
-        pool_size=5,
-        max_overflow=5,
-        pool_pre_ping=True,
-        pool_recycle=1800,
-        connect_args={"connect_timeout": _CONNECT_TIMEOUT_SECONDS},
-    )
+    return create_engine(url, pool_size=5, max_overflow=5, pool_pre_ping=True, pool_recycle=1800, connect_args={"connect_timeout": _CONNECT_TIMEOUT_SECONDS})

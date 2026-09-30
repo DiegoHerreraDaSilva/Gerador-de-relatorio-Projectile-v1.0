@@ -5,6 +5,7 @@ Package - Estribo 07.2026", "... 08.2026") e o mesmo vale pros pacotes de
 trabalho ("1546.7.3-001 Legislation Package - Câmera - ATEGO 08.2026"). Regra
 e memória presas ao `project_id`/nome exato teriam de ser refeitas todo mês —
 por isso a chave é o nome SEM a data, junto com o cliente."""
+
 from __future__ import annotations
 
 import html

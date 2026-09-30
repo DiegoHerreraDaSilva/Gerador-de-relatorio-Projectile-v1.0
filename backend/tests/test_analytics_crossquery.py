@@ -1,5 +1,6 @@
 """Motor da consulta cruzada (`analytics/crossquery.py`) com dados fixos —
 os totais dá pra conferir de cabeça. Sem banco, sem IA."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -78,13 +79,14 @@ def test_horas_por_cliente_com_participacao():
 def test_duas_dimensoes_cliente_por_mes_ordena_pelo_total_do_cliente():
     result = run({"measures": ["hours"], "group_by": ["client", "month"], "relative_period": "last_3_months"})
     assert [(row.labels, row.values["hours"]) for row in result.rows] == [
-        (("ACME", "agosto/2026"), 5.0), (("ACME", "setembro/2026"), 10.0), (("Beta", "setembro/2026"), 3.0),
+        (("ACME", "agosto/2026"), 5.0),
+        (("ACME", "setembro/2026"), 10.0),
+        (("Beta", "setembro/2026"), 3.0),
     ]
 
 
 def test_varios_colaboradores_no_filtro_e_contagens_distintas():
-    result = run({"measures": ["hours", "projects", "active_days"], "group_by": ["employee"],
-                  "employees": ["Ana Souza", "Bruno Lima"]})
+    result = run({"measures": ["hours", "projects", "active_days"], "group_by": ["employee"], "employees": ["Ana Souza", "Bruno Lima"]})
     assert table(result) == [
         (("Ana Souza",), {"hours": 13.0, "projects": 1, "active_days": 2}),
         (("Bruno Lima",), {"hours": 5.0, "projects": 2, "active_days": 2}),
@@ -104,8 +106,7 @@ def test_centro_de_custo_e_pacote():
 
 
 def test_corte_por_valor_e_top_n():
-    below = run({"measures": ["hours"], "group_by": ["employee"],
-                 "threshold_measure": "hours", "threshold_op": "lt", "threshold_value": 6})
+    below = run({"measures": ["hours"], "group_by": ["employee"], "threshold_measure": "hours", "threshold_op": "lt", "threshold_value": 6})
     assert table(below) == [(("Bruno Lima",), {"hours": 5.0})]
     top = run({"measures": ["hours"], "group_by": ["client"], "top_n": 1})
     assert table(top) == [(("ACME",), {"hours": 15.0})]
@@ -114,9 +115,7 @@ def test_corte_por_valor_e_top_n():
 
 def test_serie_mensal_tem_mes_sem_hora_como_zero_em_ordem_cronologica():
     result = run({"measures": ["hours"], "group_by": ["month"], "month": "2026-07", "month_end": "2026-09"})
-    assert [(row.labels[0], row.values["hours"]) for row in result.rows] == [
-        ("julho/2026", 0.0), ("agosto/2026", 5.0), ("setembro/2026", 13.0),
-    ]
+    assert [(row.labels[0], row.values["hours"]) for row in result.rows] == [("julho/2026", 0.0), ("agosto/2026", 5.0), ("setembro/2026", 13.0)]
 
 
 def test_media_por_colaborador():
@@ -133,10 +132,7 @@ def test_consulta_sem_medida_valida_e_recusada():
 
 
 def test_valor_desconhecido_e_dimensao_indisponivel_viram_aviso():
-    spec, notes = crossquery.build_spec(
-        {"measures": ["billed_hours"], "group_by": ["employee", "project"], "clients": ["Inventada SA"]},
-        OPTIONS, TODAY, 12,
-    )
+    spec, notes = crossquery.build_spec({"measures": ["billed_hours"], "group_by": ["employee", "project"], "clients": ["Inventada SA"]}, OPTIONS, TODAY, 12)
     assert spec.group_by == ["project"] and spec.clients == []
     assert any("Inventada SA" in note for note in notes)
     assert any("colaborador" in note for note in notes)
@@ -149,10 +145,20 @@ def test_medidas_de_fontes_diferentes_nao_se_misturam():
 
 def test_contexto_volta_como_a_mesma_consulta():
     spec, _ = crossquery.build_spec(
-        {"measures": ["hours"], "group_by": ["client", "month"], "employees": ["Ana Souza"],
-         "month": "2026-08", "month_end": "2026-09", "top_n": 5,
-         "threshold_measure": "hours", "threshold_op": "gt", "threshold_value": 1},
-        OPTIONS, TODAY, 12,
+        {
+            "measures": ["hours"],
+            "group_by": ["client", "month"],
+            "employees": ["Ana Souza"],
+            "month": "2026-08",
+            "month_end": "2026-09",
+            "top_n": 5,
+            "threshold_measure": "hours",
+            "threshold_op": "gt",
+            "threshold_value": 1,
+        },
+        OPTIONS,
+        TODAY,
+        12,
     )
     again, _ = crossquery.build_spec(spec.as_context(), OPTIONS, TODAY, 12)
     assert again == spec
@@ -164,9 +170,10 @@ SAMPLES = [BilledSample("P1", "2026-09", 9.0)]
 
 
 def test_total_do_time_usa_ajuste_manual_e_bate_com_o_painel():
-    result = run({"measures": ["worked_hours", "billed_hours", "performance_percent"], "group_by": ["month"],
-                  "month": "2026-08", "month_end": "2026-09"},
-                 FakeSources(samples=SAMPLES, manual={"2026-08": 4.0}))
+    result = run(
+        {"measures": ["worked_hours", "billed_hours", "performance_percent"], "group_by": ["month"], "month": "2026-08", "month_end": "2026-09"},
+        FakeSources(samples=SAMPLES, manual={"2026-08": 4.0}),
+    )
     assert table(result) == [
         (("agosto/2026",), {"worked_hours": 5.0, "billed_hours": 4.0, "performance_percent": -20.0}),
         (("setembro/2026",), {"worked_hours": 13.0, "billed_hours": 9.0, "performance_percent": -30.8}),
@@ -174,22 +181,22 @@ def test_total_do_time_usa_ajuste_manual_e_bate_com_o_painel():
 
 
 def test_por_projeto_sem_relatorio_nao_vira_menos_cem_por_cento():
-    result = run({"measures": ["worked_hours", "billed_hours", "perf_hours", "performance_percent"],
-                  "group_by": ["project"], "month": "2026-09"}, FakeSources(samples=SAMPLES))
+    result = run(
+        {"measures": ["worked_hours", "billed_hours", "perf_hours", "performance_percent"], "group_by": ["project"], "month": "2026-09"},
+        FakeSources(samples=SAMPLES),
+    )
     assert table(result) == [
         (("Projeto Um",), {"worked_hours": 10.0, "billed_hours": 9.0, "perf_hours": -1.0, "performance_percent": -10.0}),
         (("Projeto Dois",), {"worked_hours": 3.0, "billed_hours": None, "perf_hours": None, "performance_percent": None}),
     ]
     # o TOTAL é o número do Painel pro recorte (faturado 9 x tudo trabalhado
     # no mês, 13) — não a soma só de quem tem relatório (-1)
-    assert result.totals == {"worked_hours": 13.0, "billed_hours": 9.0, "perf_hours": -4.0,
-                             "performance_percent": -30.8}
+    assert result.totals == {"worked_hours": 13.0, "billed_hours": 9.0, "perf_hours": -4.0, "performance_percent": -30.8}
     assert any("não têm faturado" in note for note in result.notes)
 
 
 def test_ajuste_manual_nao_vale_com_recorte_de_cliente():
-    result = run({"measures": ["billed_hours"], "clients": ["ACME"], "month": "2026-08"},
-                 FakeSources(samples=SAMPLES, manual={"2026-08": 4.0}))
+    result = run({"measures": ["billed_hours"], "clients": ["ACME"], "month": "2026-08"}, FakeSources(samples=SAMPLES, manual={"2026-08": 4.0}))
     assert result.totals == {"billed_hours": None}
 
 
@@ -203,16 +210,18 @@ STATUS = [
 
 
 def test_status_de_envio_por_status_e_taxa():
-    result = run({"measures": ["project_months", "send_rate_percent"], "group_by": ["status"], "month": "2026-09"},
-                 FakeSources(status=STATUS))
-    assert sorted(table(result)) == [(("Enviado",), {"project_months": 1, "send_rate_percent": 100.0}),
-                                     (("Não enviado",), {"project_months": 1, "send_rate_percent": 0.0})]
+    result = run({"measures": ["project_months", "send_rate_percent"], "group_by": ["status"], "month": "2026-09"}, FakeSources(status=STATUS))
+    assert sorted(table(result)) == [
+        (("Enviado",), {"project_months": 1, "send_rate_percent": 100.0}),
+        (("Não enviado",), {"project_months": 1, "send_rate_percent": 0.0}),
+    ]
     assert result.totals["send_rate_percent"] == 50.0
 
 
 def test_projetos_nao_enviados_no_periodo():
-    result = run({"measures": ["project_months"], "group_by": ["project"], "statuses": ["none"],
-                  "relative_period": "last_3_months"}, FakeSources(status=STATUS))
+    result = run(
+        {"measures": ["project_months"], "group_by": ["project"], "statuses": ["none"], "relative_period": "last_3_months"}, FakeSources(status=STATUS)
+    )
     assert table(result) == [(("Projeto Dois",), {"project_months": 1}), (("Projeto Um",), {"project_months": 1})]
 
 
@@ -225,10 +234,11 @@ def test_performance_do_cliente_compara_com_tudo_o_que_ele_trabalhou_como_o_pain
         def project_info(self):
             return {**super().project_info(), "P3": {"name": "Projeto Três", "client": "ACME"}}
 
-    result = run({"measures": ["worked_hours", "billed_hours", "perf_hours", "performance_percent"],
-                  "group_by": ["client"], "month": "2026-09"}, Sources(rows=rows, samples=SAMPLES))
-    assert table(result)[0] == (("ACME",), {"worked_hours": 14.0, "billed_hours": 9.0, "perf_hours": -5.0,
-                                            "performance_percent": -35.7})
+    result = run(
+        {"measures": ["worked_hours", "billed_hours", "perf_hours", "performance_percent"], "group_by": ["client"], "month": "2026-09"},
+        Sources(rows=rows, samples=SAMPLES),
+    )
+    assert table(result)[0] == (("ACME",), {"worked_hours": 14.0, "billed_hours": 9.0, "perf_hours": -5.0, "performance_percent": -35.7})
     assert table(result)[1][1]["performance_percent"] is None  # Beta: nenhum relatório → sem performance
 
 
@@ -239,31 +249,45 @@ def test_performance_do_cliente_compara_com_tudo_o_que_ele_trabalhou_como_o_pain
 def test_horas_do_colaborador_no_cliente_em_relacao_ao_total_dele_mes_a_mes():
     """Caso real: "horas do Lucca na Mercedes em relação ao total, mês a mês"
     devolvia só as horas na Mercedes — o total dele nunca era calculado."""
-    result = run({"measures": ["hours", "total_hours", "share_percent"], "group_by": ["month"],
-                  "employees": ["Bruno Lima"], "clients": ["ACME"], "share_of": "clients",
-                  "month": "2026-08", "month_end": "2026-09"})
+    result = run(
+        {
+            "measures": ["hours", "total_hours", "share_percent"],
+            "group_by": ["month"],
+            "employees": ["Bruno Lima"],
+            "clients": ["ACME"],
+            "share_of": "clients",
+            "month": "2026-08",
+            "month_end": "2026-09",
+        }
+    )
     rows = {row.labels[0]: row.values for row in result.rows}
     assert rows["setembro/2026"] == {"hours": 2.0, "total_hours": 5.0, "share_percent": 40.0}
     assert rows["agosto/2026"] == {"hours": 0.0, "total_hours": 0.0, "share_percent": None}
     assert result.totals == {"hours": 2.0, "total_hours": 5.0, "share_percent": 40.0}
-    assert all(row.share is None for row in result.rows)            # sem um 2º "% do total" confuso
+    assert all(row.share is None for row in result.rows)  # sem um 2º "% do total" confuso
     assert any("sem o filtro de cliente" in n for n in result.notes)
 
 
 def test_colaborador_em_relacao_ao_total_do_cliente():
-    result = run({"measures": ["hours", "total_hours", "share_percent"], "employees": ["Bruno Lima"],
-                  "clients": ["ACME"], "share_of": "employees", "month": "2026-09"})
+    result = run(
+        {"measures": ["hours", "total_hours", "share_percent"], "employees": ["Bruno Lima"], "clients": ["ACME"], "share_of": "employees", "month": "2026-09"}
+    )
     assert result.totals == {"hours": 2.0, "total_hours": 10.0, "share_percent": 20.0}
 
 
 def test_base_nao_quebra_pela_dimensao_que_saiu_dela():
-    """"CAD por centro de custo em relação ao total": a base agrupada por
+    """ "CAD por centro de custo em relação ao total": a base agrupada por
     centro de custo daria CAD/CAD = 100% em toda linha."""
-    result = run({"measures": ["hours", "total_hours", "share_percent"], "group_by": ["cost_center"],
-                  "cost_centers": ["CAD"], "share_of": "cost_centers", "month": "2026-09"})
-    assert [(row.labels, row.values) for row in result.rows] == [
-        (("CAD",), {"hours": 10.0, "total_hours": 13.0, "share_percent": 76.9}),
-    ]
+    result = run(
+        {
+            "measures": ["hours", "total_hours", "share_percent"],
+            "group_by": ["cost_center"],
+            "cost_centers": ["CAD"],
+            "share_of": "cost_centers",
+            "month": "2026-09",
+        }
+    )
+    assert [(row.labels, row.values) for row in result.rows] == [(("CAD",), {"hours": 10.0, "total_hours": 13.0, "share_percent": 76.9})]
 
 
 def test_comparacao_sem_recorte_pra_tirar_da_base_avisa_e_mostra_so_as_horas():
@@ -273,8 +297,7 @@ def test_comparacao_sem_recorte_pra_tirar_da_base_avisa_e_mostra_so_as_horas():
 
 
 def test_share_of_vai_e_volta_no_contexto():
-    spec, _ = crossquery.build_spec({"measures": ["share_percent"], "clients": ["ACME"], "share_of": "clients"},
-                                    OPTIONS, TODAY, 12)
-    assert spec.measures == ["hours", "total_hours", "share_percent"]      # as horas sempre vêm junto
+    spec, _ = crossquery.build_spec({"measures": ["share_percent"], "clients": ["ACME"], "share_of": "clients"}, OPTIONS, TODAY, 12)
+    assert spec.measures == ["hours", "total_hours", "share_percent"]  # as horas sempre vêm junto
     again, _ = crossquery.build_spec(spec.as_context(), OPTIONS, TODAY, 12)
     assert again.share_of == "clients" and again.measures == spec.measures

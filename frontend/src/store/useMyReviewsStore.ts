@@ -61,11 +61,16 @@ export const useMyReviewsStore = create<MyReviewsState>((set, get) => ({
     }
     set({ loading: true, error: "" });
     try {
-      const data = await api<{ to_review: ReviewItem[]; awaiting_approval: ReviewItem[]; done: ReviewItem[] }>("/my-reviews");
+      const data = await api<{ to_review: ReviewItem[]; awaiting_approval: ReviewItem[]; done: ReviewItem[] }>(
+        "/my-reviews",
+      );
       if (get()._loadedForLogin !== login) return;
       set({
-        toReview: data.to_review, awaitingApproval: data.awaiting_approval, done: data.done,
-        loaded: true, loading: false,
+        toReview: data.to_review,
+        awaitingApproval: data.awaiting_approval,
+        done: data.done,
+        loaded: true,
+        loading: false,
         summary: {
           to_review: data.to_review.length,
           assigned: data.to_review.length + data.awaiting_approval.length + data.done.length,
@@ -102,7 +107,12 @@ export const useMyReviewsStore = create<MyReviewsState>((set, get) => ({
 useAuthStore.subscribe((state, prev) => {
   if (state.user?.login !== prev.user?.login) {
     useMyReviewsStore.setState({
-      toReview: [], awaitingApproval: [], done: [], loaded: false, summary: null, _loadedForLogin: state.user?.login ?? null,
+      toReview: [],
+      awaitingApproval: [],
+      done: [],
+      loaded: false,
+      summary: null,
+      _loadedForLogin: state.user?.login ?? null,
     });
   }
 });

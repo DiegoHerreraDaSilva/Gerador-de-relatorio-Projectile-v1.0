@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-  blockProblem, buildCustomScope, describeBlock, describeBlockView, emptyBlock, monthToCompetence, periodForCompetence, periodLabelOf, periodProblem,
-  type BlockDraft, type PeriodDraft,
+  blockProblem,
+  buildCustomScope,
+  describeBlock,
+  describeBlockView,
+  emptyBlock,
+  monthToCompetence,
+  periodForCompetence,
+  periodLabelOf,
+  periodProblem,
+  type BlockDraft,
+  type PeriodDraft,
 } from "../customScope";
 
 const AUGUST: PeriodDraft = { startMonth: "Agosto", startYear: "2026", endMonth: "Agosto", endYear: "2026" };
@@ -16,25 +25,42 @@ describe("período", () => {
   });
 
   it("o período da geração personalizada é o mês atual, vindo da competência", () => {
-    expect(periodForCompetence("2026-09")).toEqual({ startMonth: "Setembro", startYear: "2026", endMonth: "Setembro", endYear: "2026" });
+    expect(periodForCompetence("2026-09")).toEqual({
+      startMonth: "Setembro",
+      startYear: "2026",
+      endMonth: "Setembro",
+      endYear: "2026",
+    });
     expect(periodLabelOf(periodForCompetence("2026-01"))).toBe("Janeiro/2026");
-    expect(buildCustomScope({
-      period: periodForCompetence("2026-09"), blocks: [block({ clients: ["ACME"] })], splitBy: "nenhum", unit: "projeto", title: "", reviewerLogin: "",
-    }).period).toEqual({ start: "2026-09", end: "2026-09" });
+    expect(
+      buildCustomScope({
+        period: periodForCompetence("2026-09"),
+        blocks: [block({ clients: ["ACME"] })],
+        splitBy: "nenhum",
+        unit: "projeto",
+        title: "",
+        reviewerLogin: "",
+      }).period,
+    ).toEqual({ start: "2026-09", end: "2026-09" });
   });
 
   it("recusa mês final antes do inicial e período longo demais", () => {
     expect(periodProblem(AUGUST)).toBeNull();
     expect(periodProblem({ ...AUGUST, endMonth: "Julho" })).toMatch(/antes do inicial/);
-    expect(periodProblem({ startMonth: "Dezembro", startYear: "2025", endMonth: "Fevereiro", endYear: "2026" })).toBeNull();
-    expect(periodProblem({ startMonth: "Janeiro", startYear: "2020", endMonth: "Agosto", endYear: "2026" })).toMatch(/máximo é 36/);
+    expect(
+      periodProblem({ startMonth: "Dezembro", startYear: "2025", endMonth: "Fevereiro", endYear: "2026" }),
+    ).toBeNull();
+    expect(periodProblem({ startMonth: "Janeiro", startYear: "2020", endMonth: "Agosto", endYear: "2026" })).toMatch(
+      /máximo é 36/,
+    );
   });
 
   it("usa o mesmo rótulo que o backend lê de volta", () => {
     expect(periodLabelOf(AUGUST)).toBe("Agosto/2026");
     expect(periodLabelOf({ ...AUGUST, startMonth: "Julho", endMonth: "Novembro" })).toBe("Julho a Novembro/2026");
-    expect(periodLabelOf({ startMonth: "Dezembro", startYear: "2025", endMonth: "Fevereiro", endYear: "2026" }))
-      .toBe("Dezembro/2025 a Fevereiro/2026");
+    expect(periodLabelOf({ startMonth: "Dezembro", startYear: "2025", endMonth: "Fevereiro", endYear: "2026" })).toBe(
+      "Dezembro/2025 a Fevereiro/2026",
+    );
   });
 });
 
@@ -60,7 +86,10 @@ describe("recorte", () => {
         block({ key: "b2", projectIds: ["E8"], packages: ["1546.1-001"] }),
         block({ key: "b3", projectIds: ["E8", "P1"], packages: ["sobrou de antes"] }),
       ],
-      splitBy: "colaborador", unit: "pacote", title: "  Fechamento  ", reviewerLogin: "lucca",
+      splitBy: "colaborador",
+      unit: "pacote",
+      title: "  Fechamento  ",
+      reviewerLogin: "lucca",
     });
     expect(scope.period).toEqual({ start: "2026-07", end: "2026-08" });
     expect(scope.blocks).toEqual([
@@ -68,12 +97,22 @@ describe("recorte", () => {
       { clients: [], project_ids: ["E8"], packages: ["1546.1-001"], employee_ids: [] },
       { clients: [], project_ids: ["E8", "P1"], packages: [], employee_ids: [] },
     ]);
-    expect(scope).toMatchObject({ split_by: "colaborador", package_unit: "pacote", title: "Fechamento", reviewer_login: "lucca" });
+    expect(scope).toMatchObject({
+      split_by: "colaborador",
+      package_unit: "pacote",
+      title: "Fechamento",
+      reviewer_login: "lucca",
+    });
   });
 
   it("título e revisor vazios viram nulo", () => {
     const scope = buildCustomScope({
-      period: AUGUST, blocks: [block({ clients: ["ACME"] })], splitBy: "nenhum", unit: "projeto", title: "   ", reviewerLogin: "",
+      period: AUGUST,
+      blocks: [block({ clients: ["ACME"] })],
+      splitBy: "nenhum",
+      unit: "projeto",
+      title: "   ",
+      reviewerLogin: "",
     });
     expect(scope.title).toBeNull();
     expect(scope.reviewer_login).toBeNull();
@@ -82,13 +121,16 @@ describe("recorte", () => {
   it("descreve o bloco numa frase", () => {
     const employee = (id: string) => ({ "10": "Lucca", "20": "Ana" })[id] ?? id;
     const project = (id: string) => `Projeto ${id}`;
-    expect(describeBlock(block({ clients: ["Mercedes"], employeeIds: ["10"] }), employee, project))
-      .toBe("Mercedes · todos os projetos · Lucca");
-    expect(describeBlock(block({ clients: ["Mercedes"], projectIds: ["E8"], packages: ["a", "b"] }), employee, project))
-      .toBe("Mercedes · Projeto E8 · 2 pacotes");
+    expect(describeBlock(block({ clients: ["Mercedes"], employeeIds: ["10"] }), employee, project)).toBe(
+      "Mercedes · todos os projetos · Lucca",
+    );
+    expect(
+      describeBlock(block({ clients: ["Mercedes"], projectIds: ["E8"], packages: ["a", "b"] }), employee, project),
+    ).toBe("Mercedes · Projeto E8 · 2 pacotes");
     expect(describeBlock(block({ employeeIds: ["10", "20", "30"] }), employee, project)).toBe("3 colaboradores");
-    expect(describeBlock(block({ clients: ["A", "B", "C"], projectIds: ["1", "2"] }), employee, project))
-      .toBe("3 clientes · 2 projetos");
+    expect(describeBlock(block({ clients: ["A", "B", "C"], projectIds: ["1", "2"] }), employee, project)).toBe(
+      "3 clientes · 2 projetos",
+    );
   });
 });
 
@@ -101,10 +143,12 @@ describe("recorte do pedido em nomes", () => {
   });
 
   it("junta cliente, projeto, pacotes e colaboradores", () => {
-    expect(view({ clients: ["MERCEDES"], projects: ["Estribo"], packages: ["1546.1-001"], employees: ["Lucca"] }))
-      .toBe("MERCEDES · Estribo · pacote: 1546.1-001 · colaborador: Lucca");
-    expect(view({ clients: ["A", "B"], projects: ["P1", "P2"], packages: [], employees: ["Ana", "Lucca"] }))
-      .toBe("A, B · P1, P2 · colaboradores: Ana, Lucca");
+    expect(view({ clients: ["MERCEDES"], projects: ["Estribo"], packages: ["1546.1-001"], employees: ["Lucca"] })).toBe(
+      "MERCEDES · Estribo · pacote: 1546.1-001 · colaborador: Lucca",
+    );
+    expect(view({ clients: ["A", "B"], projects: ["P1", "P2"], packages: [], employees: ["Ana", "Lucca"] })).toBe(
+      "A, B · P1, P2 · colaboradores: Ana, Lucca",
+    );
   });
 
   it("só o colaborador não restringe cliente nem projeto", () => {

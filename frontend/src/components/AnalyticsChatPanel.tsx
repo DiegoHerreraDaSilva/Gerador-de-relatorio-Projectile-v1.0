@@ -2,9 +2,26 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, MessagesSquare, RotateCcw } from "lucide-react";
 import { PageHeader } from "./PageHeader";
 import { AnalyticsTableView, KpiGrid, VisualizationRenderer } from "./analytics/VisualizationRenderer";
-import { useAnalyticsChatStore, type AnalyticsChatResponse, type KpiVisualization } from "../store/useAnalyticsChatStore";
+import {
+  useAnalyticsChatStore,
+  type AnalyticsChatResponse,
+  type KpiVisualization,
+} from "../store/useAnalyticsChatStore";
 
-const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const MONTHS = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+];
 
 /** Sugestões agrupadas pelo que o chat de fato sabe responder (catálogo em
  * backend/app/analytics/intents.py), com meses reais em vez de fixos. */
@@ -44,7 +61,9 @@ const CLASSIFIER_LABEL: Record<string, string> = { jev: "Jev", claude: "Claude" 
 function Answer({ response }: { response: AnalyticsChatResponse }) {
   const meta = response.metadata;
   // comparação de períodos: "agosto x setembro" ("até" pareceria um intervalo)
-  const period = meta.compared_period_label ? `${meta.compared_period_label} x ${meta.period_label}` : meta.period_label;
+  const period = meta.compared_period_label
+    ? `${meta.compared_period_label} x ${meta.period_label}`
+    : meta.period_label;
   const kpis = response.visualizations.filter((v): v is KpiVisualization => v.type === "kpi");
   const charts = response.visualizations.filter((v) => v.type !== "kpi");
   const single = kpis.length === 1 ? kpis[0] : null;
@@ -63,13 +82,22 @@ function Answer({ response }: { response: AnalyticsChatResponse }) {
       {(meta.source_label || period) && (
         <dl className="achat-meta">
           {meta.source_label && (
-            <div><dt>Fonte</dt><dd>{meta.source_label}</dd></div>
+            <div>
+              <dt>Fonte</dt>
+              <dd>{meta.source_label}</dd>
+            </div>
           )}
           {period && (
-            <div><dt>Período</dt><dd>{period}</dd></div>
+            <div>
+              <dt>Período</dt>
+              <dd>{period}</dd>
+            </div>
           )}
           {CLASSIFIER_LABEL[meta.classifier] && (
-            <div><dt>Entendido por</dt><dd>{CLASSIFIER_LABEL[meta.classifier]}</dd></div>
+            <div>
+              <dt>Entendido por</dt>
+              <dd>{CLASSIFIER_LABEL[meta.classifier]}</dd>
+            </div>
           )}
         </dl>
       )}
@@ -197,12 +225,16 @@ export function AnalyticsChatPanel() {
             <div className="achat-thread" aria-live="polite">
               {messages.map((m) =>
                 m.role === "user" ? (
-                  <p key={m.id} className="achat-question">{m.text}</p>
+                  <p key={m.id} className="achat-question">
+                    {m.text}
+                  </p>
                 ) : m.role === "error" ? (
-                  <p key={m.id} className="achat-error" role="alert">{m.text}</p>
+                  <p key={m.id} className="achat-error" role="alert">
+                    {m.text}
+                  </p>
                 ) : (
                   <Answer key={m.id} response={m.response} />
-                )
+                ),
               )}
               {sending && (
                 <div className="achat-pending" role="status">

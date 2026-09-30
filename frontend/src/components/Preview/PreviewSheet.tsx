@@ -52,7 +52,12 @@ export function PreviewSheet({ paneId, packageId }: Props) {
     let marqueeBox: HTMLDivElement | null = null;
 
     function boxFromPoints(a: { x: number; y: number }, b: { x: number; y: number }) {
-      return { left: Math.min(a.x, b.x), right: Math.max(a.x, b.x), top: Math.min(a.y, b.y), bottom: Math.max(a.y, b.y) };
+      return {
+        left: Math.min(a.x, b.x),
+        right: Math.max(a.x, b.x),
+        top: Math.min(a.y, b.y),
+        bottom: Math.max(a.y, b.y),
+      };
     }
     function applySelectionForBox(box: { left: number; right: number; top: number; bottom: number }) {
       el!.querySelectorAll<HTMLDivElement>(".preview-activity").forEach((row) => {
@@ -73,7 +78,8 @@ export function PreviewSheet({ paneId, packageId }: Props) {
       if (!startPoint) return;
       const point = { x: e.clientX, y: e.clientY };
       if (!marqueeBox) {
-        if (Math.abs(point.x - startPoint.x) < DRAG_THRESHOLD && Math.abs(point.y - startPoint.y) < DRAG_THRESHOLD) return;
+        if (Math.abs(point.x - startPoint.x) < DRAG_THRESHOLD && Math.abs(point.y - startPoint.y) < DRAG_THRESHOLD)
+          return;
         baseSelection = new Set(useReportStore.getState().selectedByPane[paneId] ?? []);
         marqueeBox = document.createElement("div");
         marqueeBox.className = "activity-marquee";
@@ -206,7 +212,12 @@ export function PreviewSheet({ paneId, packageId }: Props) {
             data-gid={group.id}
             onDragEnter={(e) => {
               // group drop target for activities
-              if (draggedActivities && draggedActivities.items.some((it) => draggedActivities.fromPackageId !== packageId || it.groupId !== group.id)) {
+              if (
+                draggedActivities &&
+                draggedActivities.items.some(
+                  (it) => draggedActivities.fromPackageId !== packageId || it.groupId !== group.id,
+                )
+              ) {
                 (e.currentTarget.querySelector(".preview-group") as HTMLElement)?.classList.add("drop-target");
               }
             }}
@@ -252,10 +263,7 @@ export function PreviewSheet({ paneId, packageId }: Props) {
               }
             }}
           >
-            <div
-              className="preview-group"
-              data-gindex={gIdx}
-            >
+            <div className="preview-group" data-gindex={gIdx}>
               <div className="preview-group-header">
                 <span
                   className="pv-group-handle"
@@ -269,7 +277,9 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                   }}
                   onDragEnd={(e) => {
                     setDraggedGroup(null);
-                    document.querySelectorAll(".preview-group.dragging").forEach((el) => el.classList.remove("dragging"));
+                    document
+                      .querySelectorAll(".preview-group.dragging")
+                      .forEach((el) => el.classList.remove("dragging"));
                   }}
                 >
                   ⠿
@@ -282,7 +292,13 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                   onFocus={() => pushUndo()}
                   onChange={(e) => updateGroupName(group.id, e.target.value, packageId)}
                 />
-                <button type="button" className="pv-remove-group" title="Remover grupo" aria-label="Remover grupo" onClick={() => removeGroup(group.id, packageId)} />
+                <button
+                  type="button"
+                  className="pv-remove-group"
+                  title="Remover grupo"
+                  aria-label="Remover grupo"
+                  onClick={() => removeGroup(group.id, packageId)}
+                />
               </div>
               <div className="preview-group-body">
                 <div className="preview-group-main">
@@ -363,13 +379,25 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                               draggedActivities.items,
                               packageId,
                               group.id,
-                              activity.id
+                              activity.id,
                             );
                           } else if (zone === "before") {
-                            moveActivitiesToPosition(draggedActivities.fromPackageId, draggedActivities.items, packageId, group.id, activity.id);
+                            moveActivitiesToPosition(
+                              draggedActivities.fromPackageId,
+                              draggedActivities.items,
+                              packageId,
+                              group.id,
+                              activity.id,
+                            );
                           } else {
                             const next = group.activities[aIdx + 1];
-                            moveActivitiesToPosition(draggedActivities.fromPackageId, draggedActivities.items, packageId, group.id, next ? next.id : null);
+                            moveActivitiesToPosition(
+                              draggedActivities.fromPackageId,
+                              draggedActivities.items,
+                              packageId,
+                              group.id,
+                              next ? next.id : null,
+                            );
                           }
                           setDraggedActivities(null);
                         }}
@@ -390,7 +418,10 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                             onCommit={(v) => updateExtraHours(group.id, activity.id, v, packageId)}
                           />
                         ) : (
-                          <span className="pv-hours-real" title="Horas apontadas nesta atividade — só informativo, não vai pro relatório final por atividade (só o total do grupo)">
+                          <span
+                            className="pv-hours-real"
+                            title="Horas apontadas nesta atividade — só informativo, não vai pro relatório final por atividade (só o total do grupo)"
+                          >
                             {fmtNum(activity.hours ?? 0)}
                           </span>
                         )}
@@ -412,14 +443,18 @@ export function PreviewSheet({ paneId, packageId }: Props) {
                             // add dragging class
                             requestAnimationFrame(() => {
                               items.forEach(({ groupId, activityId }) => {
-                                const el = document.querySelector(`.preview-activity[data-gid="${groupId}"][data-aid="${activityId}"]`);
+                                const el = document.querySelector(
+                                  `.preview-activity[data-gid="${groupId}"][data-aid="${activityId}"]`,
+                                );
                                 el?.classList.add("dragging");
                               });
                             });
                           }}
                           onDragEnd={() => {
                             setDraggedActivities(null);
-                            document.querySelectorAll(".preview-activity.dragging").forEach((el) => el.classList.remove("dragging"));
+                            document
+                              .querySelectorAll(".preview-activity.dragging")
+                              .forEach((el) => el.classList.remove("dragging"));
                           }}
                         />
                       </div>

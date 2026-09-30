@@ -32,7 +32,7 @@ export function EmployeePicker() {
         label="Colaborador"
         options={options}
         value={employeeId ?? ME}
-        labelFor={(opt) => (opt === ME ? "Minhas horas" : names.get(opt) ?? opt)}
+        labelFor={(opt) => (opt === ME ? "Minhas horas" : (names.get(opt) ?? opt))}
         onChange={(opt) => setEmployee(opt === ME ? null : opt)}
         searchPlaceholder="Buscar colaborador..."
         className="myh-employee-dropdown"

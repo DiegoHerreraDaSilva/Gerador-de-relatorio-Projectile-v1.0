@@ -34,7 +34,9 @@ export function ManagementFilters({
   const monthOptions = (rows ?? []).map((r) => r.month);
   const projectLabel = (name: string) => (projectCodes[name] ? `${projectCodes[name]} - ${name}` : name);
   const projectsForSelectedClients =
-    clients.length === 0 ? availableProjects : availableProjects.filter((name) => clients.includes(projectClients[name]));
+    clients.length === 0
+      ? availableProjects
+      : availableProjects.filter((name) => clients.includes(projectClients[name]));
   const projectOptions = [...projectsForSelectedClients].sort((a, b) => {
     const codeA = Number(projectCodes[a]);
     const codeB = Number(projectCodes[b]);

@@ -64,7 +64,11 @@ export function LoginScreen() {
           autoComplete="current-password"
         />
 
-        {error && <p className="login-error" role="alert">{error}</p>}
+        {error && (
+          <p className="login-error" role="alert">
+            {error}
+          </p>
+        )}
 
         <button className="primary" type="submit" disabled={loading}>
           {loading ? "Entrando..." : "Entrar"}

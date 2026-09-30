@@ -67,7 +67,7 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
     set({ refreshing: true, _inFlight: true, error: "" });
     try {
       const data = await fetchJson<{ samples: Sample[]; skipped_messages: SkippedMessage[] }>(
-        "/management/kpis/samples"
+        "/management/kpis/samples",
       );
       set({ samples: data.samples, skipped: data.skipped_messages, loaded: true });
     } catch {

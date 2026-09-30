@@ -3,7 +3,12 @@ import { useReportStore, applyTabBundle } from "../useReportStore";
 import type { WorkPackage, Group, Activity } from "../../api/types";
 
 function activity(overrides: Partial<Activity> = {}): Activity {
-  return { id: overrides.id ?? "a1", description: overrides.description ?? "Atividade", hours: overrides.hours ?? 5, extra: overrides.extra ?? false };
+  return {
+    id: overrides.id ?? "a1",
+    description: overrides.description ?? "Atividade",
+    hours: overrides.hours ?? 5,
+    extra: overrides.extra ?? false,
+  };
 }
 
 function group(id: string, activities: Activity[], overrides: Partial<Group> = {}): Group {
@@ -12,9 +17,18 @@ function group(id: string, activities: Activity[], overrides: Partial<Group> = {
 
 function pkg(id: string, groups: Group[], overrides: Partial<WorkPackage> = {}): WorkPackage {
   return {
-    id, key: id, projectCode: "SE.01.001", projectName: "Projeto Teste",
-    groups, collapsedGroupIds: new Set(), fileName: "", fileNameEdited: false,
-    chartBar: false, chartPie: false, pacoteScope: null, language: "pt",
+    id,
+    key: id,
+    projectCode: "SE.01.001",
+    projectName: "Projeto Teste",
+    groups,
+    collapsedGroupIds: new Set(),
+    fileName: "",
+    fileNameEdited: false,
+    chartBar: false,
+    chartPie: false,
+    pacoteScope: null,
+    language: "pt",
     ...overrides,
   };
 }
@@ -24,7 +38,9 @@ function pkg(id: string, groups: Group[], overrides: Partial<WorkPackage> = {}):
 // se não resetarmos.
 beforeEach(() => {
   useReportStore.setState({
-    packages: [], activePackageId: null, undoStack: [],
+    packages: [],
+    activePackageId: null,
+    undoStack: [],
     selectedByPane: { "0": new Set(), "1": new Set() },
   });
 });
@@ -55,9 +71,9 @@ describe("addActivitiesFromIssues", () => {
     // sumir da lista como se tivesse sido adicionada em algum lugar.
     useReportStore.setState({ packages: [pkg("p1", [group("g1", [])])] });
 
-    const ok = useReportStore.getState().addActivitiesFromIssues("grupo-de-outra-guia", "p1", [
-      { description: "Recuperada", hours: 3.5 },
-    ]);
+    const ok = useReportStore
+      .getState()
+      .addActivitiesFromIssues("grupo-de-outra-guia", "p1", [{ description: "Recuperada", hours: 3.5 }]);
 
     expect(ok).toBe(false);
     expect(useReportStore.getState().packages[0].groups[0].activities).toHaveLength(0);
@@ -77,9 +93,9 @@ describe("mergeActivitiesIntoActivity", () => {
     const g = group("g1", [alvo, arrastada]);
     useReportStore.setState({ packages: [pkg("p1", [g])] });
 
-    useReportStore.getState().mergeActivitiesIntoActivity(
-      "p1", [{ groupId: "g1", activityId: "arrastada" }], "p1", "g1", "alvo"
-    );
+    useReportStore
+      .getState()
+      .mergeActivitiesIntoActivity("p1", [{ groupId: "g1", activityId: "arrastada" }], "p1", "g1", "alvo");
 
     const activities = useReportStore.getState().packages[0].groups[0].activities;
     expect(activities).toHaveLength(1);
@@ -93,9 +109,9 @@ describe("mergeActivitiesIntoActivity", () => {
     const g2 = group("g2", [activity({ id: "b", description: "De outro grupo", hours: 3 })]);
     useReportStore.setState({ packages: [pkg("p1", [g1, g2])] });
 
-    useReportStore.getState().mergeActivitiesIntoActivity(
-      "p1", [{ groupId: "g2", activityId: "b" }], "p1", "g1", "alvo"
-    );
+    useReportStore
+      .getState()
+      .mergeActivitiesIntoActivity("p1", [{ groupId: "g2", activityId: "b" }], "p1", "g1", "alvo");
 
     const pkgAfter = useReportStore.getState().packages[0];
     expect(pkgAfter.groups[0].activities).toEqual([expect.objectContaining({ id: "alvo", hours: 8 })]);
@@ -110,8 +126,13 @@ describe("mergeActivitiesIntoActivity", () => {
 
     useReportStore.getState().mergeActivitiesIntoActivity(
       "p1",
-      [{ groupId: "g1", activityId: "alvo" }, { groupId: "g1", activityId: "outra" }],
-      "p1", "g1", "alvo"
+      [
+        { groupId: "g1", activityId: "alvo" },
+        { groupId: "g1", activityId: "outra" },
+      ],
+      "p1",
+      "g1",
+      "alvo",
     );
 
     const activities = useReportStore.getState().packages[0].groups[0].activities;
@@ -156,7 +177,14 @@ describe("moveActivitiesToPosition", () => {
     // também está sendo arrastada, ela já não existe mais em
     // toGroup.activities no momento em que o índice é procurado.
     useReportStore.getState().moveActivitiesToPosition(
-      "p1", [{ groupId: "g1", activityId: "a" }, { groupId: "g1", activityId: "b" }], "p1", "g1", "b"
+      "p1",
+      [
+        { groupId: "g1", activityId: "a" },
+        { groupId: "g1", activityId: "b" },
+      ],
+      "p1",
+      "g1",
+      "b",
     );
 
     const ids = useReportStore.getState().packages[0].groups[0].activities.map((x) => x.id);
@@ -174,7 +202,14 @@ describe("moveActivitiesToPosition", () => {
     // usuário), mas a ordem final deve seguir a posição ORIGINAL nos grupos
     // de origem (a antes de c), não a ordem em que aparecem em `items`.
     useReportStore.getState().moveActivitiesToPosition(
-      "p1", [{ groupId: "g1", activityId: "c" }, { groupId: "g1", activityId: "a" }], "p1", "g1", "d"
+      "p1",
+      [
+        { groupId: "g1", activityId: "c" },
+        { groupId: "g1", activityId: "a" },
+      ],
+      "p1",
+      "g1",
+      "d",
     );
 
     const ids = useReportStore.getState().packages[0].groups[0].activities.map((x) => x.id);
@@ -247,7 +282,7 @@ describe("applyTranslation", () => {
         { id: "a", text: "Activity A" },
         { id: "b", text: "Activity B" },
       ],
-      "en"
+      "en",
     );
 
     const result = useReportStore.getState().packages[0].groups[0];
@@ -258,7 +293,7 @@ describe("applyTranslation", () => {
     expect(result.activities.map((x) => x.hours)).toEqual([1, 2]);
   });
 
-  it.each(["en", "de"] as const)("marca o pacote como language=\"%s\"", (language) => {
+  it.each(["en", "de"] as const)('marca o pacote como language="%s"', (language) => {
     const a = activity({ id: "a", description: "Atividade A" });
     useReportStore.setState({ packages: [pkg("p1", [group("g1", [a])], { language: "pt" })] });
 

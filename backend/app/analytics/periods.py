@@ -2,6 +2,7 @@
 propósito: o Jev só escolhe entre opções dadas (não extrai datas), então o
 período vira perguntas de escolha — um mês (ou o primeiro de um intervalo),
 o último mês do intervalo, ou um período relativo — com opções montadas aqui."""
+
 from __future__ import annotations
 
 import re
@@ -9,14 +10,8 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-MONTH_NAMES_PT = [
-    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-]
-MONTH_NAMES_EN = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-]
+MONTH_NAMES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+MONTH_NAMES_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
 RELATIVE_PERIODS = {
     "current_month": ("this month / este mês / mês atual", 1, 0),
@@ -39,7 +34,7 @@ class Period:
 
     @property
     def phrase(self) -> str:
-        """"em setembro/2026" ou "de julho/2026 a setembro/2026" — pro texto."""
+        """ "em setembro/2026" ou "de julho/2026 a setembro/2026" — pro texto."""
         return f"de {self.label}" if " a " in self.label else f"em {self.label}"
 
 
@@ -69,10 +64,7 @@ def month_options(today: date, months: int) -> dict[str, str]:
     options = {}
     for i in range(months):
         first = add_months(current, -i)
-        options[month_key(first)] = (
-            f"{MONTH_NAMES_EN[first.month - 1]} {first.year} "
-            f"({MONTH_NAMES_PT[first.month - 1]} de {first.year})"
-        )
+        options[month_key(first)] = f"{MONTH_NAMES_EN[first.month - 1]} {first.year} ({MONTH_NAMES_PT[first.month - 1]} de {first.year})"
     return options
 
 
@@ -108,9 +100,7 @@ def mentions_month(message: str) -> bool:
     return bool(_MONTH_WORD.search(_plain(message)))
 
 
-def resolve_period(
-    month: str | None, relative: str | None, today: date, max_months: int, month_end: str | None = None,
-) -> Period:
+def resolve_period(month: str | None, relative: str | None, today: date, max_months: int, month_end: str | None = None) -> Period:
     """Mês específico (ou intervalo `month`..`month_end`) tem prioridade sobre
     período relativo; sem nenhum, últimos 12 meses (a resposta sempre diz
     qual período usou). Valida contra a janela permitida — quem chama já

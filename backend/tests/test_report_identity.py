@@ -1,5 +1,6 @@
 """`compute_identity_hash`/`parse_competence_range`
 (backend/app/services/snapshot.py) — puramente funcionais, sem banco."""
+
 from __future__ import annotations
 
 from datetime import date

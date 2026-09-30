@@ -50,7 +50,9 @@ export function SingleSelectDropdown({
       <span className="mgmt-filter-label">{label}</span>
       <div className="month-dropdown" ref={wrapRef}>
         <button type="button" className="month-dropdown-trigger" onClick={() => (open ? close() : setOpen(true))}>
-          <span className="mgmt-filter-summary" title={labelFor(value)}>{labelFor(value)}</span>
+          <span className="mgmt-filter-summary" title={labelFor(value)}>
+            {labelFor(value)}
+          </span>
           <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
         </button>
         {open && (
@@ -125,9 +127,18 @@ export function MultiSelectDropdown({
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(wrapRef, () => { setOpen(false); setQuery(""); }, open);
+  useClickOutside(
+    wrapRef,
+    () => {
+      setOpen(false);
+      setQuery("");
+    },
+    open,
+  );
   const normalized = normalizeForSearch(query.trim());
-  const visible = normalized ? options.filter((opt) => normalizeForSearch(labelFor(opt)).includes(normalized)) : options;
+  const visible = normalized
+    ? options.filter((opt) => normalizeForSearch(labelFor(opt)).includes(normalized))
+    : options;
 
   const toggle = (value: string) => {
     onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
@@ -137,8 +148,8 @@ export function MultiSelectDropdown({
     selected.length === 0
       ? emptyLabel
       : selected.length === 1
-      ? labelFor(selected[0])
-      : `${selected.length} selecionados`;
+        ? labelFor(selected[0])
+        : `${selected.length} selecionados`;
 
   return (
     <div className={`mgmt-filter ${className ?? ""}`}>
@@ -151,7 +162,9 @@ export function MultiSelectDropdown({
       )}
       <div className="month-dropdown" ref={wrapRef}>
         <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
-          <span className="mgmt-filter-summary" title={summary}>{summary}</span>
+          <span className="mgmt-filter-summary" title={summary}>
+            {summary}
+          </span>
           <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
         </button>
         {open && (
@@ -166,7 +179,10 @@ export function MultiSelectDropdown({
                   aria-label={searchPlaceholder}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Escape") { setOpen(false); setQuery(""); }
+                    if (e.key === "Escape") {
+                      setOpen(false);
+                      setQuery("");
+                    }
                   }}
                 />
               </li>

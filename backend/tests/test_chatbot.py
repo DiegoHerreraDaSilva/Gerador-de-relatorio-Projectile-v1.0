@@ -6,6 +6,7 @@ Anthropic (`chatbot._get_client`) em vez de bater na API de verdade — aqui
 importa só o formato do request montado e como a resposta é interpretada,
 não o modelo em si.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -31,9 +32,7 @@ def fake_client(monkeypatch):
 def test_call_chat_without_history_sends_single_message(fake_client):
     """Regressão: sem `history` (ou lista vazia), o comportamento é idêntico
     ao de antes desta feature — uma única mensagem `user`."""
-    fake_client.messages.create.return_value = _tool_use_response(
-        chatbot.TOOL_NAME, {"summary": "ok", "operations": []}
-    )
+    fake_client.messages.create.return_value = _tool_use_response(chatbot.TOOL_NAME, {"summary": "ok", "operations": []})
 
     chatbot.call_chat("Renomeia o grupo Geral", {"packages": []}, history=None)
 
@@ -48,13 +47,8 @@ def test_call_chat_with_history_prepends_turns_in_order(fake_client):
     ANTES da mensagem final (estado atual + pedido) — é isso que dá à IA
     memória do que já foi dito na conversa (sem isso, cada chamada era
     completamente sem contexto, ver comentário em call_chat)."""
-    fake_client.messages.create.return_value = _tool_use_response(
-        chatbot.TOOL_NAME, {"summary": "ok", "operations": []}
-    )
-    history = [
-        {"role": "user", "text": "Renomeia o grupo Bumper pra Estrutura"},
-        {"role": "assistant", "text": "Grupo renomeado."},
-    ]
+    fake_client.messages.create.return_value = _tool_use_response(chatbot.TOOL_NAME, {"summary": "ok", "operations": []})
+    history = [{"role": "user", "text": "Renomeia o grupo Bumper pra Estrutura"}, {"role": "assistant", "text": "Grupo renomeado."}]
 
     chatbot.call_chat("Não, o OUTRO grupo", {"packages": []}, history=history)
 
@@ -68,9 +62,7 @@ def test_call_chat_with_history_prepends_turns_in_order(fake_client):
 
 
 def test_call_chat_returns_summary_and_operations(fake_client):
-    fake_client.messages.create.return_value = _tool_use_response(
-        chatbot.TOOL_NAME, {"summary": "Grupo renomeado.", "operations": [{"op": "rename_group"}]}
-    )
+    fake_client.messages.create.return_value = _tool_use_response(chatbot.TOOL_NAME, {"summary": "Grupo renomeado.", "operations": [{"op": "rename_group"}]})
 
     summary, operations = chatbot.call_chat("pedido", {"packages": []})
 
@@ -89,9 +81,7 @@ def test_call_chat_raises_upstream_error_without_tool_use(fake_client):
 def test_call_translate_uses_target_language_in_system_prompt(fake_client, target_language):
     """O prompt de sistema muda com o idioma-alvo (EN/DE) — sem isso, o botão
     "DE" do preview traduziria pra inglês por engano."""
-    fake_client.messages.create.return_value = _tool_use_response(
-        chatbot.TRANSLATE_TOOL_NAME, {"translations": [{"id": "a", "text": "x"}]}
-    )
+    fake_client.messages.create.return_value = _tool_use_response(chatbot.TRANSLATE_TOOL_NAME, {"translations": [{"id": "a", "text": "x"}]})
 
     chatbot.call_translate([{"id": "a", "text": "Atividade"}], target_language)
 
@@ -102,9 +92,7 @@ def test_call_translate_uses_target_language_in_system_prompt(fake_client, targe
 
 
 def test_call_translate_defaults_to_english(fake_client):
-    fake_client.messages.create.return_value = _tool_use_response(
-        chatbot.TRANSLATE_TOOL_NAME, {"translations": []}
-    )
+    fake_client.messages.create.return_value = _tool_use_response(chatbot.TRANSLATE_TOOL_NAME, {"translations": []})
 
     chatbot.call_translate([{"id": "a", "text": "Atividade"}])
 

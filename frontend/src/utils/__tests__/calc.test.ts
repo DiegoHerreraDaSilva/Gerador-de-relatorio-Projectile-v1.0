@@ -142,7 +142,12 @@ describe("findEmptyActivityDescription", () => {
   it("hours null NÃO conta como campo vazio — atividade extra só de texto é válida", () => {
     // caso real: linha "Relatório"/"Gerenciamento - Reunião" sem hora própria
     // (ver generator._build_group_rows) — só a descrição em branco bloqueia.
-    const g1: Group = { id: "g1", name: "ENG", performance: 1, activities: [activity(null, { description: "Relatório" })] };
+    const g1: Group = {
+      id: "g1",
+      name: "ENG",
+      performance: 1,
+      activities: [activity(null, { description: "Relatório" })],
+    };
     expect(findEmptyActivityDescription(pkg([g1]))).toBeNull();
   });
 

@@ -2,6 +2,7 @@
 consulta nova: reaproveita `management._get_cached_rows` (a mesma busca do
 Painel de Gerência, cache de 15 min) e só resolve cliente/nome de projeto em
 lote. Agregação e filtros ficam em Python sobre essas linhas."""
+
 from __future__ import annotations
 
 import html
@@ -46,10 +47,7 @@ def project_details(project_ids: list[str]) -> dict[str, dict]:
     if not project_ids:
         return {}
     details = fetch_project_details(sorted(set(project_ids)))
-    return {
-        pid: {"name": _clean(info.get("name")) or "Sem projeto", "client": _clean(info.get("client")) or "Sem cliente"}
-        for pid, info in details.items()
-    }
+    return {pid: {"name": _clean(info.get("name")) or "Sem projeto", "client": _clean(info.get("client")) or "Sem cliente"} for pid, info in details.items()}
 
 
 def load_rows(start: date, end: date) -> list[HoursRow]:
@@ -67,15 +65,17 @@ def load_rows(start: date, end: date) -> list[HoursRow]:
         row_date = r.get("data")
         day = row_date if isinstance(row_date, date) else date.fromisoformat(str(row_date)[:10])
         info = details.get(r.get("project_id")) or {}
-        rows.append(HoursRow(
-            day=day,
-            hours=hours,
-            project_id=r.get("project_id"),
-            project=_clean(info.get("name")) or "Sem projeto",
-            client=_clean(info.get("client")) or "Sem cliente",
-            employee=_clean(r.get("person")) or "Sem nome",
-            package=_clean(r.get("pacote")) or "Sem pacote",
-            cost_center=_cost_center(r.get("cost_center")),
-            billable=str(r.get("external")) != "0",
-        ))
+        rows.append(
+            HoursRow(
+                day=day,
+                hours=hours,
+                project_id=r.get("project_id"),
+                project=_clean(info.get("name")) or "Sem projeto",
+                client=_clean(info.get("client")) or "Sem cliente",
+                employee=_clean(r.get("person")) or "Sem nome",
+                package=_clean(r.get("pacote")) or "Sem pacote",
+                cost_center=_cost_center(r.get("cost_center")),
+                billable=str(r.get("external")) != "0",
+            )
+        )
     return rows

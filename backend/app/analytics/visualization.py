@@ -6,6 +6,7 @@ tabela — o gráfico é pra olhar, a tabela é pra conferir.
 
 A IA nunca manda HTML/SVG/JS; no máximo o planner pede um tipo, e isto aqui
 valida e monta."""
+
 from __future__ import annotations
 
 from .query_engine import QueryResult
@@ -28,12 +29,7 @@ def build_visualizations(result: QueryResult) -> list[dict]:
     if result.dimension is None:
         if result.total is None:
             return []
-        return [{
-            "type": "kpi",
-            "title": _title(result, metric),
-            "value": result.total,
-            "unit": UNITS.get(result.unit, ""),
-        }]
+        return [{"type": "kpi", "title": _title(result, metric), "value": result.total, "unit": UNITS.get(result.unit, "")}]
 
     rows = [row for row in result.rows if row.get("value") is not None]
     if not rows:
@@ -43,26 +39,30 @@ def build_visualizations(result: QueryResult) -> list[dict]:
     if result.dimension in ("competence", "month"):
         points = rows[-MAX_LINE_POINTS:]
         chart_type = "line" if len(points) > 1 else "bar"
-        return [{
-            "type": chart_type,
-            "title": _title(result, f"{metric} por {dimension.lower()}"),
-            "categories": [row["label"] for row in points],
-            "series": [{"name": metric, "data": [row["value"] for row in points]}],
-            "unit": UNITS.get(result.unit, ""),
-        }]
+        return [
+            {
+                "type": chart_type,
+                "title": _title(result, f"{metric} por {dimension.lower()}"),
+                "categories": [row["label"] for row in points],
+                "series": [{"name": metric, "data": [row["value"] for row in points]}],
+                "unit": UNITS.get(result.unit, ""),
+            }
+        ]
 
     top = rows[:MAX_BAR_CATEGORIES]
     chart_type = "bar" if result.dimension == "format" else "horizontal_bar"
     title = f"{metric} por {dimension.lower()}"
     if len(rows) > len(top):
         title += f" (top {len(top)} de {len(rows)})"
-    return [{
-        "type": chart_type,
-        "title": _title(result, title),
-        "categories": [row["label"] for row in top],
-        "series": [{"name": metric, "data": [row["value"] for row in top]}],
-        "unit": UNITS.get(result.unit, ""),
-    }]
+    return [
+        {
+            "type": chart_type,
+            "title": _title(result, title),
+            "categories": [row["label"] for row in top],
+            "series": [{"name": metric, "data": [row["value"] for row in top]}],
+            "unit": UNITS.get(result.unit, ""),
+        }
+    ]
 
 
 def build_table(result: QueryResult) -> dict | None:

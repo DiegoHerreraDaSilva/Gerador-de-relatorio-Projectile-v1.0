@@ -37,13 +37,8 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="error-boundary" role="alert">
           <AlertTriangle size={28} strokeWidth={1.5} />
           <h2>Algo deu errado nesta tela</h2>
-          <p className="muted">
-            {this.state.error.message || "Erro desconhecido."}
-          </p>
-          <p className="muted">
-            Tenta recarregar a página. Se continuar acontecendo, avisa o TI com a
-            mensagem acima.
-          </p>
+          <p className="muted">{this.state.error.message || "Erro desconhecido."}</p>
+          <p className="muted">Tenta recarregar a página. Se continuar acontecendo, avisa o TI com a mensagem acima.</p>
           <button type="button" className="btn-primary" onClick={() => window.location.reload()}>
             Recarregar página
           </button>

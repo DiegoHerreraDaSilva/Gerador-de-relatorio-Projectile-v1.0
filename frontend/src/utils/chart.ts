@@ -5,8 +5,16 @@ import { computeGroupTotals } from "./calc";
 // relatório com muitos grupos — mantém o teal como primeira cor por identidade,
 // intercalando com tons distintos entre si (contraste testado, sem repetir hue)
 const PALETTE = [
-  "#3bbdc9", "#e8934a", "#7c6fd8", "#5ab562", "#e05c74",
-  "#d8b64a", "#4a90d8", "#c766c2", "#8a9a4a", "#d87f4a",
+  "#3bbdc9",
+  "#e8934a",
+  "#7c6fd8",
+  "#5ab562",
+  "#e05c74",
+  "#d8b64a",
+  "#4a90d8",
+  "#c766c2",
+  "#8a9a4a",
+  "#d87f4a",
 ];
 
 function colorFor(index: number): string {
@@ -37,7 +45,12 @@ function drawEmptyState(ctx: CanvasRenderingContext2D, width: number, height: nu
   ctx.fillText("Sem horas apontadas pra exibir no gráfico ainda.", width / 2, height / 2);
 }
 
-function drawBarChart(ctx: CanvasRenderingContext2D, width: number, height: number, data: Array<{ name: string; value: number }>) {
+function drawBarChart(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  data: Array<{ name: string; value: number }>,
+) {
   const padding = 40;
   const minLabelWidth = 200;
   const maxLabelWidth = 420;
@@ -72,7 +85,12 @@ function drawBarChart(ctx: CanvasRenderingContext2D, width: number, height: numb
   });
 }
 
-function drawPieChart(ctx: CanvasRenderingContext2D, width: number, height: number, data: Array<{ name: string; value: number }>) {
+function drawPieChart(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  data: Array<{ name: string; value: number }>,
+) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   const cx = width * 0.22;
   const cy = height / 2;

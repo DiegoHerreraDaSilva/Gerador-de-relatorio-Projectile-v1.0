@@ -21,7 +21,16 @@ export function filterReviewers(reviewers: Reviewer[], query: string): Reviewer[
 
 /** Escolha do revisor com busca: botão com o atual, lista que filtra
  * enquanto digita, setas + Enter pra escolher e Esc pra fechar. */
-export function ReviewerPicker({ value, valueName, reviewers, emptyLabel, loadingLabel, disabled, onChange, describedBy }: {
+export function ReviewerPicker({
+  value,
+  valueName,
+  reviewers,
+  emptyLabel,
+  loadingLabel,
+  disabled,
+  onChange,
+  describedBy,
+}: {
   // login atual ("" = nenhum)
   value: string;
   // nome do atual quando ele não está (mais) na lista
@@ -45,7 +54,7 @@ export function ReviewerPicker({ value, valueName, reviewers, emptyLabel, loadin
 
   const list = reviewers ?? [];
   const current = list.find((r) => r.login.toLowerCase() === value.toLowerCase());
-  const label = !value ? (reviewers ? emptyLabel : loadingLabel) : current?.name ?? valueName ?? value;
+  const label = !value ? (reviewers ? emptyLabel : loadingLabel) : (current?.name ?? valueName ?? value);
   const matches = useMemo(() => filterReviewers(list, query), [list, query]);
   // "nenhum" só aparece sem busca (é uma opção, não um nome)
   const options: Array<Reviewer | null> = query.trim() ? matches : [null, ...matches];
@@ -137,7 +146,9 @@ export function ReviewerPicker({ value, valueName, reviewers, emptyLabel, loadin
                 </li>
               );
             })}
-            {query.trim() && matches.length === 0 && <li className="reviewer-picker-empty">Ninguém com “{query.trim()}” na engenharia.</li>}
+            {query.trim() && matches.length === 0 && (
+              <li className="reviewer-picker-empty">Ninguém com “{query.trim()}” na engenharia.</li>
+            )}
           </ul>
         </div>
       )}

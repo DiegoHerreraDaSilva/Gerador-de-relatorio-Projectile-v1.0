@@ -3,6 +3,7 @@ mas só enxerga os relatórios da geração automática atribuídos A ELE — de
 outra pessoa é 404 (`service._load_assigned`), nunca 403, pra não revelar
 que existe. O revisor edita o conteúdo e manda pra aprovação; número,
 arquivos e aprovação continuam do gerente (`/auto-generation/*`)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -42,9 +43,7 @@ async def my_review_endpoint(report_id: str, _user: dict = Depends(require_sessi
 
 @router.put("/my-reviews/{report_id}/draft")
 async def my_review_save_endpoint(report_id: str, body: SaveDraftRequest, _user: dict = Depends(require_session)):
-    version = await run_in_threadpool(
-        _call, service.review_save, report_id, body.draft, body.draft_version, _user, _from(_user),
-    )
+    version = await run_in_threadpool(_call, service.review_save, report_id, body.draft, body.draft_version, _user, _from(_user))
     return {"draft_version": version}
 
 

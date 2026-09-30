@@ -15,6 +15,7 @@ horas, faturado e status de envio passam pela consulta cruzada
 Texto do Claude com número que não veio dos dados é descartado e vale o
 texto determinístico (grounding). Falha do Claude nunca derruba uma
 resposta que já tem dado."""
+
 from __future__ import annotations
 
 import logging
@@ -62,10 +63,7 @@ SOURCE_BY_DATASET = {"hours": "projectile", "billing": "billing", "send_status":
 def _options(today: date, sources: DataSources, max_months: int) -> tuple[dict, bool]:
     """Opções que o classificador/Claude podem escolher. Se o Projectile estiver fora
     do ar, as perguntas sobre relatórios (reports_db) continuam funcionando."""
-    options = {
-        "today": today.isoformat(), "months": month_options(today, max_months),
-        "clients": [], "employees": [], "projects": [], "packages": [],
-    }
+    options = {"today": today.isoformat(), "months": month_options(today, max_months), "clients": [], "employees": [], "projects": [], "packages": []}
     try:
         rows = sources.hours()
     except ProjectileDbError as e:
@@ -100,7 +98,7 @@ _INHERITED_FILTERS = ("clients", "projects", "project_match", "employees", "pack
 
 
 def _apply_follow_up(c: router.Classification, previous: dict | None, message: str = "") -> router.Classification:
-    """"E em agosto?" — o que a mensagem nova não disse vem da anterior. Se
+    """ "E em agosto?" — o que a mensagem nova não disse vem da anterior. Se
     a anterior foi um cruzamento (sem intent simples), o planner continua a
     partir da consulta anterior (`previous["spec"]`).
 
@@ -135,10 +133,8 @@ def _window_reply(years: list[str], options: dict) -> str:
     )
 
 
-def _apply_years(
-    c: router.Classification, years: list[str], message: str, options: dict,
-) -> tuple[router.Classification, list[str]]:
-    """"horas em 2025" → janeiro a dezembro de 2025 (cortado na janela).
+def _apply_years(c: router.Classification, years: list[str], message: str, options: dict) -> tuple[router.Classification, list[str]]:
+    """ "horas em 2025" → janeiro a dezembro de 2025 (cortado na janela).
     Vale quando a mensagem cita ano e NENHUM nome de mês — mesmo que o
     classificador tenha escolhido um mês: pra "horas em 2026" o Jev real
     escolhia janeiro/2026."""
@@ -167,12 +163,17 @@ def _grounded_text(text: str | None, fallback: str, *payloads) -> tuple[str, boo
 
 def _context_filters(spec: crossquery.QuerySpec) -> dict:
     """Filtros de um valor só, no formato que o Jev/follow-up simples usa."""
+
     def one(values):
         return values[0] if len(values) == 1 else None
 
     return {
-        "month": spec.month, "month_end": spec.month_end, "relative": spec.relative,
-        "client": one(spec.clients), "employee": one(spec.employees), "project": one(spec.projects),
+        "month": spec.month,
+        "month_end": spec.month_end,
+        "relative": spec.relative,
+        "client": one(spec.clients),
+        "employee": one(spec.employees),
+        "project": one(spec.projects),
     }
 
 
@@ -185,15 +186,13 @@ def _with_project_family(raw: dict, message: str, options: dict) -> tuple[dict, 
     Com aviso de quantos projetos entraram."""
     if raw.get("project_match"):
         # projeto que já está dentro de uma frase herdada não aparece duas vezes
-        kept = [p for p in raw.get("projects") or []
-                if not any(signals.matches_phrase(ph, p) for ph in raw["project_match"])]
+        kept = [p for p in raw.get("projects") or [] if not any(signals.matches_phrase(ph, p) for ph in raw["project_match"])]
         return {**raw, "projects": kept}, []
     selected = [p for p in (raw.get("projects") or []) if p in options["projects"]]
     if selected:
         phrases, kept = signals.family_phrases(message, selected, options["projects"])
     else:
-        phrase = signals.detect_project_phrase(
-            message, options["projects"], [*options["clients"], *options["employees"]])
+        phrase = signals.detect_project_phrase(message, options["projects"], [*options["clients"], *options["employees"]])
         phrases, kept = ([phrase] if phrase else []), []
     if not phrases:
         return raw, []
@@ -202,16 +201,13 @@ def _with_project_family(raw: dict, message: str, options: dict) -> tuple[dict, 
 
 
 def _without_unasked_project_split(raw: dict, message: str) -> dict:
-    """"horas nos projetos Legislation Package - Encapsulamento, mês a mês":
+    """ "horas nos projetos Legislation Package - Encapsulamento, mês a mês":
     já filtra por nome de projeto e não pede "por projeto" — o planner às
     vezes quebrava por projeto também, e como o Projectile abre um projeto
     por mês, virava 6 linhas com um pico cada. Comparação ("A x B") e "por
     projeto"/"cada projeto" continuam quebrando."""
     group_by = raw.get("group_by") or []
-    if (
-        raw.get("project_match") and "project" in group_by
-        and "project" not in signals.asked_dimensions(message) and not signals.is_versus(message)
-    ):
+    if raw.get("project_match") and "project" in group_by and "project" not in signals.asked_dimensions(message) and not signals.is_versus(message):
         return {**raw, "group_by": [d for d in group_by if d != "project"]}
     return raw
 
@@ -262,8 +258,7 @@ def _with_share(raw: dict, message: str) -> dict:
     if not measures or any(MEASURES.get(m) and MEASURES[m].dataset != "hours" for m in measures):
         return raw
     # "percentual não faturável por colaborador" já é uma medida em %
-    if strength == "weak" and any(MEASURES.get(m) and MEASURES[m].unit == "percent" and m not in SHARE_MEASURES
-                                  for m in measures):
+    if strength == "weak" and any(MEASURES.get(m) and MEASURES[m].unit == "percent" and m not in SHARE_MEASURES for m in measures):
         return raw
     if not set(SHARE_MEASURES) <= set(measures):
         measures = ["hours", "total_hours", "share_percent", *[m for m in measures if m not in ("hours", *SHARE_MEASURES)]]
@@ -273,10 +268,7 @@ def _with_share(raw: dict, message: str) -> dict:
         # total de agosto com setembro" é outra coisa): consulta como veio
         return raw
     base_text = signals.share_base_text(message)
-    kept = {
-        key for key in active
-        if any(signals.name_tokens(value) & signals.name_tokens(base_text) for value in _share_filter_values(raw, key))
-    }
+    kept = {key for key in active if any(signals.name_tokens(value) & signals.name_tokens(base_text) for value in _share_filter_values(raw, key))}
     # o texto diz o que é a base: vale mais que a escolha de quem montou a
     # consulta (medido: o planner tirava a Mercedes da base em "quanto o
     # Lucca representa das horas da Mercedes")
@@ -296,8 +288,19 @@ def _with_share(raw: dict, message: str) -> dict:
     return {**raw, "measures": measures, "share_of": share_of, "group_by": group_by}
 
 
-def _cross_answer(raw: dict, message: str, today: date, sources: DataSources, settings, usage, options: dict,
-                  *, explain: bool, intent: str | None, notes: list[str] | None = None) -> dict:
+def _cross_answer(
+    raw: dict,
+    message: str,
+    today: date,
+    sources: DataSources,
+    settings,
+    usage,
+    options: dict,
+    *,
+    explain: bool,
+    intent: str | None,
+    notes: list[str] | None = None,
+) -> dict:
     raw, family_notes = _with_project_family(raw, message, options)
     raw = _with_share(_without_unasked_project_split(_with_cost_center(raw, message), message), message)
     spec, spec_notes = crossquery.build_spec(raw, options, today, settings.analytics_chat_max_months)
@@ -359,8 +362,7 @@ def _reports_answer(c, message, today, settings, usage, notes: list[str]) -> dic
         "tables": [table] if table else [],
         "source": "reports_db",
         "period": period,
-        "filters": {"month": c.month, "month_end": c.month_end, "relative": c.relative,
-                    "client": None, "employee": None, "project": None},
+        "filters": {"month": c.month, "month_end": c.month_end, "relative": c.relative, "client": None, "employee": None, "project": None},
         "explained": explained,
     }
 
@@ -382,7 +384,6 @@ def _inherit(raw: dict, c: router.Classification, message: str) -> None:
             raw[key] = values
 
 
-
 def _data_answer(c, message, today, sources, settings, usage, options, notes: list[str]) -> dict:
     spec = INTENTS[c.intent]
     if spec.source == "reports_db":
@@ -392,17 +393,34 @@ def _data_answer(c, message, today, sources, settings, usage, options, notes: li
         "clients": [c.client] if c.client else [],
         "employees": [c.employee] if c.employee else [],
         "projects": [c.project] if c.project else [],
-        "month": c.month, "month_end": c.month_end, "relative_period": c.relative,
+        "month": c.month,
+        "month_end": c.month_end,
+        "relative_period": c.relative,
     }
     _inherit(raw, c, message)
-    return _cross_answer(raw, message, today, sources, settings, usage, options,
-                         explain=c.route == "simple_with_explanation", intent=c.intent, notes=notes)
+    return _cross_answer(raw, message, today, sources, settings, usage, options, explain=c.route == "simple_with_explanation", intent=c.intent, notes=notes)
 
 
 _QUERY_KEYS = (
-    "measures", "group_by", "clients", "projects", "project_match", "employees", "packages", "cost_centers", "statuses",
-    "billing_type", "month", "month_end", "relative_period", "top_n", "sort_by", "sort_order",
-    "threshold_measure", "threshold_op", "threshold_value",
+    "measures",
+    "group_by",
+    "clients",
+    "projects",
+    "project_match",
+    "employees",
+    "packages",
+    "cost_centers",
+    "statuses",
+    "billing_type",
+    "month",
+    "month_end",
+    "relative_period",
+    "top_n",
+    "sort_by",
+    "sort_order",
+    "threshold_measure",
+    "threshold_op",
+    "threshold_value",
 )
 _FILTER_KEYS = ("clients", "projects", "project_match", "employees", "packages", "billing_type")
 
@@ -469,9 +487,20 @@ def _escalate_to_planner(c: router.Classification, message: str) -> router.Class
     return c
 
 
-def _analysis_answer(c, message, previous, options, today, sources, settings, usage, notes,
-                     wants_explanation: bool = False, period_allowed: bool = True,
-                     year_period: tuple[str, str | None] | None = None) -> dict | None:
+def _analysis_answer(
+    c,
+    message,
+    previous,
+    options,
+    today,
+    sources,
+    settings,
+    usage,
+    notes,
+    wants_explanation: bool = False,
+    period_allowed: bool = True,
+    year_period: tuple[str, str | None] | None = None,
+) -> dict | None:
     try:
         plan = claude_client.plan_analysis(usage, message, previous, options)
     except Exception as e:
@@ -496,8 +525,9 @@ def _analysis_answer(c, message, previous, options, today, sources, settings, us
         # achado ("nos últimos 6 meses", "em 2026" → jan-set/2026)
         raw["month"], raw["month_end"], raw["relative_period"] = c.month, c.month_end, c.relative
     try:
-        answer = _cross_answer(raw, message, today, sources, settings, usage, options,
-                               explain=bool(plan.get("explain")) or wants_explanation, intent=None, notes=notes)
+        answer = _cross_answer(
+            raw, message, today, sources, settings, usage, options, explain=bool(plan.get("explain")) or wants_explanation, intent=None, notes=notes
+        )
     except crossquery.InvalidQueryError:
         logger.warning("Plano de consulta rejeitado (sem medida válida): %s", plan)
         return None
@@ -518,9 +548,7 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
     try:
         options, _ = _options(today, sources, settings.analytics_chat_max_months)
         previous = _previous(context, options)
-        c = router.classify(
-            message, previous, options, settings.jev_min_confidence, usage, settings.jev_min_confidence_none,
-        )
+        c = router.classify(message, previous, options, settings.jev_min_confidence, usage, settings.jev_min_confidence_none)
         # o classificador marcava pergunta completa como continuação — a
         # trava por texto só deixa passar o que tem cara de continuação
         c.follow_up = c.follow_up and signals.looks_like_follow_up(message)
@@ -560,8 +588,18 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
             # senão ele herdava filtro dela numa pergunta nova (medido: "status
             # de envio de agosto" saía filtrado pelo cliente da pergunta anterior)
             answer = _analysis_answer(
-                c, message, previous if c.follow_up else None, options, today, sources, settings, usage,
-                year_notes, wants_explanation, period_in_message or c.follow_up, year_period,
+                c,
+                message,
+                previous if c.follow_up else None,
+                options,
+                today,
+                sources,
+                settings,
+                usage,
+                year_notes,
+                wants_explanation,
+                period_in_message or c.follow_up,
+                year_period,
             ) or {"reply": NO_ANALYSIS_REPLY}
         else:
             answer = _data_answer(c, message, today, sources, settings, usage, options, year_notes)
@@ -570,8 +608,12 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
         latency_ms = int((time.monotonic() - started) * 1000)
         spec = answer.get("spec")
         record_event(
-            actor_id=user["login"], actor_name=user.get("name", ""), action="analytics_chat_query",
-            entity_type="analytics_chat", entity_id=conversation_id, source="analytics_chat",
+            actor_id=user["login"],
+            actor_name=user.get("name", ""),
+            action="analytics_chat_query",
+            entity_type="analytics_chat",
+            entity_id=conversation_id,
+            source="analytics_chat",
             metadata={
                 "message": message[:300],
                 "status": status,

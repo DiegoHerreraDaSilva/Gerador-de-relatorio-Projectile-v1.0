@@ -1,6 +1,7 @@
 """Teste de reprodutibilidade do snapshot: reconstruir `ReportHeader`/`GroupInput` a partir de um `data_json`
 salvo precisa produzir o mesmo total de horas e continuar gerando um .xlsx
 válido — sem precisar de banco (o snapshot é só um dict em memória aqui)."""
+
 from __future__ import annotations
 
 import os
@@ -14,16 +15,9 @@ def _original_groups() -> list[GroupInput]:
         GroupInput(
             name="Grupo A",
             performance=100.0,
-            activities=[
-                ActivityInput(description="Atividade 1", hours=8.0),
-                ActivityInput(description="Atividade 2", hours=4.5),
-            ],
+            activities=[ActivityInput(description="Atividade 1", hours=8.0), ActivityInput(description="Atividade 2", hours=4.5)],
         ),
-        GroupInput(
-            name="Grupo B",
-            performance=90.0,
-            activities=[ActivityInput(description="Atividade 3", hours=2.0)],
-        ),
+        GroupInput(name="Grupo B", performance=90.0, activities=[ActivityInput(description="Atividade 3", hours=2.0)]),
     ]
 
 
@@ -40,11 +34,7 @@ def _pkg_data_from_groups(groups: list[GroupInput]) -> dict:
             "signer2_company": "Cliente Teste",
         },
         "groups": [
-            {
-                "name": g.name,
-                "performance": g.performance,
-                "activities": [{"description": a.description, "hours": a.hours} for a in g.activities],
-            }
+            {"name": g.name, "performance": g.performance, "activities": [{"description": a.description, "hours": a.hours} for a in g.activities]}
             for g in groups
         ],
         "pacote_scope": None,
@@ -65,9 +55,7 @@ def test_snapshot_reconstroi_mesmo_total_de_horas_e_gera_arquivo_valido(tmp_path
     reconstructed_header = ReportHeader(**snapshot["header"])
     reconstructed_groups = [
         GroupInput(
-            name=g["name"],
-            performance=g["performance"],
-            activities=[ActivityInput(description=a["description"], hours=a["hours"]) for a in g["activities"]],
+            name=g["name"], performance=g["performance"], activities=[ActivityInput(description=a["description"], hours=a["hours"]) for a in g["activities"]]
         )
         for g in snapshot["groups"]
     ]

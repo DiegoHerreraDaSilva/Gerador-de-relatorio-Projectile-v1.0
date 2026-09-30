@@ -2,8 +2,18 @@ import { fmtNum } from "../../utils/fmt";
 
 const WEEKDAY_LABELS = ["S", "T", "Q", "Q", "S", "S", "D"];
 const MONTH_NAMES = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
 ];
 
 type DayCell = {
@@ -20,9 +30,10 @@ function localDate(iso: string): Date {
 }
 
 function iso(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate()
-  ).padStart(2, "0")}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(
+    2,
+    "0",
+  )}`;
 }
 
 /** Índice 0=segunda (o `getDay()` nativo devolve 0=domingo). */
@@ -39,7 +50,7 @@ function buildMonth(
   outliers: Set<string>,
   today: string,
   rangeStart: string,
-  rangeEnd: string
+  rangeEnd: string,
 ): DayCell[] {
   const first = new Date(year, month, 1, 12);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -60,7 +71,8 @@ function buildMonth(
     else if (key > today) state = "future";
     else if (hours !== null && hours > 0) state = "worked";
     else if (gapDays.has(key)) state = "gap";
-    else if (businessDays.has(key)) state = "future"; // dia útil de hoje ainda em curso
+    else if (businessDays.has(key))
+      state = "future"; // dia útil de hoje ainda em curso
     else state = "off";
     cells.push({ date: key, hours, state, outlier: outliers.has(key) });
   }
@@ -135,80 +147,74 @@ export function CalendarHeat({
         className="calheat-months"
         style={months.length > 1 ? { gridTemplateColumns: `repeat(${monthCols}, 1fr)` } : undefined}
       >
-      {months.map(({ year, month }) => {
-        const cells = buildMonth(
-          year, month, totals, businessSet, gapSet, outlierSet, today, rangeStart, rangeEnd
-        );
-        return (
-          <div className="calheat-month" key={`${year}-${month}`}>
-            <div className="calheat-month-name">
-              {MONTH_NAMES[month]}
-              {months.length > 1 && ` ${String(year).slice(2)}`}
-            </div>
-            <div className="calheat-grid">
-              {WEEKDAY_LABELS.map((label, i) => (
-                <div className="calheat-weekday" key={`wd-${i}`} aria-hidden="true">
-                  {label}
-                </div>
-              ))}
-              {cells.map((cell, i) => {
-                if (cell.state === "outside" && !cell.date) {
-                  return <div className="calheat-cell calheat-cell--blank" key={`b-${i}`} />;
-                }
-                const dayNumber = Number(cell.date.slice(8, 10));
-                const intensity =
-                  cell.hours && cell.hours > 0 ? Math.min(1, cell.hours / scale) : 0;
-                const isHoliday = holidaySet.has(cell.date);
-                const title = [
-                  cell.date.split("-").reverse().join("/"),
-                  cell.state === "worked" ? `${fmtNum(cell.hours ?? 0)} h` : null,
-                  cell.state === "gap" ? "Dia útil sem apontamento" : null,
-                  isHoliday ? "Feriado nacional" : null,
-                  cell.state === "off" && !isHoliday ? "Fim de semana" : null,
-                  cell.state === "future" ? "Ainda não encerrado" : null,
-                  cell.outlier ? "Fora do seu padrão" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-
-                const clickable = cell.state === "worked";
-                const className = [
-                  "calheat-cell",
-                  `calheat-cell--${cell.state}`,
-                  cell.outlier ? "calheat-cell--outlier" : "",
-                  selectedDate === cell.date ? "calheat-cell--selected" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-
-                const style =
-                  cell.state === "worked"
-                    ? { opacity: 0.25 + intensity * 0.75 }
-                    : undefined;
-
-                return clickable ? (
-                  <button
-                    type="button"
-                    key={cell.date}
-                    className={className}
-                    style={style}
-                    title={title}
-                    aria-label={title}
-                    aria-pressed={selectedDate === cell.date}
-                    onClick={() => onSelectDate(cell.date)}
-                  >
-                    {dayNumber}
-                  </button>
-                ) : (
-                  <div key={cell.date || `x-${i}`} className={className} title={title}>
-                    {dayNumber}
+        {months.map(({ year, month }) => {
+          const cells = buildMonth(year, month, totals, businessSet, gapSet, outlierSet, today, rangeStart, rangeEnd);
+          return (
+            <div className="calheat-month" key={`${year}-${month}`}>
+              <div className="calheat-month-name">
+                {MONTH_NAMES[month]}
+                {months.length > 1 && ` ${String(year).slice(2)}`}
+              </div>
+              <div className="calheat-grid">
+                {WEEKDAY_LABELS.map((label, i) => (
+                  <div className="calheat-weekday" key={`wd-${i}`} aria-hidden="true">
+                    {label}
                   </div>
-                );
-              })}
+                ))}
+                {cells.map((cell, i) => {
+                  if (cell.state === "outside" && !cell.date) {
+                    return <div className="calheat-cell calheat-cell--blank" key={`b-${i}`} />;
+                  }
+                  const dayNumber = Number(cell.date.slice(8, 10));
+                  const intensity = cell.hours && cell.hours > 0 ? Math.min(1, cell.hours / scale) : 0;
+                  const isHoliday = holidaySet.has(cell.date);
+                  const title = [
+                    cell.date.split("-").reverse().join("/"),
+                    cell.state === "worked" ? `${fmtNum(cell.hours ?? 0)} h` : null,
+                    cell.state === "gap" ? "Dia útil sem apontamento" : null,
+                    isHoliday ? "Feriado nacional" : null,
+                    cell.state === "off" && !isHoliday ? "Fim de semana" : null,
+                    cell.state === "future" ? "Ainda não encerrado" : null,
+                    cell.outlier ? "Fora do seu padrão" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+
+                  const clickable = cell.state === "worked";
+                  const className = [
+                    "calheat-cell",
+                    `calheat-cell--${cell.state}`,
+                    cell.outlier ? "calheat-cell--outlier" : "",
+                    selectedDate === cell.date ? "calheat-cell--selected" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+
+                  const style = cell.state === "worked" ? { opacity: 0.25 + intensity * 0.75 } : undefined;
+
+                  return clickable ? (
+                    <button
+                      type="button"
+                      key={cell.date}
+                      className={className}
+                      style={style}
+                      title={title}
+                      aria-label={title}
+                      aria-pressed={selectedDate === cell.date}
+                      onClick={() => onSelectDate(cell.date)}
+                    >
+                      {dayNumber}
+                    </button>
+                  ) : (
+                    <div key={cell.date || `x-${i}`} className={className} title={title}>
+                      {dayNumber}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
       </div>
 
       <div className="calheat-legend">

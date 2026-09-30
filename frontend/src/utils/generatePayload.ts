@@ -14,11 +14,7 @@ function chartPng(groups: WorkPackage["groups"], type: "bar" | "pie"): string {
  * relatório aberto no editor — usado pelo "Gerar" do rodapé e pelo "Aprovar"
  * da geração automática, que precisam produzir exatamente o mesmo arquivo pro
  * mesmo conteúdo. Os gráficos são desenhados aqui (canvas do navegador). */
-export function buildGeneratePayload(
-  packages: WorkPackage[],
-  header: ReportHeader,
-  formats: ReportFormatValue[],
-) {
+export function buildGeneratePayload(packages: WorkPackage[], header: ReportHeader, formats: ReportFormatValue[]) {
   return {
     packages: packages.map((pkg) => ({
       header: {
@@ -36,7 +32,12 @@ export function buildGeneratePayload(
         performance: g.performance,
         activities: g.activities.map((a) => ({ description: a.description, hours: a.hours })),
       })),
-      file_name: packages.length > 1 ? (pkg.fileNameEdited ? pkg.fileName : computeDefaultFileNameFor(pkg, header.monthLabel)) : undefined,
+      file_name:
+        packages.length > 1
+          ? pkg.fileNameEdited
+            ? pkg.fileName
+            : computeDefaultFileNameFor(pkg, header.monthLabel)
+          : undefined,
       chart_image_bar: pkg.chartBar ? chartPng(pkg.groups, "bar") : undefined,
       chart_image_pie: pkg.chartPie ? chartPng(pkg.groups, "pie") : undefined,
       pacote_scope: pkg.pacoteScope,

@@ -199,7 +199,7 @@ function buildQuery(
     ManagementState,
     "period" | "selectedMonths" | "costCenters" | "clients" | "projects" | "packages" | "persons"
   >,
-  bypassBackendCache: boolean
+  bypassBackendCache: boolean,
 ): string {
   const params = new URLSearchParams({ months: "12" });
   if (state.period !== ROLLING_PERIOD) params.set("year", state.period);
@@ -255,9 +255,18 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
     if (get()._loadedForLogin !== login) {
       // outro usuário: descarta o que o anterior carregou antes de buscar.
       set({
-        rows: null, nonbillableBreakdown: [], projectSendStatus: [],
-        availableProjects: [], availableClients: [], availablePackages: [], availablePersons: [],
-        projectCodes: {}, projectClients: {}, loaded: false, _optionsScopeKey: null, _loadedForLogin: login,
+        rows: null,
+        nonbillableBreakdown: [],
+        projectSendStatus: [],
+        availableProjects: [],
+        availableClients: [],
+        availablePackages: [],
+        availablePersons: [],
+        projectCodes: {},
+        projectClients: {},
+        loaded: false,
+        _optionsScopeKey: null,
+        _loadedForLogin: login,
       });
       // os filtros sobrevivem à troca de login: um ano que o gerente escolheu
       // não pode ficar pro coordenador (o backend responderia 403)
@@ -331,7 +340,8 @@ export const useManagementStore = create<ManagementState>((set, get) => ({
         if (r.month !== month) return r;
         const next = { ...r, ...patch };
         next.perf_hours = next.billed_hours === null ? null : round2(next.billed_hours - next.worked_hours);
-        next.perf_kpi_pct = next.perf_hours === null || next.worked_hours <= 0 ? null : next.perf_hours / next.worked_hours;
+        next.perf_kpi_pct =
+          next.perf_hours === null || next.worked_hours <= 0 ? null : next.perf_hours / next.worked_hours;
         return next;
       }),
     }));

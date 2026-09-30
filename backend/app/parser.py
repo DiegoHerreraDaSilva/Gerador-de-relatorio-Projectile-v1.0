@@ -1,4 +1,5 @@
 """Leitura e agrupamento do relatório exportado do Projectile."""
+
 from __future__ import annotations
 
 import re
@@ -134,9 +135,7 @@ class _PackageAccumulator:
         self._groups_by_package: dict[str, dict[str, Group]] = {}
         self._group_order_by_package: dict[str, list[str]] = {}
 
-    def add_activity(
-        self, package_key: str, package_name: str, group_name: str, description: str, hours: float
-    ) -> None:
+    def add_activity(self, package_key: str, package_name: str, group_name: str, description: str, hours: float) -> None:
         if package_key not in self._packages:
             self._packages[package_key] = WorkPackage(key=package_key, project_name=package_name)
             self._package_order.append(package_key)
@@ -150,9 +149,7 @@ class _PackageAccumulator:
             group_order.append(group_name)
         group = groups[group_name]
 
-        existing = next(
-            (a for a in group.activities if a.description.casefold() == description.casefold()), None
-        )
+        existing = next((a for a in group.activities if a.description.casefold() == description.casefold()), None)
         if existing:
             existing.hours = round(existing.hours + hours, 3)
         else:
@@ -173,16 +170,12 @@ class _PackageAccumulator:
         result = []
         for key in self._package_order:
             pkg = self._packages[key]
-            pkg.groups = [
-                self._groups_by_package[key][name] for name in self._group_order_by_package[key]
-            ]
+            pkg.groups = [self._groups_by_package[key][name] for name in self._group_order_by_package[key]]
             result.append(pkg)
         return result
 
 
-def _classify_incomplete_row(
-    row_number: int, hs_value, obs_value: str, obs_filled: bool, hs_filled: bool, dados_filled: bool
-) -> RowIssue | None:
+def _classify_incomplete_row(row_number: int, hs_value, obs_value: str, obs_filled: bool, hs_filled: bool, dados_filled: bool) -> RowIssue | None:
     """Decide se uma linha com Hs/Observação parcialmente preenchidos é um
     apontamento incompleto de verdade (devolve um RowIssue) ou deve ser
     ignorada silenciosamente — só é chamada quando pelo menos um dos dois
@@ -227,9 +220,7 @@ def _find_header_row(ws) -> int:
     raise ValueError("Não encontrei a linha de cabeçalho 'Dados | Horário | Hs' na planilha.")
 
 
-def parse_projectile_export(
-    file_path: str, split_by_package: bool = False
-) -> tuple[list[WorkPackage], list[RowIssue]]:
+def parse_projectile_export(file_path: str, split_by_package: bool = False) -> tuple[list[WorkPackage], list[RowIssue]]:
     """Lê o export do Projectile e agrupa as horas por Prefixo/Descrição da coluna Observação.
 
     Se `split_by_package` for True, separa as linhas por pacote de trabalho (projeto)
@@ -264,9 +255,7 @@ def parse_projectile_export(
     missing_cols = [col for col in ("Hs", "Observação") if col not in col_index]
     if missing_cols:
         raise ValueError(
-            "Não encontrei a(s) coluna(s) "
-            + ", ".join(f'"{col}"' for col in missing_cols)
-            + " na planilha. Confira se é o export correto do Projectile."
+            "Não encontrei a(s) coluna(s) " + ", ".join(f'"{col}"' for col in missing_cols) + " na planilha. Confira se é o export correto do Projectile."
         )
 
     hs_col = col_index["Hs"]
@@ -312,16 +301,18 @@ def parse_projectile_export(
         obs_value = obs_stripped
         separator_match = re.search(r"[-_]", obs_value)
         if not separator_match:
-            issues.append(RowIssue(
-                row=row_number,
-                reason="sem_separador",
-                message=f"Linha {row_number}: Observação \"{obs_value}\" sem \"-\" ou \"_\" separando prefixo e descrição.",
-                raw_hours=hs_parsed,
-                raw_description=obs_value,
-            ))
+            issues.append(
+                RowIssue(
+                    row=row_number,
+                    reason="sem_separador",
+                    message=f"Linha {row_number}: Observação \"{obs_value}\" sem \"-\" ou \"_\" separando prefixo e descrição.",
+                    raw_hours=hs_parsed,
+                    raw_description=obs_value,
+                )
+            )
             continue
         sep_index = separator_match.start()
-        prefix, description = obs_value[:sep_index], obs_value[sep_index + 1:]
+        prefix, description = obs_value[:sep_index], obs_value[sep_index + 1 :]
         prefix = prefix.strip()
         description = description.strip()
         if not prefix or not description:
@@ -329,24 +320,28 @@ def parse_projectile_export(
                 vazio = "prefixo vazio"
             else:
                 vazio = "descrição vazia"
-            issues.append(RowIssue(
-                row=row_number,
-                reason="descricao_vazia",
-                message=f"Linha {row_number}: {vazio} em \"{obs_value}\".",
-                raw_hours=hs_parsed,
-                # a metade que sobrou (a que NÃO estiver vazia) é o único
-                # texto aproveitável — a outra virou "" no split acima.
-                raw_description=description or prefix or None,
-            ))
+            issues.append(
+                RowIssue(
+                    row=row_number,
+                    reason="descricao_vazia",
+                    message=f"Linha {row_number}: {vazio} em \"{obs_value}\".",
+                    raw_hours=hs_parsed,
+                    # a metade que sobrou (a que NÃO estiver vazia) é o único
+                    # texto aproveitável — a outra virou "" no split acima.
+                    raw_description=description or prefix or None,
+                )
+            )
             continue
 
         if hs_parsed is None:
-            issues.append(RowIssue(
-                row=row_number,
-                reason="hs_invalido",
-                message=f"Linha {row_number}: valor de Hs \"{hs_value}\" não é um número válido.",
-                raw_description=obs_value,
-            ))
+            issues.append(
+                RowIssue(
+                    row=row_number,
+                    reason="hs_invalido",
+                    message=f"Linha {row_number}: valor de Hs \"{hs_value}\" não é um número válido.",
+                    raw_description=obs_value,
+                )
+            )
             continue
         hs_float = hs_parsed
 
@@ -363,24 +358,20 @@ def parse_projectile_export(
                 # usuário juntar manualmente se, de fato, forem o mesmo projeto.
                 raw_pacote = str(pacote_value).strip() if pacote_value else ""
                 package_key = f"{raw_pacote} (linha {row_number})" if raw_pacote else f"Geral (linha {row_number})"
-                issues.append(RowIssue(
-                    row=row_number,
-                    reason="pacote_nao_identificado",
-                    message=(
-                        f"Linha {row_number}: não consegui identificar o projeto a partir de "
-                        f"\"Pacote de Trabalho\" (\"{raw_pacote}\") — agrupado separadamente."
-                    ),
-                ))
+                issues.append(
+                    RowIssue(
+                        row=row_number,
+                        reason="pacote_nao_identificado",
+                        message=(
+                            f"Linha {row_number}: não consegui identificar o projeto a partir de "
+                            f"\"Pacote de Trabalho\" (\"{raw_pacote}\") — agrupado separadamente."
+                        ),
+                    )
+                )
         else:
             package_key = SINGLE_PACKAGE_KEY
 
-        accumulator.add_activity(
-            package_key=package_key,
-            package_name=package_key,
-            group_name=prefix,
-            description=description,
-            hours=hs_float,
-        )
+        accumulator.add_activity(package_key=package_key, package_name=package_key, group_name=prefix, description=description, hours=hs_float)
 
     if not split_by_package:
         # Se a coluna "Projeto" não existir ou vier vazia em todas as linhas, deixa

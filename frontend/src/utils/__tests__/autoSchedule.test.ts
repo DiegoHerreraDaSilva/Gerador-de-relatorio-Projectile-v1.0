@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { describeSchedule, formatScheduleAt, type ScheduleInfo } from "../autoSchedule";
 
 const ON: ScheduleInfo = {
-  enabled: true, day: 1, time: "06:00", next_at: "2026-10-01T06:00:00-03:00", target: "2026-09", target_label: "Setembro/2026",
+  enabled: true,
+  day: 1,
+  time: "06:00",
+  next_at: "2026-10-01T06:00:00-03:00",
+  target: "2026-09",
+  target_label: "Setembro/2026",
 };
 
 describe("agendador da geração automática", () => {

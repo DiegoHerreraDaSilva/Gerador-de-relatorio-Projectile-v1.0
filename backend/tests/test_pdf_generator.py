@@ -2,6 +2,7 @@
 verdade, A4 retrato, e o total de horas bate com a mesma regra de cálculo
 (bruto × performance por grupo) que `generator.py`/`test_generator.py` já
 travam pro `.xlsx` — os dois formatos precisam concordar no mesmo número."""
+
 from __future__ import annotations
 
 import json
@@ -39,11 +40,7 @@ def test_pdf_total_hours_matches_bruto_times_performance(tmp_path):
     total esperado 18.2h, mesma regra que o `.xlsx` aplica em
     `generator._build_group_rows`."""
     groups = [
-        GroupInput(
-            name="Grupo A",
-            performance=1.1,
-            activities=[ActivityInput("Ativ 1", 10.0), ActivityInput("Extra sem apontamento", None)],
-        ),
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0), ActivityInput("Extra sem apontamento", None)]),
         GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
     ]
     pdf_path = make_report_pdf(tmp_path, groups=groups, month_label="Julho/2026")
@@ -66,13 +63,7 @@ def test_pdf_metadata_carries_identity_and_total_hours(tmp_path):
         GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)]),
         GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
     ]
-    pdf_path = make_report_pdf(
-        tmp_path,
-        project_code="1546.6.4",
-        project_name="Sangam - Cabina Bruta",
-        month_label="Julho/2026",
-        groups=groups,
-    )
+    pdf_path = make_report_pdf(tmp_path, project_code="1546.6.4", project_name="Sangam - Cabina Bruta", month_label="Julho/2026", groups=groups)
     reader = PdfReader(pdf_path)
     data = json.loads(reader.metadata[PDF_METADATA_KEY])
 

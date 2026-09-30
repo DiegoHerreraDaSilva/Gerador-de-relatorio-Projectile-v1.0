@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  sanitizeForFileName,
-  computeDefaultFileName,
-  computeDefaultFileNameFor,
-} from "../fileName";
+import { sanitizeForFileName, computeDefaultFileName, computeDefaultFileNameFor } from "../fileName";
 
 describe("sanitizeForFileName", () => {
   it("troca cada caractere proibido em nome de arquivo por hífen", () => {
@@ -28,9 +24,7 @@ describe("sanitizeForFileName", () => {
 
 describe("computeDefaultFileName", () => {
   it("monta nome com código do projeto como prefixo, mês/ano com ponto e nome do projeto (pacote único)", () => {
-    const name = computeDefaultFileName("08/2026", [
-      { projectCode: "PRJ001", projectName: "Projeto Teste" },
-    ]);
+    const name = computeDefaultFileName("08/2026", [{ projectCode: "PRJ001", projectName: "Projeto Teste" }]);
     expect(name).toBe("PRJ001_Relatório_Horas-08.2026-Projeto Teste");
   });
 
@@ -48,27 +42,19 @@ describe("computeDefaultFileName", () => {
   });
 
   it("sanitiza caracteres especiais em projectCode e projectName", () => {
-    const name = computeDefaultFileName("08/2026", [
-      { projectCode: "PRJ/001", projectName: 'Projeto: "Teste" <X>' },
-    ]);
+    const name = computeDefaultFileName("08/2026", [{ projectCode: "PRJ/001", projectName: 'Projeto: "Teste" <X>' }]);
     expect(name).toBe("PRJ-001_Relatório_Horas-08.2026-Projeto- -Teste- -X-");
   });
 });
 
 describe("computeDefaultFileNameFor", () => {
   it("monta o nome para um pacote específico igual ao caso de pacote único de computeDefaultFileName", () => {
-    const name = computeDefaultFileNameFor(
-      { projectCode: "PRJ001", projectName: "Projeto Teste" },
-      "08/2026"
-    );
+    const name = computeDefaultFileNameFor({ projectCode: "PRJ001", projectName: "Projeto Teste" }, "08/2026");
     expect(name).toBe("PRJ001_Relatório_Horas-08.2026-Projeto Teste");
   });
 
   it("sanitiza caracteres especiais e barras no código/nome do projeto", () => {
-    const name = computeDefaultFileNameFor(
-      { projectCode: "PRJ/001", projectName: 'Projeto: "Teste" <X>' },
-      "08/2026"
-    );
+    const name = computeDefaultFileNameFor({ projectCode: "PRJ/001", projectName: 'Projeto: "Teste" <X>' }, "08/2026");
     expect(name).toBe("PRJ-001_Relatório_Horas-08.2026-Projeto- -Teste- -X-");
   });
 

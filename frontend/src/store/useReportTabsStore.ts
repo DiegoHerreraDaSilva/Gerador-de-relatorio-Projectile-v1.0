@@ -251,13 +251,11 @@ export const useReportTabsStore = create<ReportTabsState>()(
         // sessão) continua com o histórico completo, intocado aqui.
         // guia da geração automática não vai pro disco (ver `AutoTabMeta`)
         const diskTabs = s.tabs.filter((t) => !t.auto);
-        const bundlesForDisk = Object.fromEntries(
-          diskTabs.map((t) => [t.id, stripUndoStackForDisk(bundles[t.id])])
-        );
+        const bundlesForDisk = Object.fromEntries(diskTabs.map((t) => [t.id, stripUndoStackForDisk(bundles[t.id])]));
         const diskActive = diskTabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : diskTabs[0]?.id;
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ version: 1, activeTabId: diskActive, tabs: diskTabs, bundles: bundlesForDisk })
+          JSON.stringify({ version: 1, activeTabId: diskActive, tabs: diskTabs, bundles: bundlesForDisk }),
         );
         set({ bundles, pendingSave: false });
       } catch {
@@ -267,7 +265,7 @@ export const useReportTabsStore = create<ReportTabsState>()(
         set({ pendingSave: false });
       }
     },
-  }))
+  })),
 );
 
 // reage a QUALQUER mudança na guia ativa: agenda a gravação em disco
@@ -312,7 +310,12 @@ function hydrate() {
       activeTabId?: unknown;
       bundles?: unknown;
     };
-    if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0 || typeof parsed.bundles !== "object" || !parsed.bundles) {
+    if (
+      !Array.isArray(parsed.tabs) ||
+      parsed.tabs.length === 0 ||
+      typeof parsed.bundles !== "object" ||
+      !parsed.bundles
+    ) {
       return;
     }
     const rawBundles = parsed.bundles as Record<string, unknown>;

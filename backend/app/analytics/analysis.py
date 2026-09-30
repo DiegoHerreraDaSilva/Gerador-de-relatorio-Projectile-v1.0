@@ -6,6 +6,7 @@ depois descreve números que já vêm prontos.
 Comparar itens entre si num período só ("Mercedes x Lauer em julho") não
 é mais uma análise à parte: é uma consulta cruzada com os itens no filtro e
 agrupada pela mesma dimensão (`crossquery` + `cross_output._compared_items`)."""
+
 from __future__ import annotations
 
 from . import crossquery
@@ -59,11 +60,15 @@ def compare_periods(spec_a: QuerySpec, spec_b: QuerySpec, sources: DataSources, 
     changes = []
     for label in sorted(set(values_a) | set(values_b)):
         before, after = values_a.get(label, empty), values_b.get(label, empty)
-        changes.append({
-            "label": label, "before": before, "after": after,
-            "change": _change(before, after),
-            "change_percent": None if info.unit == "percent" else _pct(before, after),
-        })
+        changes.append(
+            {
+                "label": label,
+                "before": before,
+                "after": after,
+                "change": _change(before, after),
+                "change_percent": None if info.unit == "percent" else _pct(before, after),
+            }
+        )
     changes.sort(key=lambda item: (item["change"] is None, -abs(item["change"] or 0), item["label"]))
     summary["dimension"] = DIMENSIONS[dimension].label
     summary["top_increases"] = [c for c in changes if (c["change"] or 0) > 0][:5]
@@ -77,27 +82,28 @@ def visualizations(result: dict) -> list[dict]:
     if result["dimension"] is None:
         if summary["total_a"] is None and summary["total_b"] is None:
             return []
-        return [{
-            "type": "bar",
-            "title": f"{summary['measure']} — {summary['period_a']} x {summary['period_b']}",
-            "categories": [summary["period_a"], summary["period_b"]],
-            "series": [{"name": summary["measure"], "data": [summary["total_a"], summary["total_b"]]}],
-            "unit": unit,
-        }]
+        return [
+            {
+                "type": "bar",
+                "title": f"{summary['measure']} — {summary['period_a']} x {summary['period_b']}",
+                "categories": [summary["period_a"], summary["period_b"]],
+                "series": [{"name": summary["measure"], "data": [summary["total_a"], summary["total_b"]]}],
+                "unit": unit,
+            }
+        ]
     top = [c for c in result["changes"] if c["change"] is not None][:MAX_CHANGES]
     if not top:
         return []
     change_unit = "p.p." if unit == "%" else unit
-    return [{
-        "type": "horizontal_bar",
-        "title": (
-            f"Variação de {summary['measure'].lower()} por {summary['dimension'].lower()} — "
-            f"{summary['period_a']} → {summary['period_b']}"
-        ),
-        "categories": [c["label"] for c in top],
-        "series": [{"name": f"Variação ({change_unit})", "data": [c["change"] for c in top]}],
-        "unit": change_unit,
-    }]
+    return [
+        {
+            "type": "horizontal_bar",
+            "title": (f"Variação de {summary['measure'].lower()} por {summary['dimension'].lower()} — {summary['period_a']} → {summary['period_b']}"),
+            "categories": [c["label"] for c in top],
+            "series": [{"name": f"Variação ({change_unit})", "data": [c["change"] for c in top]}],
+            "unit": change_unit,
+        }
+    ]
 
 
 def table(result: dict) -> dict | None:
@@ -108,16 +114,16 @@ def table(result: dict) -> dict | None:
     percent = unit == "percent"
     return {
         "title": f"{summary['dimension']} — {summary['period_a']} x {summary['period_b']}",
-        "columns": [summary["dimension"], summary["period_a"], summary["period_b"],
-                    "Variação (p.p.)" if percent else f"Variação ({summary['unit'] or 'qtd.'})",
-                    *([] if percent else ["Variação (%)"])],
-        "column_types": ["text", unit, unit, unit, *([] if percent else ["percent"])],
-        "rows": [
-            [c["label"], c["before"], c["after"], c["change"], *([] if percent else [c["change_percent"]])]
-            for c in result["changes"]
+        "columns": [
+            summary["dimension"],
+            summary["period_a"],
+            summary["period_b"],
+            "Variação (p.p.)" if percent else f"Variação ({summary['unit'] or 'qtd.'})",
+            *([] if percent else ["Variação (%)"]),
         ],
-        "totals": ["Total", summary["total_a"], summary["total_b"], summary["total_change"],
-                   *([] if percent else [summary["total_change_percent"]])],
+        "column_types": ["text", unit, unit, unit, *([] if percent else ["percent"])],
+        "rows": [[c["label"], c["before"], c["after"], c["change"], *([] if percent else [c["change_percent"]])] for c in result["changes"]],
+        "totals": ["Total", summary["total_a"], summary["total_b"], summary["total_change"], *([] if percent else [summary["total_change_percent"]])],
         "truncated": False,
     }
 

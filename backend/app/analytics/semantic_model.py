@@ -1,6 +1,7 @@
 """Conceitos de negócio do chat analítico, sem expor o schema do banco pros
 modelos: rótulos de dimensões e unidades das métricas. Usado pelo formatter,
 pela visualização e como contexto pro Claude."""
+
 from __future__ import annotations
 
 DIMENSIONS = {
@@ -13,12 +14,7 @@ DIMENSIONS = {
     "format": "Formato",
 }
 
-UNITS = {
-    "hours": "h",
-    "count": "",
-    "ms": "ms",
-    "percent": "%",
-}
+UNITS = {"hours": "h", "count": "", "ms": "ms", "percent": "%"}
 
 SOURCES = {
     "reports_db": "Histórico de relatórios gerados",

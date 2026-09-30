@@ -2,6 +2,7 @@
 Claude quando ele está desligado, falhou, ou não teve confiança suficiente.
 O resultado dos dois passa pela MESMA validação: nada que não esteja no
 catálogo ou nas listas de opções sobrevive."""
+
 from __future__ import annotations
 
 import json
@@ -56,37 +57,27 @@ def _questions(options: dict) -> dict:
     questions = {
         "route": jev.choice("Which kind of request is this message?", _ROUTE_CRITERIA),
         "intent": jev.choice(
-            "Which metric does the message ask about?",
-            {**{name: spec.criteria for name, spec in INTENTS.items()}, _NONE: "None of these metrics"},
+            "Which metric does the message ask about?", {**{name: spec.criteria for name, spec in INTENTS.items()}, _NONE: "None of these metrics"}
         ),
         # mês E período relativo numa pergunta só: separados, o Jev marcava
         # os dois ("últimos 3 meses" + junho) e um contradizia o outro
         "period": jev.choice(
-            "Which period does the message ask about? A specific month (if it mentions a range of "
-            "months, the FIRST month of the range) or a relative period.",
-            {
-                **options["months"],
-                **{key: text for key, (text, _, _) in RELATIVE_PERIODS.items()},
-                _NONE: "No period mentioned",
-            },
+            "Which period does the message ask about? A specific month (if it mentions a range of months, the FIRST month of the range) or a relative period.",
+            {**options["months"], **{key: text for key, (text, _, _) in RELATIVE_PERIODS.items()}, _NONE: "No period mentioned"},
         ),
         "month_end": jev.choice(
-            "If the message mentions a range of months (e.g. 'de fevereiro a agosto'), "
-            "which is the LAST month of the range?",
+            "If the message mentions a range of months (e.g. 'de fevereiro a agosto'), which is the LAST month of the range?",
             {**options["months"], _NONE: "No range of months mentioned"},
         ),
     }
     labels = {"client": "client/customer", "employee": "employee/person", "project": "project"}
-    for name, values in (
-        ("client", options["clients"]), ("employee", options["employees"]), ("project", options.get("projects", [])),
-    ):
+    for name, values in (("client", options["clients"]), ("employee", options["employees"]), ("project", options.get("projects", []))):
         # lista grande demais pro Jev → pergunta sem esse filtro;
         # se a pessoa citar um, a confiança cai e o Claude assume.
         if 1 <= len(values) < jev.MAX_CHOICE_OPTIONS:
             label = labels[name]
             questions[name] = jev.choice(
-                f"Which {label} does the message restrict the question to, if any?",
-                {**{value: value for value in values}, _NONE: f"No specific {label}"},
+                f"Which {label} does the message restrict the question to, if any?", {**{value: value for value in values}, _NONE: f"No specific {label}"}
             )
     return questions
 
@@ -126,9 +117,7 @@ def _weakest(answers: dict, min_confidence: float, min_confidence_none: float) -
     return None
 
 
-def _from_jev(
-    message: str, previous: dict | None, options: dict, min_confidence: float, min_confidence_none: float,
-) -> Classification | None:
+def _from_jev(message: str, previous: dict | None, options: dict, min_confidence: float, min_confidence_none: float) -> Classification | None:
     try:
         answers = _ask_jev(message, previous, options)
     except jev.ClassifierUnavailableError as e:
@@ -205,9 +194,7 @@ def _validated(c: Classification, options: dict) -> Classification:
     return c
 
 
-def classify(
-    message: str, previous: dict | None, options: dict, min_confidence: float, usage, min_confidence_none: float = 0.40,
-) -> Classification:
+def classify(message: str, previous: dict | None, options: dict, min_confidence: float, usage, min_confidence_none: float = 0.40) -> Classification:
     jev_called = jev.is_enabled()
     result = _from_jev(message, previous, options, min_confidence, min_confidence_none)
     if result is None:

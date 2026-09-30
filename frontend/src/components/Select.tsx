@@ -9,7 +9,14 @@ export type SelectOption = { value: string; label: string; disabled?: boolean };
  * tokens). Mesmo look dos filtros (`.month-dropdown*`), com teclado completo
  * (setas, Home/End, Enter/Espaço, Esc, digitar a inicial) e a lista abre pra
  * cima quando não cabe embaixo. Controlado: `value`/`onChange(value)`. */
-export function Select({ value, options, onChange, ariaLabel, disabled, className }: {
+export function Select({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  disabled,
+  className,
+}: {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
@@ -86,8 +93,13 @@ export function Select({ value, options, onChange, ariaLabel, disabled, classNam
     } else if (e.key.length === 1) {
       // digitar a inicial pula pra próxima opção que começa com ela
       const letter = e.key.toLocaleLowerCase("pt-BR");
-      const found = options.findIndex((o, i) => i > active && !o.disabled && o.label.toLocaleLowerCase("pt-BR").startsWith(letter));
-      const wrap = found >= 0 ? found : options.findIndex((o) => !o.disabled && o.label.toLocaleLowerCase("pt-BR").startsWith(letter));
+      const found = options.findIndex(
+        (o, i) => i > active && !o.disabled && o.label.toLocaleLowerCase("pt-BR").startsWith(letter),
+      );
+      const wrap =
+        found >= 0
+          ? found
+          : options.findIndex((o) => !o.disabled && o.label.toLocaleLowerCase("pt-BR").startsWith(letter));
       if (wrap >= 0) setActive(wrap);
     }
   };
@@ -105,11 +117,23 @@ export function Select({ value, options, onChange, ariaLabel, disabled, classNam
         disabled={disabled}
         onClick={() => (open ? close() : openList())}
       >
-        <span className="mgmt-filter-summary" title={current?.label}>{current?.label ?? ""}</span>
-        <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} aria-hidden="true" />
+        <span className="mgmt-filter-summary" title={current?.label}>
+          {current?.label ?? ""}
+        </span>
+        <ChevronDown
+          size={15}
+          strokeWidth={2}
+          className={`month-dropdown-chevron ${open ? "open" : ""}`}
+          aria-hidden="true"
+        />
       </button>
       {open && (
-        <ul className={`month-dropdown-list app-select-list ${up ? "up" : ""}`} role="listbox" id={listId} ref={listRef}>
+        <ul
+          className={`month-dropdown-list app-select-list ${up ? "up" : ""}`}
+          role="listbox"
+          id={listId}
+          ref={listRef}
+        >
           {options.map((option, index) => (
             <li key={option.value} role="presentation">
               <button

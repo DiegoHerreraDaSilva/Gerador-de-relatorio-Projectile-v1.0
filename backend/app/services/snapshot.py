@@ -15,6 +15,7 @@ Formato esperado de `pkg_data`:
         "has_chart_pie": bool,
     }
 """
+
 from __future__ import annotations
 
 import calendar
@@ -26,16 +27,7 @@ from ..generator import parse_month_label, parse_period_label
 
 _SNAPSHOT_SCHEMA_VERSION = "1.0"
 
-_HEADER_FIELDS = (
-    "project_code",
-    "project_name",
-    "location_date",
-    "month_label",
-    "signer1_name",
-    "signer1_company",
-    "signer2_name",
-    "signer2_company",
-)
+_HEADER_FIELDS = ("project_code", "project_name", "location_date", "month_label", "signer1_name", "signer1_company", "signer2_name", "signer2_company")
 
 
 def canonical_json(data: dict) -> str:
@@ -62,10 +54,7 @@ def build_snapshot_data(pkg_data: dict) -> dict:
             {
                 "name": g.get("name"),
                 "performance": g.get("performance"),
-                "activities": [
-                    {"description": a.get("description"), "hours": a.get("hours")}
-                    for a in (g.get("activities") or [])
-                ],
+                "activities": [{"description": a.get("description"), "hours": a.get("hours")} for a in (g.get("activities") or [])],
             }
             for g in groups
         ],
@@ -89,9 +78,7 @@ def compute_identity_hash(report_number: str, scope: str | None, competence_labe
     competence_label)`, sem incluir quem gerou — ver plano de implementação
     (seção "Divergências do guia") pro raciocínio e o risco residual aceito
     de colisão entre relatórios pessoais com o mesmo texto por coincidência."""
-    parts = "\x1f".join(
-        _normalize_identity_part(v) for v in (report_number, scope, competence_label)
-    )
+    parts = "\x1f".join(_normalize_identity_part(v) for v in (report_number, scope, competence_label))
     return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 

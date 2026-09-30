@@ -7,6 +7,7 @@ coluna (`column_types`: hours | percent | count | ms | text).
 Não é o caminho de geração de relatório — aqui não há template, então
 `Workbook.save()` é seguro (a regra "nunca openpyxl.save()" do CLAUDE.md é
 sobre `generator.py`, que precisa preservar desenhos do template)."""
+
 from __future__ import annotations
 
 import io
@@ -19,12 +20,7 @@ from openpyxl.utils import get_column_letter
 
 from .schemas import ExportRequest
 
-_FORMATS = {
-    "hours": '#,##0.00" h"',
-    "percent": '0.0"%"',
-    "count": "#,##0",
-    "ms": '#,##0" ms"',
-}
+_FORMATS = {"hours": '#,##0.00" h"', "percent": '0.0"%"', "count": "#,##0", "ms": '#,##0" ms"'}
 _HEADER_FILL = PatternFill("solid", fgColor="0F8F9C")
 _TOTAL_FILL = PatternFill("solid", fgColor="E6F2F3")
 _THIN = Side(style="thin", color="C9D3D8")

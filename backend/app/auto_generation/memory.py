@@ -8,6 +8,7 @@ seguinte pode ter grupos novos, a menos ou em outra ordem.
 Guarda nomes de grupo, performance por grupo, descrições de atividade,
 idioma, gráficos, assinantes, o revisor e o último número (só como SUGESTÃO —
 o gerente confirma). Horas nunca: elas vêm sempre do Projectile."""
+
 from __future__ import annotations
 
 _SIGNER_FIELDS = ("signer1_name", "signer1_company", "signer2_name", "signer2_company")
@@ -38,13 +39,9 @@ def extract(draft: dict, previous: dict | None = None, reviewer: dict | None = N
             "chart_bar": bool(pkg.get("chart_bar")),
             "chart_pie": bool(pkg.get("chart_pie")),
             "groups": {
-                g["source_key"]: {"name": g.get("name", ""), "performance": g.get("performance", 1)}
-                for g in pkg.get("groups", []) if g.get("source_key")
+                g["source_key"]: {"name": g.get("name", ""), "performance": g.get("performance", 1)} for g in pkg.get("groups", []) if g.get("source_key")
             },
-            "activities": {
-                a["source_key"]: a.get("description", "")
-                for g in pkg.get("groups", []) for a in g.get("activities", []) if a.get("source_key")
-            },
+            "activities": {a["source_key"]: a.get("description", "") for g in pkg.get("groups", []) for a in g.get("activities", []) if a.get("source_key")},
         }
     return memory
 

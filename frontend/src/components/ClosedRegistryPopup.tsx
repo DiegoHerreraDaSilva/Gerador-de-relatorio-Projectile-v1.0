@@ -61,10 +61,11 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
     }
     for (const list of byClient.values()) list.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return Array.from(byClient.entries())
-      .filter(([client, projects]) =>
-        !searchNormalized ||
-        client.toLowerCase().includes(searchNormalized) ||
-        projects.some((p) => p.name.toLowerCase().includes(searchNormalized))
+      .filter(
+        ([client, projects]) =>
+          !searchNormalized ||
+          client.toLowerCase().includes(searchNormalized) ||
+          projects.some((p) => p.name.toLowerCase().includes(searchNormalized)),
       )
       .sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
   }, [closedRegistryProjects, availableProjects, searchNormalized]);
@@ -111,9 +112,9 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
 
         <div className="modal-body">
           <p className="muted">
-            Marque um cliente ou projeto inteiro que nunca envia relatório de horas por e-mail — fica de fora de
-            "Não enviados" pra sempre, em todo mês passado e futuro, até você desmarcar aqui. A lista abaixo segue os
-            filtros de Cliente/Projeto/Período/Competência do painel — ajuste-os pra ver outros clientes/projetos.
+            Marque um cliente ou projeto inteiro que nunca envia relatório de horas por e-mail — fica de fora de "Não
+            enviados" pra sempre, em todo mês passado e futuro, até você desmarcar aqui. A lista abaixo segue os filtros
+            de Cliente/Projeto/Período/Competência do painel — ajuste-os pra ver outros clientes/projetos.
           </p>
           <input
             type="text"
@@ -145,7 +146,11 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
                       onClick={() => toggleClientExpanded(client)}
                       aria-label={clientExpanded ? "Recolher cliente" : "Expandir cliente"}
                     >
-                      {clientExpanded ? <ChevronDown size={15} strokeWidth={2} /> : <ChevronRight size={15} strokeWidth={2} />}
+                      {clientExpanded ? (
+                        <ChevronDown size={15} strokeWidth={2} />
+                      ) : (
+                        <ChevronRight size={15} strokeWidth={2} />
+                      )}
                     </button>
                     <label>
                       <input
@@ -172,7 +177,11 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
                                 onClick={() => toggleProjectExpanded(project.id)}
                                 aria-label={projectExpanded ? "Recolher projeto" : "Expandir projeto (ver pacotes)"}
                               >
-                                {projectExpanded ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronRight size={14} strokeWidth={2} />}
+                                {projectExpanded ? (
+                                  <ChevronDown size={14} strokeWidth={2} />
+                                ) : (
+                                  <ChevronRight size={14} strokeWidth={2} />
+                                )}
                               </button>
                               <label title={clientClosed ? "Fechado porque o cliente inteiro está fechado" : undefined}>
                                 <input
@@ -191,7 +200,8 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
                                 {loadingPacotesFor !== project.id && (pacotes ?? []).length === 0 && (
                                   <li className="muted">Nenhum pacote encontrado.</li>
                                 )}
-                                {loadingPacotesFor !== project.id && (pacotes ?? []).map((pacote) => <li key={pacote}>{pacote}</li>)}
+                                {loadingPacotesFor !== project.id &&
+                                  (pacotes ?? []).map((pacote) => <li key={pacote}>{pacote}</li>)}
                               </ul>
                             )}
                           </div>
@@ -206,10 +216,12 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Fechar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Fechar
+          </button>
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

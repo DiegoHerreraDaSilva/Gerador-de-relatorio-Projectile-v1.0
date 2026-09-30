@@ -164,7 +164,7 @@ describe("useReportTabsStore", () => {
   it("localStorage com JSON inválido não quebra o boot — cai pra 1 guia em branco", async () => {
     (globalThis as unknown as { localStorage: Storage }).localStorage.setItem(
       "relatorio-horas:tabs:v1",
-      "isso não é json válido{{{"
+      "isso não é json válido{{{",
     );
     const { useReportTabsStore } = await import("../useReportTabsStore");
     expect(useReportTabsStore.getState().tabs).toHaveLength(1);
@@ -173,7 +173,7 @@ describe("useReportTabsStore", () => {
   it("localStorage com formato inesperado (sem tabs/bundles) não quebra o boot", async () => {
     (globalThis as unknown as { localStorage: Storage }).localStorage.setItem(
       "relatorio-horas:tabs:v1",
-      JSON.stringify({ algumaCoisa: true })
+      JSON.stringify({ algumaCoisa: true }),
     );
     const { useReportTabsStore } = await import("../useReportTabsStore");
     expect(useReportTabsStore.getState().tabs).toHaveLength(1);

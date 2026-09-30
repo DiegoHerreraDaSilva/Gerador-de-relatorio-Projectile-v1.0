@@ -23,17 +23,29 @@ export type EmployeeOption = { employee_id: string; name: string; cost_center: s
 export type MyHoursErrorKind = "session" | "input" | "network" | "";
 
 const EMPTY_BUSINESS_DAYS: MyHoursBusinessDays = {
-  list: [], closed: [], count: 0, closed_count: 0,
-  month_total: 0, month_remaining: 0, holidays: [], source: "", note: "",
+  list: [],
+  closed: [],
+  count: 0,
+  closed_count: 0,
+  month_total: 0,
+  month_remaining: 0,
+  holidays: [],
+  source: "",
+  note: "",
 };
 
 /** Referência ausente por padrão — `source: "none"` e `hours_per_day: null`.
  * Deliberado: não existe caminho de código no frontend que produza 8 h por
  * conta própria, nem no estado inicial nem no skeleton. */
 const EMPTY_REFERENCE: MyHoursReference = {
-  source: "none", hours_per_weekday: null, hours_per_day: null,
-  allows_percentage: false, sample_days: null, window_days: null,
-  label: "Sem referência de jornada", divergence_note: null,
+  source: "none",
+  hours_per_weekday: null,
+  hours_per_day: null,
+  allows_percentage: false,
+  sample_days: null,
+  window_days: null,
+  label: "Sem referência de jornada",
+  divergence_note: null,
 };
 
 interface MyHoursState {
@@ -129,9 +141,16 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
     const login = useAuthStore.getState().user?.login ?? null;
     if (get()._loadedForLogin !== login) {
       set({
-        entries: [], loaded: false, employeeId: null, viewingName: "",
-        employees: [], employeesLoaded: false, employeesError: "",
-        filters: EMPTY_MY_HOURS_FILTERS, selectedDate: null, _loadedForLogin: login,
+        entries: [],
+        loaded: false,
+        employeeId: null,
+        viewingName: "",
+        employees: [],
+        employeesLoaded: false,
+        employeesError: "",
+        filters: EMPTY_MY_HOURS_FILTERS,
+        selectedDate: null,
+        _loadedForLogin: login,
       });
     }
     if (get().loaded && !force) return;
@@ -234,9 +253,7 @@ export const useMyHoursStore = create<MyHoursState>((set, get) => ({
   togglePacoteFilter: (pacote) =>
     set((s) => {
       const current = s.filters.pacotes;
-      const next = current.includes(pacote)
-        ? current.filter((p) => p !== pacote)
-        : [...current, pacote];
+      const next = current.includes(pacote) ? current.filter((p) => p !== pacote) : [...current, pacote];
       return { filters: { ...s.filters, pacotes: next } };
     }),
 

@@ -52,11 +52,7 @@ describe("totalHours / distinctDaysWorked", () => {
   });
 
   it("conta dias distintos, não lançamentos", () => {
-    const entries = [
-      entry({ date: "2026-08-03" }),
-      entry({ date: "2026-08-03" }),
-      entry({ date: "2026-08-04" }),
-    ];
+    const entries = [entry({ date: "2026-08-03" }), entry({ date: "2026-08-03" }), entry({ date: "2026-08-04" })];
     expect(distinctDaysWorked(entries)).toBe(2);
   });
 });
@@ -75,10 +71,7 @@ describe("aggregateByPacote", () => {
 
   it("share é fração do TOTAL do período, não do maior item", () => {
     // com um item só, normalizar pelo máximo daria 100% sempre — auto-referente
-    const result = aggregateByPacote([
-      entry({ pacote: "A", hours: 3 }),
-      entry({ pacote: "B", hours: 1 }),
-    ]);
+    const result = aggregateByPacote([entry({ pacote: "A", hours: 3 }), entry({ pacote: "B", hours: 1 })]);
     expect(result[0].share).toBeCloseTo(0.75);
     expect(result[1].share).toBeCloseTo(0.25);
   });
@@ -165,10 +158,7 @@ describe("billingSplit", () => {
 describe("weekdayProfile", () => {
   it("índice 0 é segunda", () => {
     // 2026-08-03 é segunda, 2026-08-07 é sexta
-    const profile = weekdayProfile([
-      entry({ date: "2026-08-03", hours: 6 }),
-      entry({ date: "2026-08-07", hours: 4 }),
-    ]);
+    const profile = weekdayProfile([entry({ date: "2026-08-03", hours: 6 }), entry({ date: "2026-08-07", hours: 4 })]);
     expect(profile.averages[0]).toBe(6);
     expect(profile.averages[4]).toBe(4);
     expect(profile.averages[5]).toBeNull();
@@ -191,10 +181,7 @@ describe("weekdayProfile", () => {
   });
 
   it("conta ocorrências por dia da semana", () => {
-    const profile = weekdayProfile([
-      entry({ date: "2026-08-03", hours: 6 }),
-      entry({ date: "2026-08-10", hours: 4 }),
-    ]);
+    const profile = weekdayProfile([entry({ date: "2026-08-03", hours: 6 }), entry({ date: "2026-08-10", hours: 4 })]);
     expect(profile.counts[0]).toBe(2);
     expect(profile.averages[0]).toBe(5);
   });
@@ -228,10 +215,7 @@ describe("applyMyHoursFilters", () => {
   });
 
   it("combina múltiplas dimensões com E, não OU", () => {
-    const result = applyMyHoursFilters(
-      entries,
-      filters({ clients: ["MBB"], pacotes: ["OTC_Suporte"] })
-    );
+    const result = applyMyHoursFilters(entries, filters({ clients: ["MBB"], pacotes: ["OTC_Suporte"] }));
     expect(result).toHaveLength(1);
     expect(result[0].date).toBe("2026-08-10");
   });
@@ -240,19 +224,12 @@ describe("applyMyHoursFilters", () => {
     // com clients=["MBB"] só há 1 pacote (OTC_Suporte) nos dados restantes;
     // mas calculando as opções de "pacotes" o próprio filtro de pacotes
     // precisa ser ignorado, senão marcar uma opção troca as outras por [].
-    const result = applyMyHoursFilters(
-      entries,
-      filters({ clients: ["MBB"], pacotes: ["OTC_Infra"] }),
-      "pacotes"
-    );
+    const result = applyMyHoursFilters(entries, filters({ clients: ["MBB"], pacotes: ["OTC_Infra"] }), "pacotes");
     expect(result.map((e) => e.pacote).sort()).toEqual(["OTC_Infra", "OTC_Suporte"]);
   });
 
   it("lançamento sem cliente cai em 'Sem cliente'", () => {
-    const result = applyMyHoursFilters(
-      [entry({ client: null })],
-      filters({ clients: ["Sem cliente"] })
-    );
+    const result = applyMyHoursFilters([entry({ client: null })], filters({ clients: ["Sem cliente"] }));
     expect(result).toHaveLength(1);
   });
 });
@@ -309,7 +286,9 @@ describe("gapDays", () => {
 
   it("mais recente primeiro", () => {
     expect(gapDays(new Map(), ["2026-08-03", "2026-08-04", "2026-08-05"])).toEqual([
-      "2026-08-05", "2026-08-04", "2026-08-03",
+      "2026-08-05",
+      "2026-08-04",
+      "2026-08-03",
     ]);
   });
 

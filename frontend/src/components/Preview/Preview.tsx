@@ -40,7 +40,8 @@ function createPaneDragHandlers(paneId: string | null) {
       const dg = useReportStore.getState().draggedGroup;
       if (dg && paneId && dg.fromPackageId !== paneId) (e.currentTarget as HTMLElement).classList.add("drop-target");
     },
-    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => (e.currentTarget as HTMLElement).classList.remove("drop-target"),
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) =>
+      (e.currentTarget as HTMLElement).classList.remove("drop-target"),
     onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
       if (useReportStore.getState().draggedGroup) e.preventDefault();
     },
@@ -145,24 +146,62 @@ export function Preview() {
           <div className="preview-toolbar">
             <h2>Preview do relatório final</h2>
             <div className="preview-tools">
-              <button type="button" className="btn-toggle" disabled title="Desfazer a última alteração">↶ Desfazer</button>
-              <button type="button" className="btn-toggle" disabled title="Gráfico de barras" aria-label="Gráfico de barras">
+              <button type="button" className="btn-toggle" disabled title="Desfazer a última alteração">
+                ↶ Desfazer
+              </button>
+              <button
+                type="button"
+                className="btn-toggle"
+                disabled
+                title="Gráfico de barras"
+                aria-label="Gráfico de barras"
+              >
                 <BarChartIcon />
               </button>
-              <button type="button" className="btn-toggle" disabled title="Gráfico de pizza" aria-label="Gráfico de pizza">
+              <button
+                type="button"
+                className="btn-toggle"
+                disabled
+                title="Gráfico de pizza"
+                aria-label="Gráfico de pizza"
+              >
                 <PieChartIcon />
               </button>
-              <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">⇆ Dividir tela</button>
+              <button type="button" className="btn-toggle" disabled title="Ver 2 relatórios lado a lado">
+                ⇆ Dividir tela
+              </button>
               {translateAllowed && (
                 <div className="btn-translate-group">
-                  <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir este relatório para inglês" aria-label="Traduzir atividades para inglês">EN</button>
-                  <button type="button" className="btn-toggle btn-translate" disabled title="Traduzir este relatório para alemão" aria-label="Traduzir atividades para alemão">DE</button>
+                  <button
+                    type="button"
+                    className="btn-toggle btn-translate"
+                    disabled
+                    title="Traduzir este relatório para inglês"
+                    aria-label="Traduzir atividades para inglês"
+                  >
+                    EN
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-toggle btn-translate"
+                    disabled
+                    title="Traduzir este relatório para alemão"
+                    aria-label="Traduzir atividades para alemão"
+                  >
+                    DE
+                  </button>
                 </div>
               )}
-              <button type="button" onClick={() => setZoom(previewZoom - 10)}>−</button>
+              <button type="button" onClick={() => setZoom(previewZoom - 10)}>
+                −
+              </button>
               <span id="zoomLabel">{previewZoom}%</span>
-              <button type="button" onClick={() => setZoom(previewZoom + 10)}>+</button>
-              <button type="button" id="btnFullscreen" disabled>⛶ Tela cheia</button>
+              <button type="button" onClick={() => setZoom(previewZoom + 10)}>
+                +
+              </button>
+              <button type="button" id="btnFullscreen" disabled>
+                ⛶ Tela cheia
+              </button>
             </div>
           </div>
           <div className="preview-sheet-wrap">
@@ -181,7 +220,13 @@ export function Preview() {
         <div className="preview-toolbar">
           <h2>Preview do relatório final</h2>
           <div className="preview-tools">
-            <button type="button" className="btn-toggle" disabled={undoStack.length === 0} onClick={() => undo()} title="Desfazer a última alteração">
+            <button
+              type="button"
+              className="btn-toggle"
+              disabled={undoStack.length === 0}
+              onClick={() => undo()}
+              title="Desfazer a última alteração"
+            >
               ↶ Desfazer
             </button>
             <button
@@ -236,9 +281,13 @@ export function Preview() {
               </div>
             )}
             {translateError && <span className="preview-translate-error">{translateError}</span>}
-            <button type="button" onClick={() => setZoom(previewZoom - 10)} aria-label="Diminuir zoom">−</button>
+            <button type="button" onClick={() => setZoom(previewZoom - 10)} aria-label="Diminuir zoom">
+              −
+            </button>
             <span id="zoomLabel">{previewZoom}%</span>
-            <button type="button" onClick={() => setZoom(previewZoom + 10)} aria-label="Aumentar zoom">+</button>
+            <button type="button" onClick={() => setZoom(previewZoom + 10)} aria-label="Aumentar zoom">
+              +
+            </button>
             <button
               type="button"
               id="btnFullscreen"
@@ -256,11 +305,7 @@ export function Preview() {
         </div>
 
         <div className={`preview-panes ${isSplit ? "split-active" : ""}`} id="previewPanes">
-          <div
-            className="preview-pane"
-            data-pane="0"
-            {...primaryPaneDragHandlers}
-          >
+          <div className="preview-pane" data-pane="0" {...primaryPaneDragHandlers}>
             {isSplit && (
               <div className="preview-pane-header">
                 <Select
@@ -268,7 +313,11 @@ export function Preview() {
                   ariaLabel="Pacote exibido no painel esquerdo"
                   value={primaryPaneId ?? ""}
                   onChange={(v) => useReportStore.getState().setActivePackageId(v)}
-                  options={packages.map((pkg) => ({ value: pkg.id, label: pkg.projectName || pkg.key, disabled: pkg.id === secondaryPaneId }))}
+                  options={packages.map((pkg) => ({
+                    value: pkg.id,
+                    label: pkg.projectName || pkg.key,
+                    disabled: pkg.id === secondaryPaneId,
+                  }))}
                 />
               </div>
             )}
@@ -278,19 +327,18 @@ export function Preview() {
           </div>
 
           {isSplit && (
-            <div
-              className="preview-pane"
-              data-pane="1"
-              id="previewPane2"
-              {...secondaryPaneDragHandlers}
-            >
+            <div className="preview-pane" data-pane="1" id="previewPane2" {...secondaryPaneDragHandlers}>
               <div className="preview-pane-header">
                 <Select
                   className="pane-app-select"
                   ariaLabel="Pacote exibido no painel direito"
                   value={secondaryPaneId ?? ""}
                   onChange={(v) => setPaneB(v)}
-                  options={packages.map((pkg) => ({ value: pkg.id, label: pkg.projectName || pkg.key, disabled: pkg.id === primaryPaneId }))}
+                  options={packages.map((pkg) => ({
+                    value: pkg.id,
+                    label: pkg.projectName || pkg.key,
+                    disabled: pkg.id === primaryPaneId,
+                  }))}
                 />
               </div>
               <div className="preview-sheet-wrap" id="previewSheetWrap2">

@@ -18,6 +18,7 @@ banco; `scripts/atualizar-servidor.bat` chama isto logo depois do
 
 Tudo numa transação: se falhar no meio, o banco fica como estava e o JSON
 não é renomeado."""
+
 from __future__ import annotations
 
 import argparse
@@ -36,10 +37,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--path", default=management.LEGACY_JSON_PATH)
-    parser.add_argument(
-        "--replace-existing", action="store_true",
-        help="descarta dados de gerência já no banco (sem registro de importação) e importa o JSON",
-    )
+    parser.add_argument("--replace-existing", action="store_true", help="descarta dados de gerência já no banco (sem registro de importação) e importa o JSON")
     args = parser.parse_args(argv)
 
     if not os.path.exists(args.path):
@@ -50,9 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         raw = json.load(f)
 
     try:
-        result = management.import_legacy_document(
-            raw, source_path=os.path.abspath(args.path), replace_existing=args.replace_existing,
-        )
+        result = management.import_legacy_document(raw, source_path=os.path.abspath(args.path), replace_existing=args.replace_existing)
     except ManagementStoreError as e:
         print(f"ERRO: {e}", file=sys.stderr)
         return 1
@@ -74,10 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     counts = ", ".join(f"{key}={value}" for key, value in result["counts"].items())
     print(f"Importado: {counts}. Backup do JSON em {backup_path}.")
     if "replaced_samples" in result:
-        print(
-            f"Substituídas {result['replaced_samples']} amostra(s) que já estavam no banco "
-            "(cópia guardada em mgmt_meta, chave legacy_json_import)."
-        )
+        print(f"Substituídas {result['replaced_samples']} amostra(s) que já estavam no banco (cópia guardada em mgmt_meta, chave legacy_json_import).")
     return 0
 
 

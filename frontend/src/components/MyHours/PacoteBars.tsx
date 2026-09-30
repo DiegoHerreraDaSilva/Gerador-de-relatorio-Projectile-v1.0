@@ -69,7 +69,7 @@ export function PacoteBars({
             className={`pacotebars-row ${isSelected ? "is-selected" : ""} ${dimmed ? "is-dimmed" : ""}`}
             aria-pressed={isSelected}
             aria-label={`${item.name}: ${fmtNum(item.hours)} horas, ${Math.round(
-              item.share * 100
+              item.share * 100,
             )}% do período. Filtrar lançamentos.`}
             onClick={() => onSelect(item.name)}
             disabled={item.name === "Outros"}
@@ -82,10 +82,7 @@ export function PacoteBars({
               </span>
             </span>
             <span className="bar-track">
-              <span
-                className="bar-track-fill"
-                style={{ width: `${Math.max(2, item.share * 100)}%` }}
-              />
+              <span className="bar-track-fill" style={{ width: `${Math.max(2, item.share * 100)}%` }} />
             </span>
           </button>
         );

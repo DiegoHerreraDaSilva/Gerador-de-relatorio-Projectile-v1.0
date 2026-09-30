@@ -70,7 +70,9 @@ function ClientDropdown({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="client-dropdown-trigger-label" title={value}>{value || "Selecione um cliente"}</span>
+        <span className="client-dropdown-trigger-label" title={value}>
+          {value || "Selecione um cliente"}
+        </span>
         <ChevronDown size={16} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
       {open && (
@@ -140,7 +142,9 @@ function ProjectMultiSelect({
     }
     onChange(new Set());
     setLoading(true);
-    fetch(`/management/client-projects?client=${encodeURIComponent(client)}&month_label=${encodeURIComponent(monthLabel)}`)
+    fetch(
+      `/management/client-projects?client=${encodeURIComponent(client)}&month_label=${encodeURIComponent(monthLabel)}`,
+    )
       .then((res) => (res.ok ? res.json() : { projects: [] }))
       .then((data: { projects: ClientProject[] }) => setProjects(data.projects || []))
       .catch(() => setProjects([]))
@@ -157,7 +161,8 @@ function ProjectMultiSelect({
 
   if (!client) return null;
   if (loading) return <p className="db-search-hint">Carregando projetos...</p>;
-  if (projects.length === 0) return <p className="db-search-hint">Esse cliente não tem projetos com horas nesse mês.</p>;
+  if (projects.length === 0)
+    return <p className="db-search-hint">Esse cliente não tem projetos com horas nesse mês.</p>;
 
   return (
     <div className="client-projects-select" role="group" aria-label="Projetos do cliente">
@@ -219,7 +224,7 @@ function PeriodPicker() {
   // trocou de ano e o mês escolhido não vale nele: vai pro primeiro que vale
   const fitMonth = (month: string, year: string) => {
     const allowed = monthOptionsFor(isManager, year);
-    return allowed.includes(month) ? month : allowed[0] ?? month;
+    return allowed.includes(month) ? month : (allowed[0] ?? month);
   };
 
   const applyRange = (sMonth: string, year: string, eMonth: string) => {
@@ -250,26 +255,51 @@ function PeriodPicker() {
         <div className="period-fields period-fields-single">
           <div className="period-field">
             <label className="db-search-label">Mês</label>
-            <PeriodSelect value={startMonth} label="Mês" options={monthOptions} onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)} />
+            <PeriodSelect
+              value={startMonth}
+              label="Mês"
+              options={monthOptions}
+              onChange={(m) => setHeaderField("monthLabel", `${m}/${startYear}`)}
+            />
           </div>
           <div className="period-field">
             <label className="db-search-label">Ano</label>
-            <PeriodSelect value={startYear} label="Ano" options={yearOptions} onChange={(y) => setHeaderField("monthLabel", `${fitMonth(startMonth, y)}/${y}`)} />
+            <PeriodSelect
+              value={startYear}
+              label="Ano"
+              options={yearOptions}
+              onChange={(y) => setHeaderField("monthLabel", `${fitMonth(startMonth, y)}/${y}`)}
+            />
           </div>
         </div>
       ) : (
         <div className="period-fields period-fields-range">
           <div className="period-field">
             <label className="db-search-label">Mês inicial</label>
-            <PeriodSelect value={startMonth} label="Mês inicial" options={monthOptions} onChange={(m) => applyRange(m, startYear, endMonth)} />
+            <PeriodSelect
+              value={startMonth}
+              label="Mês inicial"
+              options={monthOptions}
+              onChange={(m) => applyRange(m, startYear, endMonth)}
+            />
           </div>
           <div className="period-field">
             <label className="db-search-label">Mês final</label>
-            <PeriodSelect value={endMonth} label="Mês final" options={monthOptions} onChange={(m) => applyRange(startMonth, startYear, m)} />
+            <PeriodSelect
+              value={endMonth}
+              label="Mês final"
+              options={monthOptions}
+              onChange={(m) => applyRange(startMonth, startYear, m)}
+            />
           </div>
           <div className="period-field period-field-year">
             <label className="db-search-label">Ano</label>
-            <PeriodSelect value={startYear} label="Ano" options={yearOptions} onChange={(y) => applyRange(startMonth, y, endMonth)} />
+            <PeriodSelect
+              value={startYear}
+              label="Ano"
+              options={yearOptions}
+              onChange={(y) => applyRange(startMonth, y, endMonth)}
+            />
           </div>
         </div>
       )}
@@ -398,7 +428,12 @@ export function FileUpload() {
         id: genId(),
         name: g.name,
         performance: 1,
-        activities: g.activities.map((a) => ({ id: genId(), description: a.description, hours: a.hours, extra: false })),
+        activities: g.activities.map((a) => ({
+          id: genId(),
+          description: a.description,
+          hours: a.hours,
+          extra: false,
+        })),
       })),
       collapsedGroupIds: new Set<string>(),
       fileName: "",
@@ -418,7 +453,7 @@ export function FileUpload() {
     setStatus(
       pkgs.length > 1
         ? `Encontrados ${pkgs.length} pacotes de trabalho (${totalGroups} grupo(s) no total).`
-        : `Encontrados ${totalGroups} grupo(s).`
+        : `Encontrados ${totalGroups} grupo(s).`,
     );
   };
 
@@ -526,7 +561,9 @@ export function FileUpload() {
   return (
     <>
       <div className={`steps-wrap ${showImportCard ? "visible" : ""}`} id="step1">
-        <p className="sr-only" aria-live="polite">{flowDescription}</p>
+        <p className="sr-only" aria-live="polite">
+          {flowDescription}
+        </p>
 
         <div className="step-cards-row">
           <StepCard
@@ -579,11 +616,18 @@ export function FileUpload() {
                           <FileSpreadsheet size={16} strokeWidth={1.8} />
                         </span>
                         <span className="file-chip-meta">
-                          <span className="file-chip-name" title={selectedFile.name}>{selectedFile.name}</span>
+                          <span className="file-chip-name" title={selectedFile.name}>
+                            {selectedFile.name}
+                          </span>
                           <span className="file-chip-size">{formatFileSize(selectedFile.size)}</span>
                         </span>
                       </div>
-                      <button type="button" className="btn-remove-file" title="Remover arquivo selecionado" onClick={clearFile}>
+                      <button
+                        type="button"
+                        className="btn-remove-file"
+                        title="Remover arquivo selecionado"
+                        onClick={clearFile}
+                      >
                         <span>×</span> Remover
                       </button>
                     </>
@@ -615,8 +659,18 @@ export function FileUpload() {
                   value={reportMode}
                   onChange={(value) => setMode(value as "single" | "multi")}
                   options={[
-                    { value: "single", icon: <FileText size={18} strokeWidth={1.8} />, title: "Relatório consolidado", description: "Todas as linhas em um único documento." },
-                    { value: "multi", icon: <Archive size={18} strokeWidth={1.8} />, title: "Um relatório por pacote", description: "Cria um documento para cada pacote de trabalho." },
+                    {
+                      value: "single",
+                      icon: <FileText size={18} strokeWidth={1.8} />,
+                      title: "Relatório consolidado",
+                      description: "Todas as linhas em um único documento.",
+                    },
+                    {
+                      value: "multi",
+                      icon: <Archive size={18} strokeWidth={1.8} />,
+                      title: "Um relatório por pacote",
+                      description: "Cria um documento para cada pacote de trabalho.",
+                    },
                   ]}
                 />
               </StepCard>
@@ -669,8 +723,18 @@ export function FileUpload() {
                     value={clientReportMode}
                     onChange={(value) => setClientReportMode(value as "pacote" | "projeto")}
                     options={[
-                      { value: "pacote", icon: <Archive size={18} strokeWidth={1.8} />, title: "Um relatório por pacote", description: "Cria um documento para cada pacote de trabalho." },
-                      { value: "projeto", icon: <FileText size={18} strokeWidth={1.8} />, title: "Um relatório por projeto", description: "Agrupa os pacotes de trabalho em um documento por projeto." },
+                      {
+                        value: "pacote",
+                        icon: <Archive size={18} strokeWidth={1.8} />,
+                        title: "Um relatório por pacote",
+                        description: "Cria um documento para cada pacote de trabalho.",
+                      },
+                      {
+                        value: "projeto",
+                        icon: <FileText size={18} strokeWidth={1.8} />,
+                        title: "Um relatório por projeto",
+                        description: "Agrupa os pacotes de trabalho em um documento por projeto.",
+                      },
                     ]}
                   />
                 ) : (
@@ -680,8 +744,18 @@ export function FileUpload() {
                     value={reportMode}
                     onChange={(value) => setMode(value as "single" | "multi")}
                     options={[
-                      { value: "single", icon: <FileText size={18} strokeWidth={1.8} />, title: "Relatório consolidado", description: "Todas as linhas em um único documento." },
-                      { value: "multi", icon: <Archive size={18} strokeWidth={1.8} />, title: "Um relatório por pacote", description: "Cria um documento para cada pacote de trabalho." },
+                      {
+                        value: "single",
+                        icon: <FileText size={18} strokeWidth={1.8} />,
+                        title: "Relatório consolidado",
+                        description: "Todas as linhas em um único documento.",
+                      },
+                      {
+                        value: "multi",
+                        icon: <Archive size={18} strokeWidth={1.8} />,
+                        title: "Um relatório por pacote",
+                        description: "Cria um documento para cada pacote de trabalho.",
+                      },
                     ]}
                   />
                 )}
@@ -701,7 +775,9 @@ export function FileUpload() {
         {source === "db" && byClient && (
           <div className="step-card client-projects-panel">
             <div className="step-card-head-plain client-projects-panel-head">
-              <span className="step-card-badge" aria-hidden="true"><GitBranch size={15} strokeWidth={2} /></span>
+              <span className="step-card-badge" aria-hidden="true">
+                <GitBranch size={15} strokeWidth={2} />
+              </span>
               <div>
                 <h2>Selecionar cliente e projetos</h2>
                 <p>Escolha um cliente e marque um ou mais projetos associados.</p>
@@ -744,7 +820,7 @@ export function FileUpload() {
           <button
             type="button"
             className="primary"
-            onClick={source === "file" ? handleParse : (byClient ? handleSearchByClient : handleSearchDb)}
+            onClick={source === "file" ? handleParse : byClient ? handleSearchByClient : handleSearchDb}
             disabled={actionState.disabled}
           >
             {actionState.label}

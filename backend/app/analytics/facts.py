@@ -9,6 +9,7 @@ cache, então o chat e o Painel/Diagnóstico não buscam duas vezes.
 
 Funções externas referenciadas via atributo do módulo (`management.x`,
 `management_store.x`) pra os testes poderem trocar por dados fixos."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -58,7 +59,6 @@ class DataSources:
             self._hours = engineering_hours_repository.load_rows(self.window_start, self.window_end)
         return self._hours
 
-
     # --- faturado --------------------------------------------------------
     def _management_document(self) -> dict:
         if self._document is None:
@@ -72,11 +72,7 @@ class DataSources:
         for sample in self._management_document().get("project_kpi_samples", []):
             if sample.get("is_duplicate") or not sample.get("project_id") or not sample.get("month"):
                 continue
-            samples.append(BilledSample(
-                project_id=str(sample["project_id"]),
-                month=str(sample["month"]),
-                billed_hours=float(sample.get("billed_hours") or 0),
-            ))
+            samples.append(BilledSample(project_id=str(sample["project_id"]), month=str(sample["month"]), billed_hours=float(sample.get("billed_hours") or 0)))
         return samples
 
     def manual_billed_by_month(self) -> dict[str, float]:

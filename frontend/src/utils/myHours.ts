@@ -139,7 +139,7 @@ const FILTER_FIELD: Record<keyof MyHoursFilters, (e: MyHoursEntry) => string> = 
 export function applyMyHoursFilters(
   entries: MyHoursEntry[],
   filters: MyHoursFilters,
-  exclude?: keyof MyHoursFilters
+  exclude?: keyof MyHoursFilters,
 ): MyHoursEntry[] {
   return entries.filter((e) =>
     (Object.keys(filters) as (keyof MyHoursFilters)[]).every((dim) => {
@@ -147,7 +147,7 @@ export function applyMyHoursFilters(
       const active = filters[dim];
       if (active.length === 0) return true;
       return active.includes(FILTER_FIELD[dim](e));
-    })
+    }),
   );
 }
 
@@ -157,15 +157,9 @@ export function applyMyHoursFilters(
  * pelo usuário logado" já vem de graça (todo `entries` já é só do usuário
  * logado), e cruzar com os demais filtros é o que faz cada filtro
  * realmente filtrar os outros, como pedido. */
-export function filterOptions(
-  entries: MyHoursEntry[],
-  filters: MyHoursFilters,
-  dim: keyof MyHoursFilters
-): string[] {
+export function filterOptions(entries: MyHoursEntry[], filters: MyHoursFilters, dim: keyof MyHoursFilters): string[] {
   const scoped = applyMyHoursFilters(entries, filters, dim);
-  return Array.from(new Set(scoped.map(FILTER_FIELD[dim]))).sort((a, b) =>
-    a.localeCompare(b, "pt-BR")
-  );
+  return Array.from(new Set(scoped.map(FILTER_FIELD[dim]))).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
 export function hasActiveMyHoursFilters(filters: MyHoursFilters): boolean {
@@ -194,9 +188,7 @@ export const MY_HOURS_FILTER_LABEL: Record<keyof MyHoursFilters, (opt: string) =
  * Mesma regra do backend (`hours_analytics.gap_days`), só que sobre o
  * subconjunto visível em vez do total do período. */
 export function gapDays(perDay: Map<string, number>, businessDaysClosed: string[]): string[] {
-  return businessDaysClosed
-    .filter((d) => (perDay.get(d) ?? 0) <= 0)
-    .sort((a, b) => b.localeCompare(a));
+  return businessDaysClosed.filter((d) => (perDay.get(d) ?? 0) <= 0).sort((a, b) => b.localeCompare(a));
 }
 
 export function totalHours(entries: MyHoursEntry[]): number {
@@ -260,9 +252,7 @@ export function billingSplit(entries: MyHoursEntry[]): BillingSplit {
   const acc = { externo: 0, interno: 0, nao_classificado: 0 };
   for (const e of entries) acc[e.billing_class] += e.hours;
   const total = acc.externo + acc.interno + acc.nao_classificado;
-  const meaningful = total > 0
-    ? Object.values(acc).filter((h) => h / total >= 0.05).length
-    : 0;
+  const meaningful = total > 0 ? Object.values(acc).filter((h) => h / total >= 0.05).length : 0;
   return {
     externo: round2(acc.externo),
     interno: round2(acc.interno),
@@ -291,9 +281,7 @@ export function weekdayProfile(entries: MyHoursEntry[]): {
     const weekday = (new Date(`${date}T12:00:00`).getDay() + 6) % 7;
     buckets[weekday].push(hours);
   }
-  const averages = buckets.map((b) =>
-    b.length > 0 ? round2(b.reduce((s, h) => s + h, 0) / b.length) : null
-  );
+  const averages = buckets.map((b) => (b.length > 0 ? round2(b.reduce((s, h) => s + h, 0) / b.length) : null));
   const present = averages.filter((a): a is number => a !== null);
   return {
     averages,

@@ -68,12 +68,18 @@ function HorizontalBars({ v }: { v: ChartVisualization }) {
   const width = (value: number) => `${Math.max((Math.abs(value) / max) * 100, value === 0 ? 0 : 1.5)}%`;
   return (
     <>
-      <div className={`achat-hbars ${multi && !stacked ? "is-grouped" : ""}`} role="img" aria-label={`${v.title}. ${summary(v)}`}>
+      <div
+        className={`achat-hbars ${multi && !stacked ? "is-grouped" : ""}`}
+        role="img"
+        aria-label={`${v.title}. ${summary(v)}`}
+      >
         {v.categories.map((category, i) => {
           const total = v.series.reduce((sum, s) => sum + (s.data[i] ?? 0), 0);
           return (
             <div className="achat-hbar-row" key={category}>
-              <span className="achat-hbar-label" title={category}>{category}</span>
+              <span className="achat-hbar-label" title={category}>
+                {category}
+              </span>
               {stacked ? (
                 <span className="achat-hbar-track">
                   <span className="achat-hbar-stack">
@@ -93,7 +99,11 @@ function HorizontalBars({ v }: { v: ChartVisualization }) {
               ) : multi ? (
                 <span className="achat-hbar-group">
                   {v.series.map((s, si) => (
-                    <span className="achat-hbar-track is-thin" key={s.name} title={`${s.name}: ${fmt(s.data[i], v.unit)}`}>
+                    <span
+                      className="achat-hbar-track is-thin"
+                      key={s.name}
+                      title={`${s.name}: ${fmt(s.data[i], v.unit)}`}
+                    >
                       <span
                         className={`achat-hbar-fill ${seriesClass(s, si)} ${(s.data[i] ?? 0) < 0 ? "is-negative" : ""}`}
                         style={{ width: width(s.data[i] ?? 0) }}
@@ -137,7 +147,8 @@ export function niceTicks(min: number, max: number, integer = false, target = 4)
   const raw = (hi - lo) / target;
   const magnitude = 10 ** Math.floor(Math.log10(raw));
   const normalized = raw / magnitude;
-  let step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
+  let step =
+    (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
   if (integer) step = Math.max(1, Math.round(step));
   lo = Math.floor(lo / step) * step;
   hi = Math.ceil(hi / step) * step;
@@ -171,7 +182,9 @@ function VerticalBars({ v }: { v: ChartVisualization }) {
         <div className="achat-vaxis" aria-hidden="true">
           {v.unit && <span className="achat-vaxis-unit">{v.unit}</span>}
           {ticks.map((t) => (
-            <span key={t} className="achat-vaxis-tick" style={{ bottom: pct(at(t)) }}>{tickLabel(t)}</span>
+            <span key={t} className="achat-vaxis-tick" style={{ bottom: pct(at(t)) }}>
+              {tickLabel(t)}
+            </span>
           ))}
         </div>
         <div className="achat-vbody">
@@ -188,16 +201,26 @@ function VerticalBars({ v }: { v: ChartVisualization }) {
                     const negative = value < 0;
                     const size = Math.abs(at(value) - zero);
                     return (
-                      <span className="achat-vbar-slot" key={s.name} title={`${s.name} — ${category}: ${fmt(value, v.unit)}`}>
+                      <span
+                        className="achat-vbar-slot"
+                        key={s.name}
+                        title={`${s.name} — ${category}: ${fmt(value, v.unit)}`}
+                      >
                         <span
                           className={`achat-vbar-fill ${multi ? seriesClass(s, si) : ""} ${negative ? "is-negative" : ""}`}
-                          style={negative
-                            ? { top: pct(1 - zero), height: pct(size) }
-                            : { bottom: pct(zero), height: `max(${pct(size)}, ${value === 0 ? 0 : 2}px)` }}
+                          style={
+                            negative
+                              ? { top: pct(1 - zero), height: pct(size) }
+                              : { bottom: pct(zero), height: `max(${pct(size)}, ${value === 0 ? 0 : 2}px)` }
+                          }
                         />
                         <span
                           className="achat-vbar-value"
-                          style={negative ? { top: `calc(${pct(1 - zero + size)} + 3px)` } : { bottom: `calc(${pct(zero + size)} + 3px)` }}
+                          style={
+                            negative
+                              ? { top: `calc(${pct(1 - zero + size)} + 3px)` }
+                              : { bottom: `calc(${pct(zero + size)} + 3px)` }
+                          }
                         >
                           {fmt(value, v.unit)}
                         </span>
@@ -210,7 +233,9 @@ function VerticalBars({ v }: { v: ChartVisualization }) {
           </div>
           <div className="achat-vlabels">
             {v.categories.map((category) => (
-              <span className="achat-vbar-label" key={category} title={category}>{category}</span>
+              <span className="achat-vbar-label" key={category} title={category}>
+                {category}
+              </span>
             ))}
           </div>
         </div>
@@ -252,7 +277,10 @@ function Line({ v }: { v: ChartVisualization }) {
           <g key={t}>
             <line
               className={t === 0 ? "achat-line-axis" : "achat-line-grid"}
-              x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)}
+              x1={PAD.left}
+              x2={W - PAD.right}
+              y1={y(t)}
+              y2={y(t)}
             />
             <text className="achat-line-tick" x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle">
               {tickLabel(t)}
@@ -273,15 +301,17 @@ function Line({ v }: { v: ChartVisualization }) {
           });
           return (
             <g key={s.name} className={single ? "" : seriesClass(s, si)}>
-              {segments.filter((pts) => pts.length > 1).map((pts, k) => (
-                <polyline key={k} className="achat-line-path" points={pts.join(" ")} />
-              ))}
+              {segments
+                .filter((pts) => pts.length > 1)
+                .map((pts, k) => (
+                  <polyline key={k} className="achat-line-path" points={pts.join(" ")} />
+                ))}
               {s.data.map((d, i) =>
                 d === null || d === undefined ? null : (
                   <circle key={i} className="achat-line-dot" cx={x(i)} cy={y(d)} r={single ? 4 : 3}>
                     <title>{`${s.name} — ${v.categories[i]}: ${fmt(d, v.unit)}`}</title>
                   </circle>
-                )
+                ),
               )}
             </g>
           );
@@ -292,14 +322,14 @@ function Line({ v }: { v: ChartVisualization }) {
               <text key={i} className="achat-line-value" x={x(i)} y={y(d) - 10} textAnchor={anchor(i)}>
                 {fmt(d)}
               </text>
-            )
+            ),
           )}
         {v.categories.map((c, i) =>
           i % every === 0 ? (
             <text key={c} className="achat-line-label" x={x(i)} y={H - 12} textAnchor={anchor(i)}>
               {axisLabel(c)}
             </text>
-          ) : null
+          ) : null,
         )}
       </svg>
       <Legend series={v.series} />
@@ -339,7 +369,7 @@ function Donut({ v }: { v: ChartVisualization }) {
             <path key={i} d={d} className={`achat-donut-arc achat-s${i % 5}`}>
               <title>{`${v.categories[i]}: ${fmt(data[i], v.unit)}`}</title>
             </path>
-          ) : null
+          ) : null,
         )}
         <text className="achat-donut-total" x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central">
           {fmt(total, v.unit)}
@@ -373,14 +403,18 @@ function Heatmap({ v }: { v: HeatmapVisualization }) {
           <tr>
             <th scope="col" />
             {v.columns.map((c) => (
-              <th scope="col" key={c} title={c}>{axisLabel(c)}</th>
+              <th scope="col" key={c} title={c}>
+                {axisLabel(c)}
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {v.rows.map((row, ri) => (
             <tr key={row}>
-              <th scope="row" title={row}>{row}</th>
+              <th scope="row" title={row}>
+                {row}
+              </th>
               {v.values[ri].map((value, ci) => {
                 const strength = value === null || value === undefined ? 0 : Math.abs(value) / maxAbs;
                 const tone = diverging && (value ?? 0) < 0 ? "var(--bad)" : "var(--accent)";
@@ -389,7 +423,9 @@ function Heatmap({ v }: { v: HeatmapVisualization }) {
                     key={ci}
                     title={`${row} — ${v.columns[ci]}: ${fmt(value, v.unit)}`}
                     style={{
-                      background: value ? `color-mix(in srgb, ${tone} ${Math.round(10 + strength * 72)}%, transparent)` : undefined,
+                      background: value
+                        ? `color-mix(in srgb, ${tone} ${Math.round(10 + strength * 72)}%, transparent)`
+                        : undefined,
                     }}
                     className={strength > 0.55 ? "is-strong" : ""}
                   >
@@ -507,7 +543,9 @@ export function AnalyticsTableView({ table, defaultOpen = false }: { table: Anal
 
   // 1º clique: maior→menor; 2º: menor→maior; 3º: ordem original
   const toggleSort = (column: number) =>
-    setSort((s) => (s?.column !== column ? { column, descending: true } : s.descending ? { column, descending: false } : null));
+    setSort((s) =>
+      s?.column !== column ? { column, descending: true } : s.descending ? { column, descending: false } : null,
+    );
 
   const exportTable = async () => {
     setExporting("busy");
@@ -554,7 +592,9 @@ export function AnalyticsTableView({ table, defaultOpen = false }: { table: Anal
             {rows.map((row, r) => (
               <tr key={r}>
                 {row.map((cell, j) => (
-                  <td key={j} className={numeric(j) ? "is-num" : ""}>{formatCell(cell, types[j])}</td>
+                  <td key={j} className={numeric(j) ? "is-num" : ""}>
+                    {formatCell(cell, types[j])}
+                  </td>
                 ))}
               </tr>
             ))}
@@ -563,7 +603,9 @@ export function AnalyticsTableView({ table, defaultOpen = false }: { table: Anal
             <tfoot>
               <tr>
                 {table.totals.map((cell, j) => (
-                  <td key={j} className={numeric(j) ? "is-num" : ""}>{formatCell(cell, types[j])}</td>
+                  <td key={j} className={numeric(j) ? "is-num" : ""}>
+                    {formatCell(cell, types[j])}
+                  </td>
                 ))}
               </tr>
             </tfoot>

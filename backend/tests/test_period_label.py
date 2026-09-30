@@ -6,6 +6,7 @@ de volta. `parse_month_label` (mês único) já é testado indiretamente pelos
 testes de `resolve_total_hours`/`read_pdf_report_data` em
 `test_email_ingest.py` — aqui é só o caminho de período, que não existia
 antes desta feature."""
+
 from __future__ import annotations
 
 from backend.app.generator import parse_period_label

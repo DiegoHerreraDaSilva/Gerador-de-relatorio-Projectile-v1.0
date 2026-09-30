@@ -2,6 +2,7 @@
 que não respeite `pythonpath` do pytest.ini (ex: um runner de IDE que ignora
 o ini). Idempotente e barato — checagem redundante de propósito com
 `pytest.ini:pythonpath`, não um substituto dele."""
+
 import os
 import sys
 from pathlib import Path
@@ -29,9 +30,9 @@ def _drop_stale_tables(engine) -> None:
 
     inspector = inspect(engine)
     stale = [
-        table.name for table in metadata.sorted_tables
-        if inspector.has_table(table.name)
-        and {c["name"] for c in inspector.get_columns(table.name)} != {c.name for c in table.columns}
+        table.name
+        for table in metadata.sorted_tables
+        if inspector.has_table(table.name) and {c["name"] for c in inspector.get_columns(table.name)} != {c.name for c in table.columns}
     ]
     if not stale:
         return
@@ -124,12 +125,7 @@ def reports_db_engine(monkeypatch):
         if root_password:
             admin_engine = create_engine(f"mysql+pymysql://root:{root_password}@{host}:{port}/?charset=utf8mb4")
             with admin_engine.begin() as conn:
-                conn.execute(
-                    text(
-                        f"CREATE DATABASE IF NOT EXISTS {_REPORTS_DB_TEST_NAME} "
-                        "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-                    )
-                )
+                conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {_REPORTS_DB_TEST_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
                 conn.execute(text(f"GRANT ALL ON {_REPORTS_DB_TEST_NAME}.* TO '{user}'@'%'"))
                 conn.execute(text("FLUSH PRIVILEGES"))
             admin_engine.dispose()
@@ -179,9 +175,7 @@ def management_db(monkeypatch):
     from backend.app.db.reports_schema import metadata
     from backend.app.services import management_store
 
-    engine = create_engine(
-        "sqlite+pysqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
+    engine = create_engine("sqlite+pysqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     metadata.create_all(engine, tables=[t for t in metadata.sorted_tables if t.name.startswith("mgmt_")])
     monkeypatch.setattr(management_store, "get_engine", lambda: engine)
     yield engine

@@ -82,12 +82,15 @@ function SimpleDropdown({
 
   const selected = options.find((o) => o.value === value);
   const summary = selected ? selected.label : placeholder;
-  const filtered = searchable && search ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase())) : options;
+  const filtered =
+    searchable && search ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase())) : options;
 
   return (
     <div className={`month-dropdown ${className ?? ""}`} ref={wrapRef}>
       <button ref={triggerRef} type="button" className="month-dropdown-trigger" onClick={toggleOpen}>
-        <span className="mgmt-filter-summary" title={summary}>{summary}</span>
+        <span className="mgmt-filter-summary" title={summary}>
+          {summary}
+        </span>
         <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
       {open &&
@@ -128,7 +131,7 @@ function SimpleDropdown({
               ))}
             </ul>
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );
@@ -243,7 +246,7 @@ function PacoteScopeEditor({
                 </label>
               ))}
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );
@@ -328,7 +331,7 @@ export function DiagnosticsPanel() {
     return s.source;
   });
   const skippedSort = useSortableRows<SkippedMessage>(displaySkipped, (s, key) =>
-    key === "date" ? s.received_at : s.reason
+    key === "date" ? s.received_at : s.reason,
   );
 
   // projetos com horas dentro do Período/Competência selecionados — mesma
@@ -394,8 +397,10 @@ export function DiagnosticsPanel() {
 
   const deleteSample = async (s: Sample) => {
     const ok = await confirmDialog({
-      title: "Apagar amostra?", message: `A amostra de "${s.project_name}" (${s.month}) será apagada. Isso não pode ser desfeito.`,
-      confirmLabel: "Apagar", danger: true,
+      title: "Apagar amostra?",
+      message: `A amostra de "${s.project_name}" (${s.month}) será apagada. Isso não pode ser desfeito.`,
+      confirmLabel: "Apagar",
+      danger: true,
     });
     if (!ok) return;
     try {
@@ -451,7 +456,11 @@ export function DiagnosticsPanel() {
       />
       <ManagementFilters showCostCenter={false} showPackage={false} />
 
-      {error && <div className="card"><p className="error-text">{error}</p></div>}
+      {error && (
+        <div className="card">
+          <p className="error-text">{error}</p>
+        </div>
+      )}
 
       {/* marcar/desmarcar "Enviado" cria/apaga uma amostra manual — recarrega
           a tabela de Amostras logo abaixo pra ela aparecer/sumir na hora. */}
@@ -481,10 +490,24 @@ export function DiagnosticsPanel() {
           <div className="diagnostics-create-fields" id="diagnostics-create-form">
             <ProjectSelect projects={filteredProjects} value={createProjectId} onChange={setCreateProjectId} />
             <MonthSelect value={createMonth} onChange={setCreateMonth} />
-            <ExtraHoursInput className="kpi-input" placeholder="Horas" value={createBilled} onCommit={setCreateBilled} />
-            <ExtraHoursInput className="kpi-input kpi-input-days" placeholder="Dias" value={createDays} onCommit={setCreateDays} />
-            <button type="button" className="primary" onClick={createManual}>Cadastrar</button>
-            <button type="button" className="btn-secondary diagnostics-btn-danger" onClick={cancelCreate}>Cancelar</button>
+            <ExtraHoursInput
+              className="kpi-input"
+              placeholder="Horas"
+              value={createBilled}
+              onCommit={setCreateBilled}
+            />
+            <ExtraHoursInput
+              className="kpi-input kpi-input-days"
+              placeholder="Dias"
+              value={createDays}
+              onCommit={setCreateDays}
+            />
+            <button type="button" className="primary" onClick={createManual}>
+              Cadastrar
+            </button>
+            <button type="button" className="btn-secondary diagnostics-btn-danger" onClick={cancelCreate}>
+              Cancelar
+            </button>
           </div>
         )}
 
@@ -495,19 +518,72 @@ export function DiagnosticsPanel() {
               <caption className="sr-only">Amostras de faturamento por cliente, projeto e competência</caption>
               <thead>
                 <tr>
-                  <SortableTh sortKey="client" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Cliente</SortableTh>
-                  <SortableTh sortKey="project" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Projeto</SortableTh>
-                  <SortableTh sortKey="pacote" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Pacote</SortableTh>
-                  <SortableTh sortKey="month" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Competência</SortableTh>
-                  <SortableTh sortKey="hours" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Horas</SortableTh>
-                  <SortableTh sortKey="days" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Dias</SortableTh>
-                  <SortableTh sortKey="source" activeKey={sampleSort.sortKey} direction={sampleSort.direction} onSort={sampleSort.toggleSort}>Origem</SortableTh>
+                  <SortableTh
+                    sortKey="client"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Cliente
+                  </SortableTh>
+                  <SortableTh
+                    sortKey="project"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Projeto
+                  </SortableTh>
+                  <SortableTh
+                    sortKey="pacote"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Pacote
+                  </SortableTh>
+                  <SortableTh
+                    sortKey="month"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Competência
+                  </SortableTh>
+                  <SortableTh
+                    sortKey="hours"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Horas
+                  </SortableTh>
+                  <SortableTh
+                    sortKey="days"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Dias
+                  </SortableTh>
+                  <SortableTh
+                    sortKey="source"
+                    activeKey={sampleSort.sortKey}
+                    direction={sampleSort.direction}
+                    onSort={sampleSort.toggleSort}
+                  >
+                    Origem
+                  </SortableTh>
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {displaySamples.length === 0 && (
-                  <tr><td colSpan={8} className="muted">Nenhuma amostra nesse período.</td></tr>
+                  <tr>
+                    <td colSpan={8} className="muted">
+                      Nenhuma amostra nesse período.
+                    </td>
+                  </tr>
                 )}
                 {sampleSort.sortedRows.map((s) => (
                   <tr key={s.sample_id}>
@@ -533,13 +609,25 @@ export function DiagnosticsPanel() {
                           />
                         </td>
                         <td>{s.month}</td>
-                        <td><ExtraHoursInput className="kpi-input" value={editBilled} onCommit={setEditBilled} /></td>
-                        <td><ExtraHoursInput className="kpi-input kpi-input-days" value={editDays} onCommit={setEditDays} /></td>
+                        <td>
+                          <ExtraHoursInput className="kpi-input" value={editBilled} onCommit={setEditBilled} />
+                        </td>
+                        <td>
+                          <ExtraHoursInput
+                            className="kpi-input kpi-input-days"
+                            value={editDays}
+                            onCommit={setEditDays}
+                          />
+                        </td>
                         <td>—</td>
                         <td className="diagnostics-actions-cell">
                           <div className="diagnostics-actions">
-                            <button type="button" onClick={() => saveEdit(s)} title="Salvar" aria-label="Salvar"><Check size={15} /></button>
-                            <button type="button" onClick={cancelEdit} title="Cancelar" aria-label="Cancelar"><X size={15} /></button>
+                            <button type="button" onClick={() => saveEdit(s)} title="Salvar" aria-label="Salvar">
+                              <Check size={15} />
+                            </button>
+                            <button type="button" onClick={cancelEdit} title="Cancelar" aria-label="Cancelar">
+                              <X size={15} />
+                            </button>
                           </div>
                         </td>
                       </>
@@ -567,13 +655,23 @@ export function DiagnosticsPanel() {
                         </td>
                         <td>{fmtNum(s.business_days)}</td>
                         <td>
-                          <span className={`diagnostics-source-badge ${s.source}`}>{s.source === "manual" ? "manual" : "e-mail"}</span>
-                          {s.edited && <span className="diagnostics-edited-badge" title="Corrigido manualmente">editado</span>}
+                          <span className={`diagnostics-source-badge ${s.source}`}>
+                            {s.source === "manual" ? "manual" : "e-mail"}
+                          </span>
+                          {s.edited && (
+                            <span className="diagnostics-edited-badge" title="Corrigido manualmente">
+                              editado
+                            </span>
+                          )}
                         </td>
                         <td className="diagnostics-actions-cell">
                           <div className="diagnostics-actions">
-                            <button type="button" onClick={() => startEdit(s)} title="Editar" aria-label="Editar"><Pencil size={15} /></button>
-                            <button type="button" onClick={() => deleteSample(s)} title="Apagar" aria-label="Apagar"><Trash2 size={15} /></button>
+                            <button type="button" onClick={() => startEdit(s)} title="Editar" aria-label="Editar">
+                              <Pencil size={15} />
+                            </button>
+                            <button type="button" onClick={() => deleteSample(s)} title="Apagar" aria-label="Apagar">
+                              <Trash2 size={15} />
+                            </button>
                           </div>
                         </td>
                       </>
@@ -593,12 +691,32 @@ export function DiagnosticsPanel() {
             <caption className="sr-only">E-mails que não puderam ser processados</caption>
             <thead>
               <tr>
-                <SortableTh sortKey="date" activeKey={skippedSort.sortKey} direction={skippedSort.direction} onSort={skippedSort.toggleSort}>Data</SortableTh>
-                <SortableTh sortKey="reason" activeKey={skippedSort.sortKey} direction={skippedSort.direction} onSort={skippedSort.toggleSort}>Motivo</SortableTh>
+                <SortableTh
+                  sortKey="date"
+                  activeKey={skippedSort.sortKey}
+                  direction={skippedSort.direction}
+                  onSort={skippedSort.toggleSort}
+                >
+                  Data
+                </SortableTh>
+                <SortableTh
+                  sortKey="reason"
+                  activeKey={skippedSort.sortKey}
+                  direction={skippedSort.direction}
+                  onSort={skippedSort.toggleSort}
+                >
+                  Motivo
+                </SortableTh>
               </tr>
             </thead>
             <tbody>
-              {displaySkipped.length === 0 && <tr><td colSpan={2} className="muted">Nenhum e-mail não processado nesse período.</td></tr>}
+              {displaySkipped.length === 0 && (
+                <tr>
+                  <td colSpan={2} className="muted">
+                    Nenhum e-mail não processado nesse período.
+                  </td>
+                </tr>
+              )}
               {skippedSort.sortedRows.map((s, i) => (
                 <tr key={`${s.message_id}-${i}`}>
                   <td>{s.received_at ? s.received_at.slice(0, 10) : "—"}</td>

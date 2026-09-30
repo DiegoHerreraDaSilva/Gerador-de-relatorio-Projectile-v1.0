@@ -2,6 +2,7 @@
 pura (sem I/O de banco), então testada diretamente contra listas de dicts no
 formato que `fetch_engineering_hours`/`fetch_employee_hours` devolvem
 (chaves: data, observacao, horas, pacote, funcionario)."""
+
 from __future__ import annotations
 
 import pytest
@@ -26,9 +27,7 @@ def test_group_hours_normal_rows():
 
 
 def test_group_hours_decodes_html_entities_in_observacao():
-    rows = [
-        {"observacao": "relat&#243;rio - Ativ", "horas": 2.0, "pacote": "Proj A"},
-    ]
+    rows = [{"observacao": "relat&#243;rio - Ativ", "horas": 2.0, "pacote": "Proj A"}]
 
     packages, issues = group_hours(rows, split_by_package=False)
 
@@ -43,9 +42,7 @@ def test_group_hours_row_without_separator_groups_under_geral():
     é um RowIssue), aqui o dado real do Projectile costuma ter observações
     sem separador (ex: códigos como "2542A012") — decisão deliberada do
     código: agrupa como "Geral" em vez de descartar ou marcar aviso."""
-    rows = [
-        {"observacao": "2542A012", "horas": 4.0, "pacote": "Proj A"},
-    ]
+    rows = [{"observacao": "2542A012", "horas": 4.0, "pacote": "Proj A"}]
 
     packages, issues = group_hours(rows, split_by_package=False)
 

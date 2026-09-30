@@ -4,6 +4,7 @@ pelo backend. Interpretação e planejamento usam `tool_choice` forçado com
 enums (só dá pra escolher intent/mês/cliente/colaborador que existem);
 explicação e fechamento de análise devolvem texto, conferido depois pelo
 `grounding`."""
+
 from __future__ import annotations
 
 import json
@@ -11,16 +12,7 @@ from dataclasses import dataclass, field
 
 from ..chatbot import ChatUpstreamError, _get_client
 from ..core.config import get_settings
-from .catalog import (
-    BILLING_TYPES,
-    COST_CENTERS,
-    DATASET_DIMENSIONS,
-    DIMENSIONS,
-    MEASURES,
-    SHARE_FILTERS,
-    STATUSES,
-    THRESHOLD_OPS,
-)
+from .catalog import BILLING_TYPES, COST_CENTERS, DATASET_DIMENSIONS, DIMENSIONS, MEASURES, SHARE_FILTERS, STATUSES, THRESHOLD_OPS
 from .intents import INTENTS, ROUTES
 from .periods import RELATIVE_PERIODS
 from .semantic_model import SOURCES
@@ -97,11 +89,7 @@ def _text_call(usage: ClaudeUsage, user_content: str) -> str:
     model = _model()
     try:
         response = client.messages.create(
-            model=model,
-            max_tokens=600,
-            thinking=_NO_THINKING,
-            system=[{"type": "text", "text": _SYSTEM}],
-            messages=[{"role": "user", "content": user_content}],
+            model=model, max_tokens=600, thinking=_NO_THINKING, system=[{"type": "text", "text": _SYSTEM}], messages=[{"role": "user", "content": user_content}]
         )
     except Exception as e:
         raise ChatUpstreamError(f"Falha ao chamar a API da Anthropic: {e}") from e
@@ -209,26 +197,28 @@ def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, optio
                 "'quem/quais', comparar clientes/colaboradores/projetos ENTRE SI num período, listas com status. "
                 "Filtro vazio = todos. Campos que não usar ficam null/lista vazia."
             ),
-            "input_schema": _schema({
-                "measures": {"type": "array", "items": {"type": "string", "enum": measures}, "minItems": 1, "maxItems": 4},
-                "group_by": {"type": "array", "items": {"type": "string", "enum": dims}, "maxItems": 2},
-                **filters,
-                "cost_centers": {"type": "array", "items": {"type": "string", "enum": list(COST_CENTERS)}},
-                "billing_type": _nullable_enum(list(BILLING_TYPES)),
-                "statuses": {"type": "array", "items": {"type": "string", "enum": list(STATUSES)}},
-                "month": _nullable_enum(months),
-                "month_end": _nullable_enum(months),
-                "relative_period": _nullable_enum(list(RELATIVE_PERIODS)),
-                "top_n": {"anyOf": [{"type": "integer", "minimum": 1, "maximum": 100}, {"type": "null"}]},
-                "sort_by": _nullable_enum(measures),
-                "sort_order": _nullable_enum(["desc", "asc"]),
-                "threshold_measure": _nullable_enum(measures),
-                "threshold_op": _nullable_enum(list(THRESHOLD_OPS)),
-                "threshold_value": {"anyOf": [{"type": "number"}, {"type": "null"}]},
-                # "em relação ao total": qual filtro sai da base (a parte que se compara)
-                "share_of": _nullable_enum(list(SHARE_FILTERS)),
-                "explain": {"type": "boolean"},
-            }),
+            "input_schema": _schema(
+                {
+                    "measures": {"type": "array", "items": {"type": "string", "enum": measures}, "minItems": 1, "maxItems": 4},
+                    "group_by": {"type": "array", "items": {"type": "string", "enum": dims}, "maxItems": 2},
+                    **filters,
+                    "cost_centers": {"type": "array", "items": {"type": "string", "enum": list(COST_CENTERS)}},
+                    "billing_type": _nullable_enum(list(BILLING_TYPES)),
+                    "statuses": {"type": "array", "items": {"type": "string", "enum": list(STATUSES)}},
+                    "month": _nullable_enum(months),
+                    "month_end": _nullable_enum(months),
+                    "relative_period": _nullable_enum(list(RELATIVE_PERIODS)),
+                    "top_n": {"anyOf": [{"type": "integer", "minimum": 1, "maximum": 100}, {"type": "null"}]},
+                    "sort_by": _nullable_enum(measures),
+                    "sort_order": _nullable_enum(["desc", "asc"]),
+                    "threshold_measure": _nullable_enum(measures),
+                    "threshold_op": _nullable_enum(list(THRESHOLD_OPS)),
+                    "threshold_value": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                    # "em relação ao total": qual filtro sai da base (a parte que se compara)
+                    "share_of": _nullable_enum(list(SHARE_FILTERS)),
+                    "explain": {"type": "boolean"},
+                }
+            ),
         },
         {
             "name": "compare_periods",
@@ -238,16 +228,18 @@ def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, optio
                 "mais recente (cada um um mês, ou intervalo com *_month_end). group_by opcional: UMA quebra. "
                 "NÃO use pra comparar clientes/colaboradores entre si num período só — isso é query."
             ),
-            "input_schema": _schema({
-                "measure": {"type": "string", "enum": measures},
-                "group_by": _nullable_enum(dims),
-                **filters,
-                "billing_type": _nullable_enum(list(BILLING_TYPES)),
-                "period_a_month": {"type": "string", "enum": months},
-                "period_a_month_end": _nullable_enum(months),
-                "period_b_month": {"type": "string", "enum": months},
-                "period_b_month_end": _nullable_enum(months),
-            }),
+            "input_schema": _schema(
+                {
+                    "measure": {"type": "string", "enum": measures},
+                    "group_by": _nullable_enum(dims),
+                    **filters,
+                    "billing_type": _nullable_enum(list(BILLING_TYPES)),
+                    "period_a_month": {"type": "string", "enum": months},
+                    "period_a_month_end": _nullable_enum(months),
+                    "period_b_month": {"type": "string", "enum": months},
+                    "period_b_month_end": _nullable_enum(months),
+                }
+            ),
         },
     ]
     content = (

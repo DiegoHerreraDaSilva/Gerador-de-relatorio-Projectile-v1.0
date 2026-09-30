@@ -65,7 +65,15 @@ export function Gauge({ value, metaValue, metaType, gaugeMax, label }: Props) {
         ))}
         {value !== null && (
           <>
-            <line x1={CX} y1={CY} x2={needleTip.x} y2={needleTip.y} stroke="var(--text)" strokeWidth={2.5} strokeLinecap="round" />
+            <line
+              x1={CX}
+              y1={CY}
+              x2={needleTip.x}
+              y2={needleTip.y}
+              stroke="var(--text)"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+            />
             <circle cx={CX} cy={CY} r={5} fill="var(--text)" />
           </>
         )}

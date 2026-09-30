@@ -112,7 +112,7 @@ export const useAnalyticsChatStore = create<AnalyticsChatState>((set, get) => ({
         throw new Error(
           res.status === 401
             ? "Sua sessão expirou. Entre novamente."
-            : detail || "Não consegui responder agora. Tenta de novo em instantes."
+            : detail || "Não consegui responder agora. Tenta de novo em instantes.",
         );
       }
       const data: AnalyticsChatResponse = await res.json();

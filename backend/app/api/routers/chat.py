@@ -1,5 +1,6 @@
 """Rotas de chat de IA e tradução (`/chat`, `/translate-activities`) —
 extraído de `main.py`."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -66,11 +67,7 @@ class ChatResponse(BaseModel):
 @router.post("/chat")
 async def chat_endpoint(payload: ChatRequest, _user: dict = Depends(require_session)):
     try:
-        summary, operations = call_chat(
-            payload.message,
-            payload.state.model_dump(),
-            [turn.model_dump() for turn in payload.history],
-        )
+        summary, operations = call_chat(payload.message, payload.state.model_dump(), [turn.model_dump() for turn in payload.history])
     except ChatConfigError as e:
         raise HTTPException(500, str(e))
     except ChatUpstreamError as e:

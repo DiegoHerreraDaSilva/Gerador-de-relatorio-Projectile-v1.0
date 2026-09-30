@@ -50,9 +50,21 @@ export function MyReviewsPanel({ onNavigate }: { onNavigate: (view: AppView) => 
         }
       />
 
-      {error && <div className="card"><p className="error-text">{error}</p></div>}
-      {openError && <div className="card"><p className="error-text">{openError}</p></div>}
-      {loading && !loaded && <div className="card"><p className="muted">Carregando...</p></div>}
+      {error && (
+        <div className="card">
+          <p className="error-text">{error}</p>
+        </div>
+      )}
+      {openError && (
+        <div className="card">
+          <p className="error-text">{openError}</p>
+        </div>
+      )}
+      {loading && !loaded && (
+        <div className="card">
+          <p className="muted">Carregando...</p>
+        </div>
+      )}
       {empty && (
         <div className="card auto-run-card">
           <div>
@@ -64,17 +76,26 @@ export function MyReviewsPanel({ onNavigate }: { onNavigate: (view: AppView) => 
 
       {toReview.length > 0 && (
         <ReviewSection title="Pra revisar" hint="Edite no editor; as alterações são salvas sozinhas.">
-          {toReview.map((item) => <ReviewCard key={item.id} item={item} onOpen={() => void open(item)} primary />)}
+          {toReview.map((item) => (
+            <ReviewCard key={item.id} item={item} onOpen={() => void open(item)} primary />
+          ))}
         </ReviewSection>
       )}
       {awaiting.length > 0 && (
-        <ReviewSection title="Aguardando o gerente" hint="Você mandou pra aprovação. Se ele devolver, o relatório volta pra cima.">
-          {awaiting.map((item) => <ReviewCard key={item.id} item={item} onOpen={() => void open(item)} />)}
+        <ReviewSection
+          title="Aguardando o gerente"
+          hint="Você mandou pra aprovação. Se ele devolver, o relatório volta pra cima."
+        >
+          {awaiting.map((item) => (
+            <ReviewCard key={item.id} item={item} onOpen={() => void open(item)} />
+          ))}
         </ReviewSection>
       )}
       {done.length > 0 && (
         <ReviewSection title="Aprovados">
-          {done.map((item) => <ReviewCard key={item.id} item={item} />)}
+          {done.map((item) => (
+            <ReviewCard key={item.id} item={item} />
+          ))}
         </ReviewSection>
       )}
     </div>
@@ -102,11 +123,16 @@ function ReviewCard({ item, onOpen, primary = false }: { item: ReviewItem; onOpe
         <div className="auto-card-main">
           <div className="auto-card-title">
             <h3 title={item.project_name}>{item.project_name}</h3>
-            <span className="muted">{item.client ?? ""} · {periodLabelOf(item)}</span>
+            <span className="muted">
+              {item.client ?? ""} · {periodLabelOf(item)}
+            </span>
           </div>
           {missing > 0 && (
             <div className="auto-badges">
-              <span className="auto-badge auto-badge-warn" title="Lançamentos sem descrição no Projectile — aparecem como aviso no editor, onde dá pra adicionar como atividade">
+              <span
+                className="auto-badge auto-badge-warn"
+                title="Lançamentos sem descrição no Projectile — aparecem como aviso no editor, onde dá pra adicionar como atividade"
+              >
                 {fmtNum(missing)} h sem descrição
               </span>
             </div>
@@ -137,13 +163,20 @@ function ReviewCard({ item, onOpen, primary = false }: { item: ReviewItem; onOpe
 }
 
 /** Observação de quem revisou ou o pedido da devolução. */
-export function ReviewNote({ comment }: { comment: { action: string; comment: string | null; actor_name: string | null } }) {
+export function ReviewNote({
+  comment,
+}: {
+  comment: { action: string; comment: string | null; actor_name: string | null };
+}) {
   const returned = comment.action === "returned";
   return (
     <p className={`auto-review-note ${returned ? "auto-review-note-returned" : ""}`}>
       <MessageSquareText size={14} strokeWidth={2} aria-hidden="true" />
       <span>
-        <strong>{returned ? "Devolvido" : "Observação"}{comment.actor_name ? ` por ${comment.actor_name}` : ""}:</strong>{" "}
+        <strong>
+          {returned ? "Devolvido" : "Observação"}
+          {comment.actor_name ? ` por ${comment.actor_name}` : ""}:
+        </strong>{" "}
         {comment.comment}
       </span>
     </p>

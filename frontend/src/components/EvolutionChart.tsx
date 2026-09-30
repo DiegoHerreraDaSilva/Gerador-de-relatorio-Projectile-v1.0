@@ -48,9 +48,7 @@ function buildSegments(points: Array<{ x: number; y: number } | null>): Array<Ar
  * legítima mesmo com magnitudes bem diferentes entre Trabalhado e Delta. */
 export function EvolutionChart({ rows }: Props) {
   if (rows.length === 0) {
-    return (
-      <div className="evolution-chart-empty muted">Sem dados no recorte atual pra desenhar o gráfico.</div>
-    );
+    return <div className="evolution-chart-empty muted">Sem dados no recorte atual pra desenhar o gráfico.</div>;
   }
 
   const orderedRows = sortEvolutionRows(rows);
@@ -75,13 +73,19 @@ export function EvolutionChart({ rows }: Props) {
 
   const plotWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
-  const xFor = (i: number) => (orderedRows.length === 1 ? PAD_LEFT + plotWidth / 2 : PAD_LEFT + (i / (orderedRows.length - 1)) * plotWidth);
+  const xFor = (i: number) =>
+    orderedRows.length === 1 ? PAD_LEFT + plotWidth / 2 : PAD_LEFT + (i / (orderedRows.length - 1)) * plotWidth;
   const yFor = (v: number) => PAD_TOP + plotHeight - ((v - yMin) / (yMax - yMin)) * plotHeight;
   const zeroY = yFor(0);
 
   return (
     <div className="evolution-chart">
-      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="evolution-chart-svg" role="img" aria-label="Gráfico evolutivo de horas trabalhadas, faturadas e delta de performance por mês">
+      <svg
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        className="evolution-chart-svg"
+        role="img"
+        aria-label="Gráfico evolutivo de horas trabalhadas, faturadas e delta de performance por mês"
+      >
         {/* linha de base em 0 — destacada porque o Delta pode ficar negativo */}
         <line x1={PAD_LEFT} y1={zeroY} x2={WIDTH - PAD_RIGHT} y2={zeroY} className="evolution-chart-zero-line" />
 
@@ -113,7 +117,7 @@ export function EvolutionChart({ rows }: Props) {
                   <circle key={i} cx={p.x} cy={p.y} r={3.25} fill={s.color} className="evolution-chart-point">
                     <title>{`${orderedRows[i].month} — ${s.label}: ${fmtNum(s.values[i] as number)}h`}</title>
                   </circle>
-                )
+                ),
               )}
             </g>
           );

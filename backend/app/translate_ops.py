@@ -13,6 +13,7 @@ ATIVIDADE (mesmo gerador de id em ambos, `genId()` no frontend, espaços de
 uso disjuntos — nunca colidem) — a IA não precisa saber a diferença, só
 traduzir o texto de cada item e devolver com o mesmo id.
 """
+
 from __future__ import annotations
 
 TRANSLATE_TOOL_NAME = "translate_report_texts"
@@ -20,10 +21,7 @@ TRANSLATE_TOOL_NAME = "translate_report_texts"
 # nome do idioma-alvo por extenso, como aparece no prompt — só os dois
 # idiomas com botão de tradução no preview (ver Preview.tsx); "pt" nunca
 # aparece aqui porque não existe botão de tradução PARA português.
-_TARGET_LANGUAGE_LABEL = {
-    "en": "inglês técnico",
-    "de": "alemão técnico",
-}
+_TARGET_LANGUAGE_LABEL = {"en": "inglês técnico", "de": "alemão técnico"}
 
 
 def translate_system_prompt(target_language: str) -> str:
@@ -46,6 +44,7 @@ Regras:
 4. Nunca pule um id da lista recebida.
 """
 
+
 TRANSLATE_TOOL_SCHEMA = {
     "name": TRANSLATE_TOOL_NAME,
     "description": "Devolve a tradução para inglês de cada texto (nome de grupo ou descrição de atividade) recebido.",
@@ -62,7 +61,7 @@ TRANSLATE_TOOL_SCHEMA = {
                     },
                     "required": ["id", "text"],
                 },
-            },
+            }
         },
         "required": ["translations"],
     },

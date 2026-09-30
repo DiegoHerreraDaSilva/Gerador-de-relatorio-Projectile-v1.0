@@ -13,6 +13,7 @@ Três conjuntos de dados, porque as fontes não têm as mesmas dimensões:
   não existe faturado por colaborador nem por pacote.
 - `send_status`: status de envio do relatório por projeto e mês, pela
   mesma função do Diagnóstico (`management.compute_monthly_kpis`)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,56 +40,64 @@ class Measure:
     description: str
 
 
-DIMENSIONS: dict[str, Dimension] = {d.name: d for d in [
-    Dimension("client", "Cliente", "clientes", "clients", "cliente/customer"),
-    Dimension("project", "Projeto", "projetos", "projects", "projeto"),
-    Dimension("employee", "Colaborador", "colaboradores", "employees", "colaborador/funcionário/pessoa"),
-    Dimension("package", "Pacote de trabalho", "pacotes", "packages", "pacote de trabalho/atividade do Projectile"),
-    Dimension("month", "Mês", "meses", None, "mês/competência — evolução no tempo"),
-    Dimension("cost_center", "Centro de custo", "centros de custo", "cost_centers", "centro de custo (CAD ou CAE)"),
-    Dimension("billing_type", "Tipo", "tipos", "billing_type", "faturável x não faturável"),
-    Dimension("status", "Status de envio", "status", "statuses", "status de envio do relatório do projeto no mês"),
-]}
+DIMENSIONS: dict[str, Dimension] = {
+    d.name: d
+    for d in [
+        Dimension("client", "Cliente", "clientes", "clients", "cliente/customer"),
+        Dimension("project", "Projeto", "projetos", "projects", "projeto"),
+        Dimension("employee", "Colaborador", "colaboradores", "employees", "colaborador/funcionário/pessoa"),
+        Dimension("package", "Pacote de trabalho", "pacotes", "packages", "pacote de trabalho/atividade do Projectile"),
+        Dimension("month", "Mês", "meses", None, "mês/competência — evolução no tempo"),
+        Dimension("cost_center", "Centro de custo", "centros de custo", "cost_centers", "centro de custo (CAD ou CAE)"),
+        Dimension("billing_type", "Tipo", "tipos", "billing_type", "faturável x não faturável"),
+        Dimension("status", "Status de envio", "status", "statuses", "status de envio do relatório do projeto no mês"),
+    ]
+}
 
-MEASURES: dict[str, Measure] = {m.name: m for m in [
-    # --- horas apontadas -------------------------------------------------
-    Measure("hours", "Horas", "hours", "hours", True, "horas apontadas (trabalhadas)"),
-    Measure("billable_hours", "Horas faturáveis", "hours", "hours", True,
-            "horas em pacotes faturáveis (projeto externo)"),
-    Measure("non_billable_hours", "Horas não faturáveis", "hours", "hours", True,
-            "horas em pacotes não faturáveis (internos, treinamento...)"),
-    Measure("non_billable_percent", "% não faturável", "percent", "hours", False,
-            "percentual das horas que é não faturável"),
-    Measure("employees", "Colaboradores", "count", "hours", False, "quantidade de colaboradores distintos com apontamento"),
-    Measure("projects", "Projetos", "count", "hours", False, "quantidade de projetos distintos com apontamento"),
-    Measure("clients", "Clientes", "count", "hours", False, "quantidade de clientes distintos com apontamento"),
-    Measure("active_days", "Dias com apontamento", "count", "hours", False, "dias distintos com alguma hora apontada"),
-    Measure("avg_hours_per_employee", "Média por colaborador", "hours", "hours", False,
-            "horas divididas pela quantidade de colaboradores distintos"),
-    # comparação com o total: a MESMA consulta sem um dos filtros (share_of)
-    Measure("total_hours", "Horas no total", "hours", "hours", True,
-            "base da comparação: as mesmas horas SEM o filtro indicado em share_of (ex.: todas as horas do "
-            "colaborador, não só as do cliente filtrado)"),
-    Measure("share_percent", "% do total", "percent", "hours", False,
-            "horas / horas no total, em % — quanto o recorte representa do total"),
-    # --- faturamento ---------------------------------------------------
-    Measure("worked_hours", "Trabalhadas", "hours", "billing", True, "horas trabalhadas (apontadas) do projeto"),
-    Measure("billed_hours", "Faturadas", "hours", "billing", True,
-            "horas faturadas (dos relatórios recebidos por e-mail ou marcados à mão)"),
-    Measure("perf_hours", "Resultado (h)", "hours", "billing", True,
-            "faturadas menos trabalhadas (negativo = trabalhou mais do que faturou)"),
-    Measure("performance_percent", "Performance", "percent", "billing", False,
-            "(faturadas - trabalhadas) / trabalhadas, em %, igual ao KPI do Painel de Gerência"),
-    # --- status de envio ------------------------------------------------
-    Measure("project_months", "Projetos no mês", "count", "send_status", True,
-            "projetos com hora apontada no mês (um projeto em 3 meses conta 3)"),
-    Measure("sent", "Enviados", "count", "send_status", True, "projetos com relatório enviado"),
-    Measure("partial", "Parciais", "count", "send_status", True, "projetos com relatório enviado só de parte dos pacotes"),
-    Measure("not_sent", "Não enviados", "count", "send_status", True, "projetos sem relatório enviado"),
-    Measure("closed", "Fechados", "count", "send_status", True, "projetos/clientes marcados como fechados"),
-    Measure("send_rate_percent", "% enviado", "percent", "send_status", False,
-            "enviados / (total - fechados), em %"),
-]}
+MEASURES: dict[str, Measure] = {
+    m.name: m
+    for m in [
+        # --- horas apontadas -------------------------------------------------
+        Measure("hours", "Horas", "hours", "hours", True, "horas apontadas (trabalhadas)"),
+        Measure("billable_hours", "Horas faturáveis", "hours", "hours", True, "horas em pacotes faturáveis (projeto externo)"),
+        Measure("non_billable_hours", "Horas não faturáveis", "hours", "hours", True, "horas em pacotes não faturáveis (internos, treinamento...)"),
+        Measure("non_billable_percent", "% não faturável", "percent", "hours", False, "percentual das horas que é não faturável"),
+        Measure("employees", "Colaboradores", "count", "hours", False, "quantidade de colaboradores distintos com apontamento"),
+        Measure("projects", "Projetos", "count", "hours", False, "quantidade de projetos distintos com apontamento"),
+        Measure("clients", "Clientes", "count", "hours", False, "quantidade de clientes distintos com apontamento"),
+        Measure("active_days", "Dias com apontamento", "count", "hours", False, "dias distintos com alguma hora apontada"),
+        Measure("avg_hours_per_employee", "Média por colaborador", "hours", "hours", False, "horas divididas pela quantidade de colaboradores distintos"),
+        # comparação com o total: a MESMA consulta sem um dos filtros (share_of)
+        Measure(
+            "total_hours",
+            "Horas no total",
+            "hours",
+            "hours",
+            True,
+            "base da comparação: as mesmas horas SEM o filtro indicado em share_of (ex.: todas as horas do colaborador, não só as do cliente filtrado)",
+        ),
+        Measure("share_percent", "% do total", "percent", "hours", False, "horas / horas no total, em % — quanto o recorte representa do total"),
+        # --- faturamento ---------------------------------------------------
+        Measure("worked_hours", "Trabalhadas", "hours", "billing", True, "horas trabalhadas (apontadas) do projeto"),
+        Measure("billed_hours", "Faturadas", "hours", "billing", True, "horas faturadas (dos relatórios recebidos por e-mail ou marcados à mão)"),
+        Measure("perf_hours", "Resultado (h)", "hours", "billing", True, "faturadas menos trabalhadas (negativo = trabalhou mais do que faturou)"),
+        Measure(
+            "performance_percent",
+            "Performance",
+            "percent",
+            "billing",
+            False,
+            "(faturadas - trabalhadas) / trabalhadas, em %, igual ao KPI do Painel de Gerência",
+        ),
+        # --- status de envio ------------------------------------------------
+        Measure("project_months", "Projetos no mês", "count", "send_status", True, "projetos com hora apontada no mês (um projeto em 3 meses conta 3)"),
+        Measure("sent", "Enviados", "count", "send_status", True, "projetos com relatório enviado"),
+        Measure("partial", "Parciais", "count", "send_status", True, "projetos com relatório enviado só de parte dos pacotes"),
+        Measure("not_sent", "Não enviados", "count", "send_status", True, "projetos sem relatório enviado"),
+        Measure("closed", "Fechados", "count", "send_status", True, "projetos/clientes marcados como fechados"),
+        Measure("send_rate_percent", "% enviado", "percent", "send_status", False, "enviados / (total - fechados), em %"),
+    ]
+}
 
 DATASET_DIMENSIONS: dict[str, tuple[str, ...]] = {
     "hours": ("client", "project", "employee", "package", "month", "cost_center", "billing_type"),
@@ -109,8 +118,12 @@ COST_CENTERS = ("CAD", "CAE")
 # medidas de "em relação ao total" e o filtro que pode sair da base
 SHARE_MEASURES = ("total_hours", "share_percent")
 SHARE_FILTERS = {
-    "projects": "project", "clients": "client", "packages": "package",
-    "cost_centers": "cost_center", "billing_type": "billing_type", "employees": "employee",
+    "projects": "project",
+    "clients": "client",
+    "packages": "package",
+    "cost_centers": "cost_center",
+    "billing_type": "billing_type",
+    "employees": "employee",
 }
 
 MAX_MEASURES = 4

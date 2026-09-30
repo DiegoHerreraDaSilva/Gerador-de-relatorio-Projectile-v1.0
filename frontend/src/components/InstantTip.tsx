@@ -24,7 +24,13 @@ export function InstantTip({ text, children, className }: { text: string; childr
       >
         {children}
       </span>
-      {pos && createPortal(<div className="instant-tip" role="tooltip" style={pos}>{text}</div>, document.body)}
+      {pos &&
+        createPortal(
+          <div className="instant-tip" role="tooltip" style={pos}>
+            {text}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

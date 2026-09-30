@@ -2,6 +2,7 @@
 atividade. Mocka `chatbot.call_chat` (mesmo padrão de
 test_chatbot.py) — aqui importa o contrato do endpoint, não a chamada real
 à Anthropic."""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -26,14 +27,7 @@ def _chat_state_payload() -> dict:
                 "key": "pkg-1",
                 "projectCode": "SE.01.002",
                 "projectName": "Projeto Teste",
-                "groups": [
-                    {
-                        "id": "g1",
-                        "name": "Grupo A",
-                        "performance": 100.0,
-                        "activities": [{"id": "a1", "description": "Atividade 1", "hours": 8.0}],
-                    }
-                ],
+                "groups": [{"id": "g1", "name": "Grupo A", "performance": 100.0, "activities": [{"id": "a1", "description": "Atividade 1", "hours": 8.0}]}],
             }
         ],
         "activePackageIndex": 0,
@@ -48,10 +42,9 @@ def _chat_state_payload() -> dict:
 
 def test_chat_endpoint_aplica_operacao_por_id_e_preserva_id(monkeypatch):
     monkeypatch.setattr(
-        chat_module, "call_chat",
-        lambda message, state, history: ("Grupo renomeado.", [
-            {"op": "rename_group", "packageKey": "pkg-1", "groupId": "g1", "newName": "Novo Nome"}
-        ]),
+        chat_module,
+        "call_chat",
+        lambda message, state, history: ("Grupo renomeado.", [{"op": "rename_group", "packageKey": "pkg-1", "groupId": "g1", "newName": "Novo Nome"}]),
     )
     client = _client(monkeypatch)
     with client:
@@ -69,10 +62,9 @@ def test_chat_endpoint_aplica_operacao_por_id_e_preserva_id(monkeypatch):
 
 def test_chat_endpoint_add_group_devolve_id_novo_gerado_pelo_backend(monkeypatch):
     monkeypatch.setattr(
-        chat_module, "call_chat",
-        lambda message, state, history: ("Grupo criado.", [
-            {"op": "add_group", "packageKey": "pkg-1", "name": "Grupo Novo", "performance": 90.0}
-        ]),
+        chat_module,
+        "call_chat",
+        lambda message, state, history: ("Grupo criado.", [{"op": "add_group", "packageKey": "pkg-1", "name": "Grupo Novo", "performance": 90.0}]),
     )
     client = _client(monkeypatch)
     with client:
@@ -88,10 +80,9 @@ def test_chat_endpoint_add_group_devolve_id_novo_gerado_pelo_backend(monkeypatch
 
 def test_chat_endpoint_operacao_invalida_vira_502(monkeypatch):
     monkeypatch.setattr(
-        chat_module, "call_chat",
-        lambda message, state, history: ("...", [
-            {"op": "rename_group", "packageKey": "pkg-1", "groupId": "id-que-nao-existe", "newName": "X"}
-        ]),
+        chat_module,
+        "call_chat",
+        lambda message, state, history: ("...", [{"op": "rename_group", "packageKey": "pkg-1", "groupId": "id-que-nao-existe", "newName": "X"}]),
     )
     client = _client(monkeypatch)
     with client:

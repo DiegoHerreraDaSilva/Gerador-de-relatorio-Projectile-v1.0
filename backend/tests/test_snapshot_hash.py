@@ -1,5 +1,6 @@
 """`canonical_json`/`compute_data_hash` (backend/app/services/snapshot.py) —
 puramente funcionais, sem banco."""
+
 from __future__ import annotations
 
 from backend.app.services.snapshot import build_snapshot_data, canonical_json, compute_data_hash
@@ -17,9 +18,7 @@ def _pkg_data(hours=8.0, group_name="Grupo A"):
             "signer2_name": "Wagner Augusto Duarte",
             "signer2_company": "Mercedes-Benz do Brasil",
         },
-        "groups": [
-            {"name": group_name, "performance": 100.0, "activities": [{"description": "Atividade 1", "hours": hours}]}
-        ],
+        "groups": [{"name": group_name, "performance": 100.0, "activities": [{"description": "Atividade 1", "hours": hours}]}],
         "pacote_scope": None,
         "language": "pt",
         "has_chart_bar": False,

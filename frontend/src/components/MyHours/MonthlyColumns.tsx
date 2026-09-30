@@ -34,7 +34,10 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
 
   const withData = series.filter((m) => !m.no_data);
   const max = Math.max(...series.map(valueOf), 1);
-  const closed = withData.filter((m) => !m.partial).map(valueOf).sort((a, b) => a - b);
+  const closed = withData
+    .filter((m) => !m.partial)
+    .map(valueOf)
+    .sort((a, b) => a - b);
   const medianClosed =
     closed.length >= 3
       ? closed.length % 2
@@ -74,11 +77,7 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
 
       <div className="monthcols-plot">
         {medianClosed !== null && (
-          <div
-            className="monthcols-median"
-            style={{ bottom: `${(medianClosed / max) * 100}%` }}
-            aria-hidden="true"
-          />
+          <div className="monthcols-median" style={{ bottom: `${(medianClosed / max) * 100}%` }} aria-hidden="true" />
         )}
         {series.map((m) => {
           const value = valueOf(m);
@@ -99,12 +98,8 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
                   />
                 )}
               </div>
-              <div className="monthcols-value">
-                {m.no_data ? "—" : fmtNum(value)}
-              </div>
-              <div className={`monthcols-label ${m.partial ? "monthcols-label--partial" : ""}`}>
-                {label(m.month)}
-              </div>
+              <div className="monthcols-value">{m.no_data ? "—" : fmtNum(value)}</div>
+              <div className={`monthcols-label ${m.partial ? "monthcols-label--partial" : ""}`}>{label(m.month)}</div>
             </div>
           );
         })}
@@ -113,12 +108,19 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
       <table className="sr-only">
         <caption>Horas por mês nos últimos 13 meses</caption>
         <thead>
-          <tr><th scope="col">Mês</th><th scope="col">Horas</th><th scope="col">Dias com apontamento</th></tr>
+          <tr>
+            <th scope="col">Mês</th>
+            <th scope="col">Horas</th>
+            <th scope="col">Dias com apontamento</th>
+          </tr>
         </thead>
         <tbody>
           {series.map((m) => (
             <tr key={m.month}>
-              <td>{label(m.month)}{m.partial ? " (parcial)" : ""}</td>
+              <td>
+                {label(m.month)}
+                {m.partial ? " (parcial)" : ""}
+              </td>
               <td>{m.no_data ? "Sem informação" : `${fmtNum(m.hours)} h`}</td>
               <td>{m.no_data ? "—" : m.days_worked}</td>
             </tr>
@@ -127,8 +129,7 @@ export function MonthlyColumns({ series }: { series: MonthlyPoint[] }) {
       </table>
 
       <p className="monthcols-note muted">
-        Mês em curso aparece hachurado e não entra na mediana. “—” é mês sem
-        informação, não mês de zero hora.
+        Mês em curso aparece hachurado e não entra na mediana. “—” é mês sem informação, não mês de zero hora.
       </p>
     </div>
   );
