@@ -14,6 +14,7 @@ Gráficos (contrato em `frontend/.../VisualizationRenderer.tsx`):
 
 Cor segue a série, nunca o ranking, e a cauda vira "Outros" em vez de
 ciclar a paleta (o total continua fechando)."""
+
 from __future__ import annotations
 
 import json
@@ -101,10 +102,7 @@ def _series_with_others(result: CrossResult, row_index: int, col_values: list[st
     series = [{"name": value, "data": [cell(value, c) for c in col_values]} for value in shown]
     rest = [value for value in row_values if value not in shown]
     if rest and additive:
-        series.append({
-            "name": OTHERS, "tail": True,
-            "data": [round(sum(cell(value, c) or 0 for value in rest), 2) for c in col_values],
-        })
+        series.append({"name": OTHERS, "tail": True, "data": [round(sum(cell(value, c) or 0 for value in rest), 2) for c in col_values]})
     return series
 
 
@@ -134,9 +132,9 @@ def build_visualizations(result: CrossResult) -> list[dict]:
     dims = spec.group_by
     if not dims:
         return [
-            {"type": "kpi", "title": _title(result, MEASURES[m].label), "value": result.totals[m],
-             "unit": UNIT_SYMBOL[MEASURES[m].unit]}
-            for m in spec.measures if result.totals.get(m) is not None
+            {"type": "kpi", "title": _title(result, MEASURES[m].label), "value": result.totals[m], "unit": UNIT_SYMBOL[MEASURES[m].unit]}
+            for m in spec.measures
+            if result.totals.get(m) is not None
         ][:MAX_VISUALIZATIONS]
     if not result.rows:
         return []
@@ -147,23 +145,27 @@ def build_visualizations(result: CrossResult) -> list[dict]:
         if dims[0] == "month":
             charts = []
             for group in _by_unit(spec.measures):
-                charts.append({
-                    "type": "line" if len(rows) > 1 else "bar",
-                    "title": _title(result, f"{_chart_label(group)} por mês"),
-                    "categories": [row.labels[0] for row in rows],
-                    "series": [{"name": MEASURES[m].label, "data": [row.values.get(m) for row in rows]} for m in group],
-                    "unit": UNIT_SYMBOL[MEASURES[group[0]].unit],
-                })
+                charts.append(
+                    {
+                        "type": "line" if len(rows) > 1 else "bar",
+                        "title": _title(result, f"{_chart_label(group)} por mês"),
+                        "categories": [row.labels[0] for row in rows],
+                        "series": [{"name": MEASURES[m].label, "data": [row.values.get(m) for row in rows]} for m in group],
+                        "unit": UNIT_SYMBOL[MEASURES[group[0]].unit],
+                    }
+                )
             return charts[:MAX_VISUALIZATIONS]
         first = spec.measures[0]
         if dims[0] in SMALL_DIMENSIONS and len(spec.measures) == 1 and MEASURES[first].additive:
-            return [{
-                "type": "donut",
-                "title": _title(result, f"{MEASURES[first].label} por {dim.label.lower()}"),
-                "categories": [row.labels[0] for row in rows],
-                "series": [{"name": MEASURES[first].label, "data": [row.values.get(first) for row in rows]}],
-                "unit": UNIT_SYMBOL[MEASURES[first].unit],
-            }]
+            return [
+                {
+                    "type": "donut",
+                    "title": _title(result, f"{MEASURES[first].label} por {dim.label.lower()}"),
+                    "categories": [row.labels[0] for row in rows],
+                    "series": [{"name": MEASURES[first].label, "data": [row.values.get(first) for row in rows]}],
+                    "unit": UNIT_SYMBOL[MEASURES[first].unit],
+                }
+            ]
         top = rows[:MAX_BARS]
         suffix = f" (top {len(top)} de {result.group_count})" if result.group_count > len(top) else ""
         charts = []
@@ -171,13 +173,15 @@ def build_visualizations(result: CrossResult) -> list[dict]:
             values = [[row.values.get(m) for row in top] for m in group]
             if all(v is None for serie in values for v in serie):
                 continue
-            charts.append({
-                "type": "horizontal_bar",
-                "title": _title(result, f"{_chart_label(group)} por {dim.label.lower()}{suffix}"),
-                "categories": [row.labels[0] for row in top],
-                "series": [{"name": MEASURES[m].label, "data": data} for m, data in zip(group, values)],
-                "unit": UNIT_SYMBOL[MEASURES[group[0]].unit],
-            })
+            charts.append(
+                {
+                    "type": "horizontal_bar",
+                    "title": _title(result, f"{_chart_label(group)} por {dim.label.lower()}{suffix}"),
+                    "categories": [row.labels[0] for row in top],
+                    "series": [{"name": MEASURES[m].label, "data": data} for m, data in zip(group, values, strict=False)],
+                    "unit": UNIT_SYMBOL[MEASURES[group[0]].unit],
+                }
+            )
         return charts[:MAX_VISUALIZATIONS]
 
     # duas dimensões — o gráfico usa a 1ª medida; a tabela mostra todas
@@ -190,13 +194,15 @@ def build_visualizations(result: CrossResult) -> list[dict]:
         others = _ranked_values(result, other_index, measure)
         months = _column_order(result, 1 - other_index, measure)
         if len(others) <= MAX_SERIES + 1 or (info.additive and len(others) <= 12):
-            return [{
-                "type": "line",
-                "title": title,
-                "categories": months,
-                "series": _series_with_others(result, other_index, months, others, measure),
-                "unit": UNIT_SYMBOL[info.unit],
-            }]
+            return [
+                {
+                    "type": "line",
+                    "title": title,
+                    "categories": months,
+                    "series": _series_with_others(result, other_index, months, others, measure),
+                    "unit": UNIT_SYMBOL[info.unit],
+                }
+            ]
         return [_heatmap(result, other_index, measure, title)]
     if not info.additive:
         return [_heatmap(result, 0, measure, title)]
@@ -204,14 +210,7 @@ def build_visualizations(result: CrossResult) -> list[dict]:
     series_values = _ranked_values(result, 1, measure)
     series = _series_with_others(result, 1, categories, series_values, measure)
     suffix = f" (top {len(categories)})" if len(_ranked_values(result, 0, measure)) > len(categories) else ""
-    return [{
-        "type": "horizontal_bar",
-        "stacked": True,
-        "title": title + suffix,
-        "categories": categories,
-        "series": series,
-        "unit": UNIT_SYMBOL[info.unit],
-    }]
+    return [{"type": "horizontal_bar", "stacked": True, "title": title + suffix, "categories": categories, "series": series, "unit": UNIT_SYMBOL[info.unit]}]
 
 
 # --- tabelas --------------------------------------------------------------
@@ -223,13 +222,15 @@ def build_tables(result: CrossResult) -> list[dict]:
     if not dims:
         if len(spec.measures) < 2:
             return []
-        return [{
-            "title": _title(result, "Resumo"),
-            "columns": ["Medida", "Valor"],
-            "column_types": ["text", "text"],
-            "rows": [[MEASURES[m].label, fmt_value(result.totals[m], MEASURES[m].unit)] for m in spec.measures],
-            "truncated": False,
-        }]
+        return [
+            {
+                "title": _title(result, "Resumo"),
+                "columns": ["Medida", "Valor"],
+                "column_types": ["text", "text"],
+                "rows": [[MEASURES[m].label, fmt_value(result.totals[m], MEASURES[m].unit)] for m in spec.measures],
+                "truncated": False,
+            }
+        ]
     if not result.rows:
         return []
     measure_types = [MEASURES[m].unit for m in spec.measures]
@@ -242,17 +243,18 @@ def build_tables(result: CrossResult) -> list[dict]:
         share_label = "% do total" if len(spec.measures) == 1 else f"% do total ({MEASURES[first].label.lower()})"
         columns = [dim.label] + [MEASURES[m].label for m in spec.measures] + ([share_label] if with_share else [])
         types = ["text"] + measure_types + (["percent"] if with_share else [])
-        rows = [
-            [row.labels[0]] + [row.values.get(m) for m in spec.measures] + ([row.share] if with_share else [])
-            for row in result.rows
-        ]
+        rows = [[row.labels[0]] + [row.values.get(m) for m in spec.measures] + ([row.share] if with_share else []) for row in result.rows]
         totals = ["Total"] + [result.totals.get(m) for m in spec.measures] + ([100.0 if with_share else None] if with_share else [])
-        return [{
-            "title": _title(result, f"{dim.label}"),
-            "columns": columns, "column_types": types, "rows": rows,
-            "totals": totals if not result.cut else None,
-            "truncated": result.truncated,
-        }]
+        return [
+            {
+                "title": _title(result, f"{dim.label}"),
+                "columns": columns,
+                "column_types": types,
+                "rows": rows,
+                "totals": totals if not result.cut else None,
+                "truncated": result.truncated,
+            }
+        ]
 
     # duas dimensões: tabela cruzada quando dá (1 medida, colunas poucas)
     column_index = None
@@ -283,26 +285,30 @@ def build_tables(result: CrossResult) -> list[dict]:
         if info.additive:
             column_totals = [round(sum(row[i + 1] or 0 for row in rows), 2) for i in range(len(columns_values))]
             totals = [total_label] + column_totals + [round(sum(column_totals), 2)]
-        return [{
-            "title": _title(result, f"{info.label} — {DIMENSIONS[dims[row_index]].label} x {DIMENSIONS[dims[column_index]].label}"),
-            "columns": [DIMENSIONS[dims[row_index]].label] + columns_values + (["Total"] if info.additive else []),
-            "column_types": ["text"] + [info.unit] * len(columns_values) + ([info.unit] if info.additive else []),
-            "rows": rows,
-            "totals": totals,
-            "truncated": result.truncated,
-        }]
+        return [
+            {
+                "title": _title(result, f"{info.label} — {DIMENSIONS[dims[row_index]].label} x {DIMENSIONS[dims[column_index]].label}"),
+                "columns": [DIMENSIONS[dims[row_index]].label] + columns_values + (["Total"] if info.additive else []),
+                "column_types": ["text"] + [info.unit] * len(columns_values) + ([info.unit] if info.additive else []),
+                "rows": rows,
+                "totals": totals,
+                "truncated": result.truncated,
+            }
+        ]
 
     columns = [DIMENSIONS[d].label for d in dims] + [MEASURES[m].label for m in spec.measures]
     rows = [list(row.labels) + [row.values.get(m) for m in spec.measures] for row in result.rows]
     totals = [total_label, ""] + [result.totals.get(m) for m in spec.measures]
-    return [{
-        "title": _title(result, " x ".join(DIMENSIONS[d].label for d in dims)),
-        "columns": columns,
-        "column_types": ["text", "text"] + measure_types,
-        "rows": rows,
-        "totals": totals if not result.cut else None,
-        "truncated": result.truncated,
-    }]
+    return [
+        {
+            "title": _title(result, " x ".join(DIMENSIONS[d].label for d in dims)),
+            "columns": columns,
+            "column_types": ["text", "text"] + measure_types,
+            "rows": rows,
+            "totals": totals if not result.cut else None,
+            "truncated": result.truncated,
+        }
+    ]
 
 
 # --- texto sem IA -------------------------------------------------------------
@@ -344,7 +350,7 @@ def _value(row: CrossRow, measure: str) -> str:
 
 
 def _compared_items(result: CrossResult) -> bool:
-    """"Mercedes x Lauer em julho": agrupou pela mesma dimensão que filtrou,
+    """ "Mercedes x Lauer em julho": agrupou pela mesma dimensão que filtrou,
     com 2 a 8 itens."""
     spec = result.spec
     if len(spec.group_by) != 1:
@@ -359,17 +365,18 @@ def _cap(text: str) -> str:
 
 
 def _totals_line(result: CrossResult) -> str:
-    """"trabalhadas 3.083,2 h; faturadas 2.728,8 h; performance -11,5%"."""
+    """ "trabalhadas 3.083,2 h; faturadas 2.728,8 h; performance -11,5%"."""
     if result.spec.measures == ["hours"]:
         return fmt_hours(result.totals.get("hours"))
     return "; ".join(
         f"{MEASURES[m].label.replace(' (h)', '').lower()} {fmt_value(result.totals.get(m), MEASURES[m].unit)}"
-        for m in result.spec.measures if result.totals.get(m) is not None
+        for m in result.spec.measures
+        if result.totals.get(m) is not None
     )
 
 
 def _leaders(result: CrossResult, measure: str, limit: int = 4) -> str:
-    """"quem trabalhou mais EM CADA cliente": o maior da 2ª dimensão dentro
+    """ "quem trabalhou mais EM CADA cliente": o maior da 2ª dimensão dentro
     de cada valor da 1ª (na ordem da tabela)."""
     best: dict[str, CrossRow] = {}
     for row in result.rows:
@@ -396,10 +403,7 @@ def _send_status_reply(result: CrossResult, scope: str, notes: str) -> str:
         if other and row.keys[status_index] == "none":
             pending.append(row.labels[1 - status_index])
     plural = {"Enviado": "enviados", "Parcial": "parciais", "Não enviado": "não enviados", "Fechado": "fechados"}
-    ordered = [
-        f"{counts[label]} {label.lower() if counts[label] == 1 else plural[label]}"
-        for label in STATUSES.values() if counts.get(label)
-    ]
+    ordered = [f"{counts[label]} {label.lower() if counts[label] == 1 else plural[label]}" for label in STATUSES.values() if counts.get(label)]
     total = sum(counts.values())
     text = f"{_cap(scope)}: {', '.join(ordered)} (de {total} {'projeto' if total == 1 else 'projetos'} com hora)."
     if pending:
@@ -456,8 +460,7 @@ def format_reply(result: CrossResult) -> str:
                 )
             worst = min(valued, key=lambda row: row.values[first])
             return (
-                f"{info.label} por mês {scope}: maior em {best.labels[0]} ({_value(best, first)}), "
-                f"menor em {worst.labels[0]} ({_value(worst, first)}).{notes}"
+                f"{info.label} por mês {scope}: maior em {best.labels[0]} ({_value(best, first)}), menor em {worst.labels[0]} ({_value(worst, first)}).{notes}"
             )
         # ranking: a lista segue a medida pela qual foi ordenado
         sort_measure = spec.sort_by or first
@@ -478,12 +481,8 @@ def format_reply(result: CrossResult) -> str:
     d1, d2 = (DIMENSIONS[d] for d in spec.group_by)
     count1 = len({row.labels[0] for row in result.rows})
     count2 = len({row.labels[1] for row in result.rows})
-    best = max((row for row in result.rows if row.values.get(first) is not None),
-               key=lambda row: row.values[first], default=None)
-    text = (
-        f"{threshold}{info.label} por {d1.label.lower()} e {d2.label.lower()} {scope}: "
-        f"{_count(count1, d1)} x {_count(count2, d2)}."
-    )
+    best = max((row for row in result.rows if row.values.get(first) is not None), key=lambda row: row.values[first], default=None)
+    text = f"{threshold}{info.label} por {d1.label.lower()} e {d2.label.lower()} {scope}: {_count(count1, d1)} x {_count(count2, d2)}."
     if "month" not in spec.group_by and info.additive and count1 > 1:
         text += f" Maior {d2.label.lower()} em cada {d1.label.lower()} — {_leaders(result, first)}."
     elif best:
@@ -508,7 +507,7 @@ def compact_for_claude(result: CrossResult, max_bytes: int) -> dict:
     rows, cumulative = [], 0.0
     for row in result.rows:
         item = {
-            "dims": {DIMENSIONS[d].label: label for d, label in zip(spec.group_by, row.labels)},
+            "dims": {DIMENSIONS[d].label: label for d, label in zip(spec.group_by, row.labels, strict=False)},
             "values": {MEASURES[m].label: row.values.get(m) for m in spec.measures},
         }
         if row.share is not None and len(spec.group_by) == 1:
@@ -521,8 +520,7 @@ def compact_for_claude(result: CrossResult, max_bytes: int) -> dict:
         "period": spec.period.label,
         "filters": spec.filter_values(),
         "threshold": spec.threshold.describe() if spec.threshold else None,
-        "measures": {MEASURES[m].label: {"unit": UNIT_SYMBOL[MEASURES[m].unit], "meaning": MEASURES[m].description}
-                     for m in spec.measures},
+        "measures": {MEASURES[m].label: {"unit": UNIT_SYMBOL[MEASURES[m].unit], "meaning": MEASURES[m].description} for m in spec.measures},
         "group_by": [DIMENSIONS[d].label for d in spec.group_by],
         "totals": {MEASURES[m].label: result.totals.get(m) for m in spec.measures},
         "groups": result.group_count,
@@ -533,10 +531,7 @@ def compact_for_claude(result: CrossResult, max_bytes: int) -> dict:
         top = sum(row.values.get(first) or 0 for row in result.rows[:3])
         rest = total_first - top
         compact["top_3"] = {"value": round(top, 2), "share_percent": round(top / total_first * 100, 1)}
-        compact["others_after_top_3"] = {
-            "count": result.group_count - 3, "value": round(rest, 2),
-            "share_percent": round(rest / total_first * 100, 1),
-        }
+        compact["others_after_top_3"] = {"count": result.group_count - 3, "value": round(rest, 2), "share_percent": round(rest / total_first * 100, 1)}
     if len(spec.group_by) == 2 and additive:
         for index, dim in enumerate(spec.group_by):
             totals: dict[str, float] = {}

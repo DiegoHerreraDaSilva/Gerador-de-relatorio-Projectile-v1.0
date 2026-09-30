@@ -71,7 +71,14 @@ describe("rascunho da geração automática ↔ editor", () => {
     expect(editor.packages[0].chartBar).toBe(true);
     expect(editor.packages[0].groups[0].activities[1].extra).toBe(true); // sem horas = linha manual
     expect(editor.header.signer1Name).toBe("Diego");
-    const back = editorToDraft(editor.packages, editor.header, editor.includePerformance, editor.formats, editor.extras, editor.issues);
+    const back = editorToDraft(
+      editor.packages,
+      editor.header,
+      editor.includePerformance,
+      editor.formats,
+      editor.extras,
+      editor.issues,
+    );
     expect(back).toEqual(DRAFT);
   });
 
@@ -79,7 +86,13 @@ describe("rascunho da geração automática ↔ editor", () => {
     const editor = draftToEditor(DRAFT);
     editor.packages[0].groups.push({ id: "novo", name: "Grupo novo", performance: 1, activities: [] });
     const back = editorToDraft(editor.packages, editor.header, false, ["xlsx"], editor.extras);
-    expect(back.packages[0].groups[1]).toEqual({ id: "novo", source_key: null, name: "Grupo novo", performance: 1, activities: [] });
+    expect(back.packages[0].groups[1]).toEqual({
+      id: "novo",
+      source_key: null,
+      name: "Grupo novo",
+      performance: 1,
+      activities: [],
+    });
   });
 });
 
@@ -102,7 +115,9 @@ describe("guia da geração automática", () => {
     const { useReportTabsStore } = await import("../useReportTabsStore");
     const { useReportStore, reportTabBundle } = await import("../useReportStore");
     const editor = draftToEditor(DRAFT);
-    useReportTabsStore.getState().openAutoTab(meta(), "Estribo", reportTabBundle(editor.packages, editor.header, false));
+    useReportTabsStore
+      .getState()
+      .openAutoTab(meta(), "Estribo", reportTabBundle(editor.packages, editor.header, false));
 
     expect(useReportStore.getState().packages[0].id).toBe("pkg1");
     expect(useReportStore.getState().showImportCard).toBe(false);
@@ -128,7 +143,9 @@ describe("guia da geração automática", () => {
     const { useReportTabsStore } = await import("../useReportTabsStore");
     const { reportTabBundle } = await import("../useReportStore");
     const editor = draftToEditor(DRAFT);
-    useReportTabsStore.getState().openAutoTab(meta(), "Estribo", reportTabBundle(editor.packages, editor.header, false));
+    useReportTabsStore
+      .getState()
+      .openAutoTab(meta(), "Estribo", reportTabBundle(editor.packages, editor.header, false));
     useReportTabsStore.getState().closeAutoTabs();
     const s = useReportTabsStore.getState();
     expect(s.tabs.some((t) => t.auto)).toBe(false);
@@ -179,7 +196,15 @@ describe("guia aberta por quem revisa", () => {
     const { reportTabBundle } = await import("../useReportStore");
     const editor = draftToEditor(DRAFT);
     useReportTabsStore.getState().openAutoTab(
-      { reportId: "R1", draftVersion: 3, competence: "2026-08", status: "em_revisao", formats: ["xlsx"], extras: editor.extras, role: "reviewer" },
+      {
+        reportId: "R1",
+        draftVersion: 3,
+        competence: "2026-08",
+        status: "em_revisao",
+        formats: ["xlsx"],
+        extras: editor.extras,
+        role: "reviewer",
+      },
       "Estribo",
       reportTabBundle(editor.packages, editor.header, false),
     );
@@ -198,29 +223,68 @@ describe("aba Personalizados", () => {
   });
 
   const CUSTOM_ITEM = {
-    id: "C1", kind: "avulso", competence: "2026-08", project_id: "custom:C1", family_key: "custom:C1",
-    project_name: "Lucca — Mercedes", client: "Mercedes", status: "em_revisao", reviewer_login: null, reviewer_name: null,
-    draft_version: 1, source_hours: 7, approved_by: null, approved_at: null, sent_by: null, sent_at: null, last_sent: null,
-    error: null, updated_at: "2026-09-29T10:00:00", badges: { custom: true, partial: true, packages: 1 },
-    last_comment: null, scope_json: { label: "Julho a Agosto/2026", summary: "Mercedes · Lucca" },
+    id: "C1",
+    kind: "avulso",
+    competence: "2026-08",
+    project_id: "custom:C1",
+    family_key: "custom:C1",
+    project_name: "Lucca — Mercedes",
+    client: "Mercedes",
+    status: "em_revisao",
+    reviewer_login: null,
+    reviewer_name: null,
+    draft_version: 1,
+    source_hours: 7,
+    approved_by: null,
+    approved_at: null,
+    sent_by: null,
+    sent_at: null,
+    last_sent: null,
+    error: null,
+    updated_at: "2026-09-29T10:00:00",
+    badges: { custom: true, partial: true, packages: 1 },
+    last_comment: null,
+    scope_json: { label: "Julho a Agosto/2026", summary: "Mercedes · Lucca" },
   };
 
   const REQUEST = {
-    id: "Q1", competence: "2026-09", label: "Setembro/2026", summary: "Mercedes · Lucca", title: null, split_by: "nenhum",
-    package_unit: "projeto", reviewer_name: null, status: "agendado", error: null, created_by_name: "Gerente", created_at: "2026-09-29T10:00:00",
+    id: "Q1",
+    competence: "2026-09",
+    label: "Setembro/2026",
+    summary: "Mercedes · Lucca",
+    title: null,
+    split_by: "nenhum",
+    package_unit: "projeto",
+    reviewer_name: null,
+    status: "agendado",
+    error: null,
+    created_by_name: "Gerente",
+    created_at: "2026-09-29T10:00:00",
   };
 
   const stubApi = (calls: string[]) =>
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push(`${init?.method ?? "GET"} ${url}`);
-      const body = url === "/auto-generation/custom" && init?.method === "POST"
-        ? { request: REQUEST }
-        : url === "/auto-generation/custom" ? { items: [CUSTOM_ITEM], counts: { em_revisao: 1 }, requests: [REQUEST] }
-        : url === "/auto-generation/config" ? { defaults: {}, config: {}, rules: [], effective: { mode: "projeto", number_pattern: "^SE\.\d{2}\.\d{3}$" } }
-        : url === "/auto-generation/custom/preview" ? { period_label: "Agosto/2026", summary: "", reports: [], total_hours: 0, warnings: [] }
-        : {};
-      return { ok: true, json: async () => body } as Response;
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        const body =
+          url === "/auto-generation/custom" && init?.method === "POST"
+            ? { request: REQUEST }
+            : url === "/auto-generation/custom"
+              ? { items: [CUSTOM_ITEM], counts: { em_revisao: 1 }, requests: [REQUEST] }
+              : url === "/auto-generation/config"
+                ? {
+                    defaults: {},
+                    config: {},
+                    rules: [],
+                    effective: { mode: "projeto", number_pattern: "^SE\.\d{2}\.\d{3}$" },
+                  }
+                : url === "/auto-generation/custom/preview"
+                  ? { period_label: "Agosto/2026", summary: "", reports: [], total_hours: 0, warnings: [] }
+                  : {};
+        return { ok: true, json: async () => body } as Response;
+      }),
+    );
 
   it("lista pelo endpoint dos personalizados e reaproveita a tela da rodada, sem regra de família", async () => {
     const calls: string[] = [];
@@ -250,8 +314,10 @@ describe("aba Personalizados", () => {
     const { useAutoGenerationStore, CUSTOM_KEY } = await import("../useAutoGenerationStore");
     useAutoGenerationStore.setState({ _loadedForLogin: null, selected: "2026-08" });
     const scope = {
-      period: { start: "2026-07", end: "2026-08" }, blocks: [{ clients: ["Mercedes"], project_ids: [], packages: [], employee_ids: ["10"] }],
-      split_by: "nenhum" as const, package_unit: "projeto" as const,
+      period: { start: "2026-07", end: "2026-08" },
+      blocks: [{ clients: ["Mercedes"], project_ids: [], packages: [], employee_ids: ["10"] }],
+      split_by: "nenhum" as const,
+      package_unit: "projeto" as const,
     };
     const preview = await useAutoGenerationStore.getState().previewCustom(scope);
     expect(preview.period_label).toBe("Agosto/2026");
@@ -269,21 +335,34 @@ describe("aba Personalizados", () => {
 
   it("salvar a configuração do personalizado manda o Relatório como package_unit e só o que foi preenchido", async () => {
     const bodies: Array<{ url: string; body: unknown }> = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === "PUT") bodies.push({ url, body: JSON.parse(String(init.body)) });
-      const body = url === "/auto-generation/custom" ? { items: [], counts: {}, requests: [] }
-        : url === "/auto-generation/config" ? { defaults: {}, config: {}, rules: [], effective: {} } : {};
-      return { ok: true, json: async () => body } as Response;
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "PUT") bodies.push({ url, body: JSON.parse(String(init.body)) });
+        const body =
+          url === "/auto-generation/custom"
+            ? { items: [], counts: {}, requests: [] }
+            : url === "/auto-generation/config"
+              ? { defaults: {}, config: {}, rules: [], effective: {} }
+              : {};
+        return { ok: true, json: async () => body } as Response;
+      }),
+    );
     const { useAutoGenerationStore, CUSTOM_KEY } = await import("../useAutoGenerationStore");
     useAutoGenerationStore.setState({ _loadedForLogin: null, selected: CUSTOM_KEY });
     const store = useAutoGenerationStore.getState();
     // pedido agendado: "Relatório" = pacote, assinante e arquivos preenchidos, o resto em branco
-    await store.saveCustomConfig({ requestId: "Q1", unit: "projeto" }, { mode: "pacote", signer1_name: "Diego", formats: ["pdf"] });
+    await store.saveCustomConfig(
+      { requestId: "Q1", unit: "projeto" },
+      { mode: "pacote", signer1_name: "Diego", formats: ["pdf"] },
+    );
     // relatório já gerado: nada escolhido = mantém a unidade e manda config nula (volta a herdar)
     await store.saveCustomConfig({ reportId: "C1", unit: "pacote" }, {});
     expect(bodies).toEqual([
-      { url: "/auto-generation/custom/requests/Q1/config", body: { package_unit: "pacote", config: { signer1_name: "Diego", formats: ["pdf"] } } },
+      {
+        url: "/auto-generation/custom/requests/Q1/config",
+        body: { package_unit: "pacote", config: { signer1_name: "Diego", formats: ["pdf"] } },
+      },
       { url: "/auto-generation/custom/C1/config", body: { package_unit: "pacote", config: null } },
     ]);
     vi.unstubAllGlobals();
@@ -300,8 +379,16 @@ describe("aba Personalizados", () => {
     const item = useAutoGenerationStore.getState().view!.items[0];
     const editor = draftToEditor(DRAFT);
     useReportTabsStore.getState().openAutoTab(
-      { reportId: item.id, draftVersion: 1, competence: "2026-08", status: "em_revisao", formats: ["xlsx"], extras: editor.extras },
-      "Lucca — Mercedes", reportTabBundle(editor.packages, editor.header, false),
+      {
+        reportId: item.id,
+        draftVersion: 1,
+        competence: "2026-08",
+        status: "em_revisao",
+        formats: ["xlsx"],
+        extras: editor.extras,
+      },
+      "Lucca — Mercedes",
+      reportTabBundle(editor.packages, editor.header, false),
     );
     useAutoGenerationStore.setState({ saveState: { [item.id]: "dirty" } });
     expect(useReportTabsStore.getState().tabs.some((t) => t.auto?.reportId === item.id)).toBe(true);
@@ -320,7 +407,15 @@ describe("aba Personalizados", () => {
     const { reportTabBundle } = await import("../useReportStore");
     const editor = draftToEditor(DRAFT);
     useReportTabsStore.getState().openAutoTab(
-      { reportId: "C1", draftVersion: 1, competence: "2026-08", periodLabel: "Julho a Agosto/2026", status: "em_revisao", formats: ["xlsx"], extras: editor.extras },
+      {
+        reportId: "C1",
+        draftVersion: 1,
+        competence: "2026-08",
+        periodLabel: "Julho a Agosto/2026",
+        status: "em_revisao",
+        formats: ["xlsx"],
+        extras: editor.extras,
+      },
       "Lucca — Mercedes",
       reportTabBundle(editor.packages, editor.header, false),
     );
@@ -334,13 +429,20 @@ describe("aba Personalizados", () => {
 describe("destinatários do envio ao cliente", () => {
   it("aceita ; , espaço e quebra de linha entre os endereços", async () => {
     const { parseAddresses } = await import("../../components/AutoSendModal");
-    expect(parseAddresses("a@x.com; b@y.com,c@z.com\n d@w.com ;;")).toEqual(["a@x.com", "b@y.com", "c@z.com", "d@w.com"]);
+    expect(parseAddresses("a@x.com; b@y.com,c@z.com\n d@w.com ;;")).toEqual([
+      "a@x.com",
+      "b@y.com",
+      "c@z.com",
+      "d@w.com",
+    ]);
     expect(parseAddresses("   ")).toEqual([]);
   });
 
   it("só oferece os formatos que foram aprovados", async () => {
     const { approvedFormats } = await import("../../components/AutoSendModal");
-    expect([...approvedFormats(["Relatório_Horas-Agosto.2026.xlsx", "Relatório_Horas-Agosto.2026.PDF"])].sort()).toEqual(["pdf", "xlsx"]);
+    expect(
+      [...approvedFormats(["Relatório_Horas-Agosto.2026.xlsx", "Relatório_Horas-Agosto.2026.PDF"])].sort(),
+    ).toEqual(["pdf", "xlsx"]);
     expect([...approvedFormats(["a.xlsx", "b (2).xlsx"])]).toEqual(["xlsx"]);
   });
 });

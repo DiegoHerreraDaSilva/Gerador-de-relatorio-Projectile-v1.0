@@ -1,4 +1,5 @@
 """Trava o comportamento de `backend/app/parser.parse_projectile_export`."""
+
 from __future__ import annotations
 
 import os
@@ -14,7 +15,7 @@ FIXTURE_XLSX = os.path.join(REPO_ROOT, "backend", "templates", "exemplo_projecti
 HEADER = ["Dados", "Horário", "Hs", "Observação", "Projeto", "Pacote de Trabalho"]
 
 
-def _build_export(rows: list[list], *, header_row_offset: int = 0) -> "Workbook":
+def _build_export(rows: list[list], *, header_row_offset: int = 0) -> Workbook:
     """Monta um workbook sintético com o layout de colunas que
     `parser._find_header_row`/`parse_projectile_export` esperam: linha de
     cabeçalho contendo ["Dados", "Horário", "Hs", ...] seguida das linhas de
@@ -75,10 +76,7 @@ def test_parse_projectile_export_well_formed_rows(tmp_path):
 
 def test_parse_projectile_export_row_without_separator_raises_issue_not_crash(tmp_path):
     wb = _build_export(
-        [
-            ["01/07/2026", "08:00", 2.0, "ENG - Atividade normal", "Projeto Y", ""],
-            ["02/07/2026", "08:00", 3.0, "SemSeparadorNenhum", "Projeto Y", ""],
-        ]
+        [["01/07/2026", "08:00", 2.0, "ENG - Atividade normal", "Projeto Y", ""], ["02/07/2026", "08:00", 3.0, "SemSeparadorNenhum", "Projeto Y", ""]]
     )
     path = str(tmp_path / "sem_separador.xlsx")
     wb.save(path)
@@ -168,11 +166,7 @@ def test_parse_projectile_export_hs_invalido_carrega_raw_description_mas_nao_raw
 
 
 def test_parse_projectile_export_decimal_comma_in_hs(tmp_path):
-    wb = _build_export(
-        [
-            ["01/07/2026", "08:00", "2,5", "ENG - Atividade com vírgula", "Projeto Z", ""],
-        ]
-    )
+    wb = _build_export([["01/07/2026", "08:00", "2,5", "ENG - Atividade com vírgula", "Projeto Z", ""]])
     path = str(tmp_path / "virgula.xlsx")
     wb.save(path)
 

@@ -4,6 +4,7 @@ de negócio/persistência JSON) de propósito — são camadas diferentes
 (`backend.app.api.routers.management` vs `backend.app.management`), mesmo
 domínio; sempre importe explicitamente com alias se os dois forem usados no
 mesmo arquivo (ver `main.py`)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,6 @@ from pydantic import BaseModel, Field
 
 from ... import email_ingest
 from ...management import (
-    _resolve_period,
     compute_monthly_kpis,
     create_manual_project_kpi_sample,
     delete_project_kpi_sample,
@@ -38,9 +38,9 @@ from ...projectile_db import (
     fetch_project_ids_for_clients,
     fetch_project_ids_with_hours,
 )
+from .. import period_access
 from ..dependencies import is_manager, require_manager, require_manager_or_coordinator
 from ..errors import GENERIC_DB_ERROR, GENERIC_EMAIL_ERROR, log_and_generic_error
-from .. import period_access
 from ..shared import resolve_month_range
 
 router = APIRouter()
@@ -88,9 +88,7 @@ async def management_clients_with_hours_endpoint(month_label: str, _user: dict =
 
 
 @router.get("/management/client-projects")
-async def management_client_projects_endpoint(
-    client: str, month_label: str, _user: dict = Depends(require_manager_or_coordinator)
-):
+async def management_client_projects_endpoint(client: str, month_label: str, _user: dict = Depends(require_manager_or_coordinator)):
     """Projetos de um cliente com ao menos um lançamento de hora no mês —
     popula o seletor multi-seleção de projeto da tela de importação "por
     cliente"."""
@@ -143,8 +141,13 @@ async def management_kpis_endpoint(
 # lista BRANCA de propósito: um campo novo de KPI que entrar em
 # `compute_monthly_kpis` não vaza sozinho pra coordenador.
 _SEND_STATUS_KEYS = (
-    "project_send_status", "available_projects", "available_clients",
-    "available_packages", "available_persons", "project_codes", "project_clients",
+    "project_send_status",
+    "available_projects",
+    "available_clients",
+    "available_packages",
+    "available_persons",
+    "project_codes",
+    "project_clients",
 )
 
 
@@ -181,10 +184,7 @@ async def management_send_status_endpoint(
         )
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
-    return {
-        "months": [{"month": row["month"]} for row in result["months"]],
-        **{key: result[key] for key in _SEND_STATUS_KEYS},
-    }
+    return {"months": [{"month": row["month"]} for row in result["months"]], **{key: result[key] for key in _SEND_STATUS_KEYS}}
 
 
 @router.post("/management/kpis/check-emails")
@@ -231,9 +231,7 @@ async def management_kpi_samples_endpoint(month: str | None = None, _user: dict 
     allowed = _coordinator_months()
     return {
         "samples": [s for s in result["samples"] if s.get("month") in allowed],
-        "skipped_messages": [
-            s for s in result["skipped_messages"] if str(s.get("received_at") or "")[:7] in allowed
-        ],
+        "skipped_messages": [s for s in result["skipped_messages"] if str(s.get("received_at") or "")[:7] in allowed],
     }
 
 
@@ -245,9 +243,7 @@ class ManualSampleCreatePayload(BaseModel):
 
 
 @router.post("/management/kpis/samples")
-async def management_kpi_sample_create_endpoint(
-    payload: ManualSampleCreatePayload, _user: dict = Depends(require_manager_or_coordinator)
-):
+async def management_kpi_sample_create_endpoint(payload: ManualSampleCreatePayload, _user: dict = Depends(require_manager_or_coordinator)):
     """Cadastro manual de amostra — pra quando um relatório foi enviado fora
     do fluxo de e-mail, ou o match automático nunca achou o projeto certo."""
     if not re.fullmatch(r"\d{4}-\d{2}", payload.month):
@@ -261,11 +257,7 @@ async def management_kpi_sample_create_endpoint(
     if not project:
         raise HTTPException(400, "Projeto não encontrado no Projectile.")
     return create_manual_project_kpi_sample(
-        project_id=payload.project_id,
-        project_name=project["name"],
-        month=payload.month,
-        billed_hours=payload.billed_hours,
-        business_days=payload.business_days,
+        project_id=payload.project_id, project_name=project["name"], month=payload.month, billed_hours=payload.billed_hours, business_days=payload.business_days
     )
 
 
@@ -286,9 +278,7 @@ class SampleUpdatePayload(BaseModel):
 
 
 @router.patch("/management/kpis/samples/{sample_id}")
-async def management_kpi_sample_update_endpoint(
-    sample_id: str, payload: SampleUpdatePayload, _user: dict = Depends(require_manager_or_coordinator)
-):
+async def management_kpi_sample_update_endpoint(sample_id: str, payload: SampleUpdatePayload, _user: dict = Depends(require_manager_or_coordinator)):
     """Corrige uma amostra existente — projeto errado (match automático
     fraco), horas/dias lidos errado, competência errada, ou pacote de
     trabalho coberto (projeto inteiro vs 1+ pacotes específicos)."""
@@ -387,9 +377,7 @@ class ManualEntryPayload(BaseModel):
 
 
 @router.put("/management/kpis/{month}")
-async def management_manual_entry_endpoint(
-    month: str, payload: ManualEntryPayload, _user: dict = Depends(require_manager)
-):
+async def management_manual_entry_endpoint(month: str, payload: ManualEntryPayload, _user: dict = Depends(require_manager)):
     if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(400, "Mês inválido, use o formato AAAA-MM.")
     set_manual_entry(month, payload.billed_hours, payload.elaboration_days)

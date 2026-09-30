@@ -7,6 +7,7 @@ confiança alta o atalho mais parecido e perdia a quebra ou o filtro extra —
 "pessoas EM CADA CLIENTE" virava só a contagem de pessoas; "não faturável
 POR COLABORADOR" virava o total; "SÓ FATURÁVEIS" sumia. Não dá pra pedir
 isso ao Jev (ele só escolhe entre opções), então a checagem é por texto."""
+
 from __future__ import annotations
 
 import re
@@ -15,13 +16,27 @@ from .periods import _plain, mentions_month, years_mentioned
 
 # palavra depois de "por"/"cada" → dimensão
 _DIMENSION_WORDS = {
-    "cliente": "client", "clientes": "client",
-    "projeto": "project", "projetos": "project",
-    "colaborador": "employee", "colaboradores": "employee", "pessoa": "employee", "pessoas": "employee",
-    "funcionario": "employee", "funcionarios": "employee", "engenheiro": "employee", "engenheiros": "employee",
-    "pacote": "package", "pacotes": "package", "atividade": "package", "atividades": "package",
-    "mes": "month", "meses": "month",
-    "centro": "cost_center", "cad": "cost_center", "cae": "cost_center",
+    "cliente": "client",
+    "clientes": "client",
+    "projeto": "project",
+    "projetos": "project",
+    "colaborador": "employee",
+    "colaboradores": "employee",
+    "pessoa": "employee",
+    "pessoas": "employee",
+    "funcionario": "employee",
+    "funcionarios": "employee",
+    "engenheiro": "employee",
+    "engenheiros": "employee",
+    "pacote": "package",
+    "pacotes": "package",
+    "atividade": "package",
+    "atividades": "package",
+    "mes": "month",
+    "meses": "month",
+    "centro": "cost_center",
+    "cad": "cost_center",
+    "cae": "cost_center",
     "status": "status",
 }
 _BREAKDOWN = re.compile(r"\b(?:por|cada)\s+(?:cada\s+)?([a-z]+)")
@@ -58,7 +73,7 @@ def asked_dimensions(message: str) -> set[str]:
 
 
 def is_versus(message: str) -> bool:
-    """"A x B", "A vs B", "A versus B" — comparação entre itens."""
+    """ "A x B", "A vs B", "A versus B" — comparação entre itens."""
     return bool(_VERSUS.search(_plain(message)))
 
 
@@ -90,7 +105,7 @@ def share_base_text(message: str) -> str:
     starts = [m.end() for m in _SHARE_BASE.finditer(text)]
     if not starts:
         return ""
-    return re.split(r"\bque\b|,|;", text[starts[-1]:], maxsplit=1)[0]
+    return re.split(r"\bque\b|,|;", text[starts[-1] :], maxsplit=1)[0]
 
 
 # "e em julho?", "e só da Mercedes?", "o que isso significa?", "agora por cliente"
@@ -115,7 +130,7 @@ _SHORT_AND = re.compile(r"^(?:e|e se|e no|e na|e em|e o|e a|e pra|e para|agora)\
 
 
 def obviously_follow_up(message: str) -> bool:
-    """"e durante o ano?", "e em julho?", "e por colaborador?": curta (até 5
+    """ "e durante o ano?", "e em julho?", "e por colaborador?": curta (até 5
     palavras) e começando com "e"/"agora" é continuação — não depende do
     classificador, que às vezes dizia que não e a pergunta perdia o recorte
     anterior. Pergunta longa que começa com "e" ("e quantas horas o Lucca
@@ -198,14 +213,86 @@ def family_phrases(message: str, selected: list[str], all_projects: list[str]) -
 # palavras do próprio vocabulário do chat — uma frase feita só delas não é
 # nome de projeto ("horas por cliente", "não faturáveis", "CAD")
 _CHAT_WORDS = {
-    "hora", "horas", "h", "mes", "meses", "ano", "anos", "por", "cada", "cliente", "clientes",
-    "colaborador", "colaboradores", "pessoa", "pessoas", "pacote", "pacotes", "total", "totais",
-    "faturavel", "faturaveis", "faturado", "faturadas", "nao", "sim", "cad", "cae", "centro", "custo",
-    "quantas", "quantos", "qual", "quais", "teve", "tem", "foram", "apontadas", "apontou", "trabalhadas",
-    "no", "na", "nos", "nas", "com", "sem", "que", "ultimo", "ultimos", "ultima", "ultimas", "time", "equipe",
-    "performance", "status", "envio", "enviado", "enviados", "relatorio", "relatorios", "dias", "media",
-    "janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro",
-    "novembro", "dezembro", "durante", "ao", "longo", "todo", "inteiro", "atual", "passado",
+    "hora",
+    "horas",
+    "h",
+    "mes",
+    "meses",
+    "ano",
+    "anos",
+    "por",
+    "cada",
+    "cliente",
+    "clientes",
+    "colaborador",
+    "colaboradores",
+    "pessoa",
+    "pessoas",
+    "pacote",
+    "pacotes",
+    "total",
+    "totais",
+    "faturavel",
+    "faturaveis",
+    "faturado",
+    "faturadas",
+    "nao",
+    "sim",
+    "cad",
+    "cae",
+    "centro",
+    "custo",
+    "quantas",
+    "quantos",
+    "qual",
+    "quais",
+    "teve",
+    "tem",
+    "foram",
+    "apontadas",
+    "apontou",
+    "trabalhadas",
+    "no",
+    "na",
+    "nos",
+    "nas",
+    "com",
+    "sem",
+    "que",
+    "ultimo",
+    "ultimos",
+    "ultima",
+    "ultimas",
+    "time",
+    "equipe",
+    "performance",
+    "status",
+    "envio",
+    "enviado",
+    "enviados",
+    "relatorio",
+    "relatorios",
+    "dias",
+    "media",
+    "janeiro",
+    "fevereiro",
+    "marco",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+    "durante",
+    "ao",
+    "longo",
+    "todo",
+    "inteiro",
+    "atual",
+    "passado",
 }
 _PROJECT_WORD = re.compile(r"^(?:projeto|projetos|project|projects)$")
 
@@ -226,7 +313,7 @@ def detect_project_phrase(message: str, all_projects: list[str], other_names: li
     other_tokens = [name_tokens(n) for n in other_names]
     for size in range(min(6, len(words)), 0, -1):
         for start in range(len(words) - size + 1):
-            window = plain[start:start + size]
+            window = plain[start : start + size]
             distinct = set(window) - _NAME_STOPWORDS - _CHAT_WORDS
             if not distinct or window[0] in _NAME_STOPWORDS or window[-1] in _NAME_STOPWORDS:
                 continue
@@ -234,25 +321,25 @@ def detect_project_phrase(message: str, all_projects: list[str], other_names: li
                 continue
             if any(distinct <= tokens for tokens in other_tokens):
                 continue
-            for project, seq in zip(all_projects, sequences):
+            for project, seq in zip(all_projects, sequences, strict=False):
                 at = _run_index(seq, window)
                 if at is not None:
                     # a grafia do nome do projeto ("Legislation Package"), não a digitada
                     original = re.findall(r"[^\W_]+(?:\.[^\W_]+)*", project)
-                    return " ".join(original[at:at + size]) if len(original) == len(seq) else " ".join(words[start:start + size])
+                    return " ".join(original[at : at + size]) if len(original) == len(seq) else " ".join(words[start : start + size])
     return None
 
 
 def _run_index(sequence: list[str], window: list[str]) -> int | None:
     n = len(window)
-    return next((i for i in range(len(sequence) - n + 1) if sequence[i:i + n] == window), None)
+    return next((i for i in range(len(sequence) - n + 1) if sequence[i : i + n] == window), None)
 
 
 _ONLY_BILLING = re.compile(r"\b(?:so|somente|apenas)(?: as)?(?: horas)? (nao )?faturav(?:el|eis)\b")
 
 
 def only_billing_type(message: str) -> str | None:
-    """"só faturáveis" → billable, "só não faturáveis" → non_billable (o
+    """ "só faturáveis" → billable, "só não faturáveis" → non_billable (o
     planner às vezes esquecia). Só com "só/somente/apenas": "quanto foi não
     faturável" é MEDIDA, e filtrar por ela daria 100% em tudo."""
     found = {("non_billable" if m else "billable") for m in _ONLY_BILLING.findall(_plain(message))}
@@ -263,7 +350,7 @@ _COST_CENTER_WORD = re.compile(r"\b(cad|cae)\b")
 
 
 def single_cost_center(message: str) -> str | None:
-    """"horas CAD por mês" → "CAD" (o planner às vezes esquecia o filtro e
+    """ "horas CAD por mês" → "CAD" (o planner às vezes esquecia o filtro e
     respondia CAD+CAE). Os dois citados ("CAD x CAE") = comparação, não filtro."""
     found = set(_COST_CENTER_WORD.findall(_plain(message)))
     return found.pop().upper() if len(found) == 1 else None
@@ -273,13 +360,13 @@ _EVERYONE = re.compile(r"\b(?:todos|todas|geral|time|equipe)\b")
 
 
 def asks_everyone(message: str) -> bool:
-    """"e no time todo?", "e no geral?" — a continuação pede pra TIRAR o
+    """ "e no time todo?", "e no geral?" — a continuação pede pra TIRAR o
     recorte, então os filtros da pergunta anterior não são herdados."""
     return bool(_EVERYONE.search(_plain(message)))
 
 
 def year_phrases(message: str, today) -> list[str]:
-    """"no ano"/"este ano" → ano corrente; "ano passado" → o anterior."""
+    """ "no ano"/"este ano" → ano corrente; "ano passado" → o anterior."""
     text = _plain(message)
     if _LAST_YEAR.search(text):
         return [str(today.year - 1)]

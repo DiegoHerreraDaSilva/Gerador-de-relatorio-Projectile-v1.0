@@ -12,6 +12,7 @@ Layout: A4 retrato, logo extraída do próprio template `.xlsx`
 (`generator.TEMPLATE_PATH`, `xl/media/image2.png`) — fonte única da marca, sem
 duplicar um arquivo de logo à parte.
 """
+
 from __future__ import annotations
 
 import base64
@@ -76,9 +77,7 @@ def _group_display(group: GroupInput, language: str = "pt") -> tuple[list[str], 
     return descriptions, group_hours
 
 
-def _bruto_performance_cell(
-    bruto: float, performance: float, label_style: ParagraphStyle, value_style: ParagraphStyle, language: str = "pt"
-) -> Table:
+def _bruto_performance_cell(bruto: float, performance: float, label_style: ParagraphStyle, value_style: ParagraphStyle, language: str = "pt") -> Table:
     """Mini-tabela "Bruto | Performance" (cabeçalho pequeno + valores embaixo)
     — mesma informação, na mesma disposição, da caixa `.preview-side-box` do
     preview (ver `PreviewSheet.tsx`). Usada tanto por grupo quanto na linha de
@@ -115,18 +114,13 @@ def _signature_table(header: ReportHeader) -> Table:
     company_style = ParagraphStyle("sigCompany", fontName="Helvetica", fontSize=8, alignment=1, textColor=_TEXT_MUTED)
 
     def _box(name: str, company: str) -> list:
-        return [
-            Spacer(1, 10 * mm),
-            Paragraph(name or "&nbsp;", style),
-            Paragraph(company, company_style),
-        ]
+        return [Spacer(1, 10 * mm), Paragraph(name or "&nbsp;", style), Paragraph(company, company_style)]
 
     content_width = A4[0] - 2 * _MARGIN_H
     gap = 16 * mm
     box_width = (content_width - gap) / 2
     table = Table(
-        [[_box(header.signer1_name, header.signer1_company), "", _box(header.signer2_name, header.signer2_company)]],
-        colWidths=[box_width, gap, box_width],
+        [[_box(header.signer1_name, header.signer1_company), "", _box(header.signer2_name, header.signer2_company)]], colWidths=[box_width, gap, box_width]
     )
     table.setStyle(
         TableStyle(
@@ -147,9 +141,7 @@ def _signature_table(header: ReportHeader) -> Table:
     return table
 
 
-def _embed_report_metadata(
-    pdf_path: str, header: ReportHeader, total_hours: float, pacote_scope: str | None
-) -> None:
+def _embed_report_metadata(pdf_path: str, header: ReportHeader, total_hours: float, pacote_scope: str | None) -> None:
     """Reabre o PDF recém-escrito e grava um segundo passe só de metadata —
     mesmo espírito de `generator._hide_helper_column` (dado que não pode
     aparecer no documento em si, escrito depois do conteúdo visível já
@@ -199,17 +191,11 @@ def generate_report_pdf(
     title_style = ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=16, textColor=_ACCENT_DARK)
     info_style = ParagraphStyle("info", fontName="Helvetica", fontSize=9.5, leading=14, textColor=colors.black)
     info_bold_style = ParagraphStyle("infoBold", parent=info_style, fontName="Helvetica-Bold", fontSize=11)
-    group_title_style = ParagraphStyle(
-        "groupTitle", fontName="Helvetica-Bold", fontSize=10.5, textColor=colors.white, leading=14
-    )
+    group_title_style = ParagraphStyle("groupTitle", fontName="Helvetica-Bold", fontSize=10.5, textColor=colors.white, leading=14)
     activity_style = ParagraphStyle("activity", fontName="Helvetica", fontSize=9, leading=13, textColor=colors.black)
-    group_hours_style = ParagraphStyle(
-        "groupHours", fontName="Helvetica-Bold", fontSize=10, alignment=1, textColor=_ACCENT_DARK
-    )
+    group_hours_style = ParagraphStyle("groupHours", fontName="Helvetica-Bold", fontSize=10, alignment=1, textColor=_ACCENT_DARK)
     total_label_style = ParagraphStyle("totalLabel", fontName="Helvetica-Bold", fontSize=11, textColor=colors.white)
-    total_value_style = ParagraphStyle(
-        "totalValue", fontName="Helvetica-Bold", fontSize=13, alignment=2, textColor=colors.white
-    )
+    total_value_style = ParagraphStyle("totalValue", fontName="Helvetica-Bold", fontSize=13, alignment=2, textColor=colors.white)
     # Bruto/Performance (ver `_bruto_performance_cell`) — só usados quando
     # `include_performance=True`; mesmo espírito visual de `.preview-side-header`/
     # `.preview-side-values` do preview: rótulo pequeno e discreto, valor um
@@ -227,10 +213,7 @@ def generate_report_pdf(
     # logo original é 300x120px (razão 2.5:1, ver xl/media/image2.png no template)
     logo = Image(_load_logo_reader(), width=40 * mm, height=16 * mm)
     logo.hAlign = "LEFT"
-    header_table = Table(
-        [[logo, Paragraph(labels["title"], title_style)]],
-        colWidths=[45 * mm, (A4[0] - 2 * _MARGIN_H - 45 * mm)],
-    )
+    header_table = Table([[logo, Paragraph(labels["title"], title_style)]], colWidths=[45 * mm, (A4[0] - 2 * _MARGIN_H - 45 * mm)])
     header_table.setStyle(
         TableStyle(
             [
@@ -251,20 +234,14 @@ def generate_report_pdf(
     story.append(Spacer(1, 2 * mm))
     story.append(Paragraph(header.project_name, info_style))
     story.append(Paragraph(header.location_date, info_style))
-    story.append(Paragraph(
-        labels["subtitle"].format(month=_translate_month_label(header.month_label, language)), info_style
-    ))
+    story.append(Paragraph(labels["subtitle"].format(month=_translate_month_label(header.month_label, language)), info_style))
     story.append(Spacer(1, 8 * mm))
 
     grand_total = 0.0
     grand_bruto = 0.0
     content_width = A4[0] - 2 * _MARGIN_H
     last_col = 2 if include_performance else 1
-    col_widths = (
-        [content_width * 0.52, content_width * 0.20, content_width * 0.28]
-        if include_performance
-        else [content_width * 0.72, content_width * 0.28]
-    )
+    col_widths = [content_width * 0.52, content_width * 0.20, content_width * 0.28] if include_performance else [content_width * 0.72, content_width * 0.28]
     for group in groups:
         descriptions, group_hours = _group_display(group, language)
         grand_total += group_hours
@@ -287,7 +264,13 @@ def generate_report_pdf(
         # coluna extra entre a descrição e a hora mostra Bruto/Performance
         # (ver `_bruto_performance_cell`), mesma informação que
         # `generator.py` grava nas colunas E/F do `.xlsx`.
-        def _build_group_table(value_row_idx: int, span_value_col: bool):
+        # Os defaults vinculam os valores do laço na DEFINIÇÃO (bugbear B023):
+        # a função é chamada logo abaixo, ainda na mesma iteração, então o
+        # resultado é o mesmo — o binding só deixa explícito que não há
+        # closure escapando pro próximo grupo.
+        def _build_group_table(
+            value_row_idx: int, span_value_col: bool, group=group, descriptions=descriptions, bruto_total=bruto_total, group_hours=group_hours
+        ):
             # `value_row_idx` é o índice (em `descriptions`) da linha de
             # atividade que carrega a hora total do grupo (e o Bruto/
             # Performance, se `include_performance`) — normalmente a
@@ -300,7 +283,11 @@ def generate_report_pdf(
             for idx, desc in enumerate(descriptions):
                 row = [Paragraph(f"• {desc}", activity_style)]
                 if include_performance:
-                    row.append(_bruto_performance_cell(bruto_total, group.performance, bp_label_style_light, bp_value_style_light, language) if idx == value_row_idx else "")
+                    row.append(
+                        _bruto_performance_cell(bruto_total, group.performance, bp_label_style_light, bp_value_style_light, language)
+                        if idx == value_row_idx
+                        else ""
+                    )
                 row.append(Paragraph(_fmt_hours(group_hours), group_hours_style) if idx == value_row_idx else "")
                 data.append(row)
 
@@ -373,9 +360,7 @@ def generate_report_pdf(
             story.append(KeepTogether(group_table))
         story.append(Spacer(1, 5 * mm))
 
-    total_row_cells = [Paragraph(
-        labels["total_hours"].format(month=_translate_month_label(header.month_label, language)), total_label_style
-    )]
+    total_row_cells = [Paragraph(labels["total_hours"].format(month=_translate_month_label(header.month_label, language)), total_label_style)]
     if include_performance:
         total_performance = grand_total / grand_bruto if grand_bruto > 0 else 0.0
         total_row_cells.append(_bruto_performance_cell(grand_bruto, total_performance, bp_label_style, bp_value_style, language))

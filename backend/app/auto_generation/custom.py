@@ -15,11 +15,11 @@ Nada aqui grava: `collect`/`build_reports` só calculam; quem persiste é
 `service.create_custom` (e `service.preview_custom` devolve o mesmo cálculo
 sem gravar). Projectile sempre acessado como atributo do módulo
 (`projectile_db.fetch_*`), pro `monkeypatch` dos testes alcançar."""
+
 from __future__ import annotations
 
 import html
 import time
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -52,6 +52,7 @@ class InvalidScope(ValueError):
 class Block:
     """Um bloco já resolvido. `project_ids` = None quer dizer "todos os
     projetos" (só vale com colaborador)."""
+
     project_ids: set[str] | None
     packages: set[str]
     employee_ids: list[str]
@@ -106,10 +107,7 @@ def pacote_name(row: dict) -> str:
 
 def _engineering_employees(since: str) -> list[dict]:
     cached = _employees_cache["items"]
-    if (
-        cached is not None and _employees_cache["since"] == since
-        and time.time() - _employees_cache["at"] < _EMPLOYEES_TTL_SECONDS
-    ):
+    if cached is not None and _employees_cache["since"] == since and time.time() - _employees_cache["at"] < _EMPLOYEES_TTL_SECONDS:
         return cached
     items = projectile_db.fetch_engineering_employees(since, date.today().isoformat())
     _employees_cache.update(since=since, at=time.time(), items=items)
@@ -179,10 +177,18 @@ def resolve(scope: dict) -> Resolved:
         blocks.append(Block(project_ids, packages, employee_ids, clients))
 
     return Resolved(
-        start_competence=start, end_competence=end, start_date=start_date, end_date=end_date,
-        label=builder.period_label(start, end), blocks=blocks, split_by=split_by, package_unit=unit,
-        title=str(scope.get("title") or "").strip()[:200], config=clean_config(scope.get("config")),
-        employees=employees, warnings=warnings,
+        start_competence=start,
+        end_competence=end,
+        start_date=start_date,
+        end_date=end_date,
+        label=builder.period_label(start, end),
+        blocks=blocks,
+        split_by=split_by,
+        package_unit=unit,
+        title=str(scope.get("title") or "").strip()[:200],
+        config=clean_config(scope.get("config")),
+        employees=employees,
+        warnings=warnings,
     )
 
 
@@ -206,8 +212,14 @@ def clean_config(config: dict | None) -> dict:
 
 def _row_key(row: dict) -> tuple:
     return (
-        str(row.get("data")), str(row.get("project_id")), str(row.get("employee_id")), row.get("pacote"),
-        row.get("observacao"), float(row.get("horas") or 0), row.get("inicio"), row.get("fim"),
+        str(row.get("data")),
+        str(row.get("project_id")),
+        str(row.get("employee_id")),
+        row.get("pacote"),
+        row.get("observacao"),
+        float(row.get("horas") or 0),
+        row.get("inicio"),
+        row.get("fim"),
     )
 
 
@@ -221,11 +233,13 @@ def collect(resolved: Resolved) -> tuple[list[dict], list[str]]:
     warnings: list[str] = []
     repeated = 0
     for number, block in enumerate(resolved.blocks, start=1):
-        rows = projectile_db.fetch_custom_hours(
-            resolved.start_date, resolved.end_date,
-            sorted(block.project_ids) if block.project_ids is not None else None,
-            block.employee_ids or None,
-        ) if (block.project_ids is None or block.project_ids) else []
+        rows = (
+            projectile_db.fetch_custom_hours(
+                resolved.start_date, resolved.end_date, sorted(block.project_ids) if block.project_ids is not None else None, block.employee_ids or None
+            )
+            if (block.project_ids is None or block.project_ids)
+            else []
+        )
         if block.packages:
             rows = [r for r in rows if _norm(pacote_name(r)) in block.packages]
         if not rows:
@@ -234,7 +248,7 @@ def collect(resolved: Resolved) -> tuple[list[dict], list[str]]:
         for key, group in _group_by(rows, _row_key).items():
             have = merged.setdefault(key, [])
             if len(group) > len(have):
-                have.extend(group[len(have):])
+                have.extend(group[len(have) :])
             else:
                 repeated += len(group)
     if repeated:
@@ -314,8 +328,10 @@ def _title(resolved: Resolved, part: str | None, rows: list[dict], infos: dict[s
 # o que o relatório personalizado herda da configuração do PROJETO (a mesma dos
 # relatórios mensais, `auto_rules` por família): assinantes, arquivos e revisor
 _INHERITED = (
-    ("signer1_name", "assinante Schwaben"), ("signer1_company", "empresa Schwaben"),
-    ("signer2_name", "assinante do cliente"), ("signer2_company", "empresa do cliente"),
+    ("signer1_name", "assinante Schwaben"),
+    ("signer1_company", "empresa Schwaben"),
+    ("signer2_name", "assinante do cliente"),
+    ("signer2_company", "empresa do cliente"),
     ("formats", "arquivos"),
 )
 
@@ -331,33 +347,39 @@ def _reviewer_of(family_key: str, effective: dict, memories: dict[str, dict]) ->
     return None
 
 
-def _config_for(group: list[dict], infos: dict[str, dict], overrides: dict[str, str], global_config: dict,
-                family_rules: dict[str, dict], memories: dict[str, dict],
-                own: dict | None = None) -> tuple[dict, tuple[str, str] | None, list[str]]:
+def _config_for(
+    group: list[dict],
+    infos: dict[str, dict],
+    overrides: dict[str, str],
+    global_config: dict,
+    family_rules: dict[str, dict],
+    memories: dict[str, dict],
+    own: dict | None = None,
+) -> tuple[dict, tuple[str, str] | None, list[str]]:
     """Configuração de UM relatório: a do projeto (família) quando o relatório
     tem um projeto só — ou vários com a MESMA configuração; com projetos de
     configurações diferentes vale o padrão geral e o relatório leva um aviso."""
     own = own or {}
     default = {**rules.effective(global_config, None), **own}
-    keys = sorted({
-        overrides.get(pid) or families.family_key(infos[pid]["client"], infos[pid]["name"])
-        for pid in (str(r.get("project_id") or "") for r in group) if pid in infos
-    })
+    keys = sorted(
+        {
+            overrides.get(pid) or families.family_key(infos[pid]["client"], infos[pid]["name"])
+            for pid in (str(r.get("project_id") or "") for r in group)
+            if pid in infos
+        }
+    )
     if not keys:
         return default, None, []
     effective = {key: {**rules.effective(global_config, family_rules.get(key)), **own} for key in keys}
     reviewers = {key: _reviewer_of(key, effective[key], memories) for key in keys}
     first = keys[0]
     # o que o pedido define ele mesmo vale pra todos os projetos: não é diferença
-    differing = [label for field_name, label in _INHERITED
-                 if field_name not in own and len({repr(effective[k].get(field_name)) for k in keys}) > 1]
+    differing = [label for field_name, label in _INHERITED if field_name not in own and len({repr(effective[k].get(field_name)) for k in keys}) > 1]
     if len({reviewers[k] for k in keys}) > 1:
         differing.append("revisor")
     if not differing:
         return effective[first], reviewers[first], []
-    return default, None, [
-        f"os projetos deste relatório têm configurações diferentes ({', '.join(differing)}): valeu o padrão geral."
-    ]
+    return default, None, [f"os projetos deste relatório têm configurações diferentes ({', '.join(differing)}): valeu o padrão geral."]
 
 
 def build_reports(resolved: Resolved, rows: list[dict], global_config: dict, today: date) -> list[CustomReport]:
@@ -370,9 +392,7 @@ def build_reports(resolved: Resolved, rows: list[dict], global_config: dict, tod
     multi_month = resolved.start_competence != resolved.end_competence
     overrides = _family_overrides()
     family_rules = store.get_rules()
-    all_keys = sorted({
-        overrides.get(pid) or families.family_key(info["client"], info["name"]) for pid, info in infos.items()
-    })
+    all_keys = sorted({overrides.get(pid) or families.family_key(info["client"], info["name"]) for pid, info in infos.items()})
     memories = store.get_memories(all_keys) if all_keys else {}
 
     def project_key(row: dict) -> str:
@@ -403,9 +423,7 @@ def build_reports(resolved: Resolved, rows: list[dict], global_config: dict, tod
         groups = {"": rows}
         labels = {"": None}
     if len(groups) > MAX_REPORTS:
-        raise InvalidScope(
-            f"Esse recorte gera {len(groups)} relatórios; o máximo por geração é {MAX_REPORTS}. Reduza o recorte."
-        )
+        raise InvalidScope(f"Esse recorte gera {len(groups)} relatórios; o máximo por geração é {MAX_REPORTS}. Reduza o recorte.")
 
     reports: list[CustomReport] = []
     for key, group in groups.items():
@@ -413,9 +431,7 @@ def build_reports(resolved: Resolved, rows: list[dict], global_config: dict, tod
         # as linhas pela chave do projeto (família em vários meses)
         keyed = [{**r, "project_id": project_key(r)} for r in group]
         names = {project_key(r): project_label(r) for r in group}
-        config, reviewer, config_notes = _config_for(
-            group, infos, overrides, global_config, family_rules, memories, resolved.config,
-        )
+        config, reviewer, config_notes = _config_for(group, infos, overrides, global_config, family_rules, memories, resolved.config)
         draft = builder.build_custom_draft(keyed, names, resolved.label, resolved.package_unit, config, today)
         partial_keys = _partial_keys(resolved, group, keyed)
         for package in draft["packages"]:
@@ -423,18 +439,20 @@ def build_reports(resolved: Resolved, rows: list[dict], global_config: dict, tod
                 package["pacote_scope"] = PARTIAL_SCOPE
         clients = sorted({infos[str(r["project_id"])]["client"] for r in group if str(r.get("project_id")) in infos})
         part = labels[key]
-        reports.append(CustomReport(
-            key=str(key),
-            title=_title(resolved, part, group, infos)[:255],
-            client=(clients[0] if len(clients) == 1 else "Vários clientes" if clients else "")[:255],
-            hours=round(sum(float(r.get("horas") or 0) for r in group if float(r.get("horas") or 0) > 0), 2),
-            draft=draft,
-            partial=bool(partial_keys),
-            project_names=sorted({names[k] for k in names}),
-            reviewer_login=reviewer[0] if reviewer else None,
-            reviewer_name=reviewer[1] if reviewer else None,
-            notes=config_notes,
-        ))
+        reports.append(
+            CustomReport(
+                key=str(key),
+                title=_title(resolved, part, group, infos)[:255],
+                client=(clients[0] if len(clients) == 1 else "Vários clientes" if clients else "")[:255],
+                hours=round(sum(float(r.get("horas") or 0) for r in group if float(r.get("horas") or 0) > 0), 2),
+                draft=draft,
+                partial=bool(partial_keys),
+                project_names=sorted({names[k] for k in names}),
+                reviewer_login=reviewer[0] if reviewer else None,
+                reviewer_name=reviewer[1] if reviewer else None,
+                notes=config_notes,
+            )
+        )
     reports.sort(key=lambda r: r.title.casefold())
     return reports
 
@@ -444,7 +462,7 @@ def _partial_keys(resolved: Resolved, group: list[dict], keyed: list[dict]) -> s
     inteiro: alguma linha veio de um recorte com filtro de colaborador ou de
     pacote."""
     partial: set[str] = set()
-    for original, row in zip(group, keyed):
+    for original, row in zip(group, keyed, strict=False):
         pacote = pacote_name(original)
         key = row["project_id"] if resolved.package_unit == "projeto" else pacote
         if key in partial:
@@ -462,9 +480,14 @@ def summarize(resolved: Resolved, reports: list[CustomReport]) -> list[dict]:
     """O que a prévia mostra por relatório."""
     return [
         {
-            "key": r.key, "title": r.title, "client": r.client, "hours": r.hours,
-            "packages": len(r.draft["packages"]), "partial": r.partial,
-            "issues": len(r.draft.get("issues", [])), "projects": r.project_names,
+            "key": r.key,
+            "title": r.title,
+            "client": r.client,
+            "hours": r.hours,
+            "packages": len(r.draft["packages"]),
+            "partial": r.partial,
+            "issues": len(r.draft.get("issues", [])),
+            "projects": r.project_names,
         }
         for r in reports
     ]

@@ -5,6 +5,7 @@ disso continuar exatamente assim; se uma refatoração futura de
 `_build_groups_xml` mudar uma dessas formas sem querer, este teste E os de
 `test_email_ingest.py` devem falhar juntos — essa é a rede de segurança
 pedida para a próxima fase."""
+
 from __future__ import annotations
 
 import re
@@ -13,7 +14,7 @@ import pytest
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 
-from backend.app.generator import ActivityInput, GroupInput, HIDDEN_HELPER_COL
+from backend.app.generator import HIDDEN_HELPER_COL, ActivityInput, GroupInput
 
 from .helpers import make_report
 
@@ -24,27 +25,10 @@ SUM_RE = re.compile(r"^SUM\(.+\)$")
 @pytest.fixture
 def report_path(tmp_path):
     groups = [
-        GroupInput(
-            name="Grupo A",
-            performance=1.1,
-            activities=[
-                ActivityInput("Ativ 1", 10.0),
-                ActivityInput("Extra sem apontamento", None),
-            ],
-        ),
-        GroupInput(
-            name="Grupo B",
-            performance=0.9,
-            activities=[ActivityInput("Ativ 2", 8.0)],
-        ),
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0), ActivityInput("Extra sem apontamento", None)]),
+        GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
     ]
-    return make_report(
-        tmp_path,
-        project_code="1546.6.4",
-        project_name="Sangam - Cabina Bruta",
-        month_label="Julho/2026",
-        groups=groups,
-    )
+    return make_report(tmp_path, project_code="1546.6.4", project_name="Sangam - Cabina Bruta", month_label="Julho/2026", groups=groups)
 
 
 def _find_total_label_cell(ws):
@@ -99,14 +83,10 @@ def test_group_subtotal_cells_are_simple_references_to_literal_products(report_p
         subtotal_cell = ws[ref]
         assert isinstance(subtotal_cell.value, str) and subtotal_cell.value.startswith("=")
         subtotal_formula = subtotal_cell.value[1:]
-        assert SIMPLE_REF_RE.match(subtotal_formula), (
-            f"Fórmula de subtotal do grupo não é referência simples (^[A-Z]+\\d+$): {subtotal_formula!r}"
-        )
+        assert SIMPLE_REF_RE.match(subtotal_formula), f"Fórmula de subtotal do grupo não é referência simples (^[A-Z]+\\d+$): {subtotal_formula!r}"
 
         product_cell = ws[subtotal_formula]
-        assert isinstance(product_cell.value, (int, float)), (
-            f"Célula referenciada deveria ser um número literal, veio {product_cell.value!r}"
-        )
+        assert isinstance(product_cell.value, (int, float)), f"Célula referenciada deveria ser um número literal, veio {product_cell.value!r}"
         assert any(abs(product_cell.value - expected) < 1e-6 for expected in expected_products)
 
         # coluna F (Performance) da linha de atividade (mesma linha do

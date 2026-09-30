@@ -10,6 +10,7 @@ Usa tool use forçado (`tool_choice`) em vez de pedir JSON solto em texto: o
 schema da tool já é o formato esperado, então a resposta chega estruturada e
 validável, sem parsing frágil de texto livre.
 """
+
 from __future__ import annotations
 
 import os
@@ -27,7 +28,7 @@ truststore.inject_into_ssl()
 
 from anthropic import Anthropic
 
-from .chat_ops import TOOL_NAME, TOOL_SCHEMA, SYSTEM_PROMPT
+from .chat_ops import SYSTEM_PROMPT, TOOL_NAME, TOOL_SCHEMA
 from .translate_ops import TRANSLATE_TOOL_NAME, TRANSLATE_TOOL_SCHEMA, translate_system_prompt
 
 
@@ -50,8 +51,7 @@ def _get_client() -> Anthropic:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise ChatConfigError(
-                "ANTHROPIC_API_KEY não configurada. Crie um arquivo .env na raiz do "
-                "projeto (veja .env.example) com sua chave da API da Anthropic."
+                "ANTHROPIC_API_KEY não configurada. Crie um arquivo .env na raiz do projeto (veja .env.example) com sua chave da API da Anthropic."
             )
         _client = Anthropic(api_key=api_key)
     return _client
@@ -97,13 +97,7 @@ def call_chat(message: str, state: dict, history: list[dict] | None = None) -> t
             # estruturadas) e mantém a resposta rápida/barata — suba pra "medium"/"high"
             # se a IA começar a errar referências de grupo/atividade com frequência
             output_config={"effort": "low"},
-            messages=[
-                *history_messages,
-                {
-                    "role": "user",
-                    "content": f"Estado atual:\n{state}\n\nPedido do usuário: {message}",
-                },
-            ],
+            messages=[*history_messages, {"role": "user", "content": f"Estado atual:\n{state}\n\nPedido do usuário: {message}"}],
         )
     except Exception as e:
         raise ChatUpstreamError(f"Falha ao chamar a API da Anthropic: {e}") from e

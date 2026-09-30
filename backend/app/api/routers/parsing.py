@@ -1,5 +1,6 @@
 """Rotas de importação de horas (`/parse`, `/parse-db`, `/parse-db-client`)
 — extraído de `main.py`."""
+
 from __future__ import annotations
 
 import os
@@ -11,11 +12,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from ...parser import parse_projectile_export
-from ...projectile_db import ProjectileDbError, fetch_employee_hours, fetch_project_details, fetch_project_hours
-from ...projectile_db import group_hours, group_hours_by_project
+from ...projectile_db import ProjectileDbError, fetch_employee_hours, fetch_project_details, fetch_project_hours, group_hours, group_hours_by_project
+from .. import period_access
 from ..dependencies import require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
-from .. import period_access
 from ..shared import build_parse_response, resolve_month_range
 
 router = APIRouter()
@@ -77,11 +77,7 @@ def _reject_if_oversized_uncompressed(tmp_path: str) -> None:
 
 
 @router.post("/parse")
-async def parse_endpoint(
-    file: UploadFile = File(...),
-    mode: Literal["single", "multi"] = Form("single"),
-    _user: dict = Depends(require_session),
-):
+async def parse_endpoint(file: UploadFile = File(...), mode: Literal["single", "multi"] = Form("single"), _user: dict = Depends(require_session)):
     tmp_path = await _stream_upload_to_tempfile(file, _MAX_UPLOAD_BYTES)
     try:
         _reject_if_oversized_uncompressed(tmp_path)
@@ -114,17 +110,13 @@ async def parse_db_endpoint(payload: ParseDbRequest, _user: dict = Depends(requi
     period_access.check_range(_user, start_date, end_date)
 
     try:
-        rows = fetch_employee_hours(
-            start_date, end_date, employee_id=_user.get("employee_id"), employee_name=employee_name
-        )
+        rows = fetch_employee_hours(start_date, end_date, employee_id=_user.get("employee_id"), employee_name=employee_name)
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
 
     if not rows:
         raise HTTPException(
-            404,
-            f'Nenhum lançamento encontrado pro nome "{employee_name}" em {payload.month_label}. '
-            "Confira o nome (a busca é parcial) e o mês.",
+            404, f'Nenhum lançamento encontrado pro nome "{employee_name}" em {payload.month_label}. Confira o nome (a busca é parcial) e o mês.'
         )
 
     packages, issues = group_hours(rows, split_by_package=(payload.mode == "multi"))

@@ -31,6 +31,7 @@ relatório chega nos dois formatos na mesma mensagem (transição pro novo
 formato, ou envio duplicado por hábito), só UM é processado — ver
 `fetch_report_attachments` — pra não somar a mesma hora faturada duas vezes.
 """
+
 from __future__ import annotations
 
 import base64
@@ -42,7 +43,8 @@ import os
 import re
 import tempfile
 import zipfile
-from datetime import date, datetime, timedelta, timezone
+from contextlib import suppress
+from datetime import UTC, date, datetime, timedelta
 
 import msal
 import requests
@@ -50,7 +52,7 @@ from openpyxl import load_workbook
 from pypdf import PdfReader
 
 from . import management
-from .generator import parse_month_label, parse_period_label, count_business_days, HIDDEN_HELPER_COL
+from .generator import HIDDEN_HELPER_COL, count_business_days, parse_month_label, parse_period_label
 from .pdf_generator import PDF_METADATA_KEY
 from .projectile_db import ProjectileDbError, fetch_all_projects
 from .services.management_store import ManagementStoreError
@@ -69,10 +71,7 @@ class EmailIngestError(RuntimeError):
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        raise EmailIngestError(
-            f"Configuração ausente para a automação de e-mail: defina {name} no .env "
-            "(veja .env.example)."
-        )
+        raise EmailIngestError(f"Configuração ausente para a automação de e-mail: defina {name} no .env (veja .env.example).")
     return value
 
 
@@ -90,11 +89,7 @@ def _get_msal_app() -> msal.ConfidentialClientApplication:
         tenant_id = _require_env("AZURE_TENANT_ID")
         client_id = _require_env("AZURE_CLIENT_ID")
         client_secret = _require_env("AZURE_CLIENT_SECRET")
-        _msal_app = msal.ConfidentialClientApplication(
-            client_id,
-            authority=f"https://login.microsoftonline.com/{tenant_id}",
-            client_credential=client_secret,
-        )
+        _msal_app = msal.ConfidentialClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant_id}", client_credential=client_secret)
     return _msal_app
 
 
@@ -104,9 +99,7 @@ def _get_graph_token() -> str:
     if not result:
         result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
     if "access_token" not in result:
-        raise EmailIngestError(
-            f"Falha ao autenticar no Microsoft Graph: {result.get('error_description') or result}"
-        )
+        raise EmailIngestError(f"Falha ao autenticar no Microsoft Graph: {result.get('error_description') or result}")
     return result["access_token"]
 
 
@@ -116,9 +109,7 @@ def _graph_get(url: str, params: dict | None = None) -> dict:
     real, e centraliza o tratamento de erro."""
     token = _get_graph_token()
     try:
-        resp = requests.get(
-            url, params=params, headers={"Authorization": f"Bearer {token}"}, timeout=30
-        )
+        resp = requests.get(url, params=params, headers={"Authorization": f"Bearer {token}"}, timeout=30)
         resp.raise_for_status()
         return resp.json()
     except (requests.RequestException, ValueError) as e:
@@ -133,9 +124,7 @@ def _graph_post(url: str, json_body: dict) -> None:
     resposta relevante (ex: `sendMail`, que devolve 202 vazio em sucesso)."""
     token = _get_graph_token()
     try:
-        resp = requests.post(
-            url, json=json_body, headers={"Authorization": f"Bearer {token}"}, timeout=30
-        )
+        resp = requests.post(url, json=json_body, headers={"Authorization": f"Bearer {token}"}, timeout=30)
         resp.raise_for_status()
     except requests.RequestException as e:
         # o corpo da resposta de erro do Graph costuma ter o motivo real
@@ -195,10 +184,7 @@ def fetch_new_messages() -> list[dict]:
     mailbox = _require_env("GRAPH_MAILBOX")
     senders = _parse_sender_emails(_require_env("ALBERTO_EMAIL"))
     if not senders:
-        raise EmailIngestError(
-            "ALBERTO_EMAIL está definida mas não contém nenhum e-mail válido "
-            "(veja .env.example)."
-        )
+        raise EmailIngestError("ALBERTO_EMAIL está definida mas não contém nenhum e-mail válido (veja .env.example).")
     url = f"{GRAPH_BASE}/users/{mailbox}/messages"
     params = {
         "$filter": f"{_build_sender_filter(senders)} and hasAttachments eq true",
@@ -292,9 +278,7 @@ def fetch_report_attachments(message_id: str) -> tuple[list[str], list[str]]:
                     with zipfile.ZipFile(tmp_path) as zf:
                         total_uncompressed = sum(info.file_size for info in zf.infolist())
                     if total_uncompressed > _MAX_UNCOMPRESSED_ATTACHMENT_BYTES:
-                        skip_reasons.append(
-                            f"anexo '{name}' excede o limite de tamanho descomprimido (200 MB)"
-                        )
+                        skip_reasons.append(f"anexo '{name}' excede o limite de tamanho descomprimido (200 MB)")
                         os.remove(tmp_path)
                         continue
                 except zipfile.BadZipFile:
@@ -303,10 +287,8 @@ def fetch_report_attachments(message_id: str) -> tuple[list[str], list[str]]:
             downloaded.append((tmp_path, name))
         except Exception as e:
             if tmp_path is not None:
-                try:
+                with suppress(OSError):
                     os.remove(tmp_path)
-                except OSError:
-                    pass
             skip_reasons.append(f"falha ao baixar anexo '{name}': {e}")
 
     return _dedupe_by_stem(downloaded), skip_reasons
@@ -329,16 +311,12 @@ def _dedupe_by_stem(downloaded: list[tuple[str, str]]) -> list[str]:
         existing_path, existing_name = existing
         existing_ext = os.path.splitext(existing_name)[1].lower()
         if _EXT_PRIORITY.get(ext, 99) < _EXT_PRIORITY.get(existing_ext, 99):
-            try:
+            with suppress(OSError):
                 os.remove(existing_path)
-            except OSError:
-                pass
             by_stem[stem] = (path, name)
         else:
-            try:
+            with suppress(OSError):
                 os.remove(path)
-            except OSError:
-                pass
 
     return [path for path, _ in by_stem.values()]
 
@@ -371,9 +349,7 @@ def _resolve_cell(ws, ref: str, seen: set[str], depth: int = 0) -> float:
 
     product_match = re.fullmatch(r"([A-Z]+\d+)\*([A-Z]+\d+)", formula)
     if product_match:
-        return _resolve_cell(ws, product_match.group(1), seen, depth + 1) * _resolve_cell(
-            ws, product_match.group(2), seen, depth + 1
-        )
+        return _resolve_cell(ws, product_match.group(1), seen, depth + 1) * _resolve_cell(ws, product_match.group(2), seen, depth + 1)
 
     if _CELL_REF_RE.fullmatch(formula):
         return _resolve_cell(ws, formula, seen, depth + 1)
@@ -465,7 +441,7 @@ _PDF_TEXT_TITLE_RE = re.compile(r"relat[oó]rio de horas|hours report|stundenber
 
 
 def _parse_pt_br_hours(text: str) -> float:
-    """"13,48 h" / "282,54" → 13.48 / 282.54 — mesma tolerância a vírgula
+    """ "13,48 h" / "282,54" → 13.48 / 282.54 — mesma tolerância a vírgula
     decimal de `parser._parse_hs_value`, mas plugado num regex porque aqui o
     texto sempre vem com o sufixo " h" (`_fmt_hours`) junto."""
     match = re.match(r"^([\d.,]+)", text.strip())
@@ -494,12 +470,7 @@ def _read_pdf_report_data_from_text(reader: PdfReader) -> dict:
     planilha (`HIDDEN_HELPER_COL`), que o Excel não inclui na impressão —
     trata sempre como "projeto inteiro" (`None`), mesmo default de quando a
     marca está ausente no `.xlsx`."""
-    lines = [
-        line.strip()
-        for page in reader.pages
-        for line in (page.extract_text() or "").split("\n")
-        if line.strip()
-    ]
+    lines = [line.strip() for page in reader.pages for line in (page.extract_text() or "").split("\n") if line.strip()]
 
     month_label = None
     total_hours = None
@@ -508,7 +479,7 @@ def _read_pdf_report_data_from_text(reader: PdfReader) -> dict:
         if not match:
             continue
         month_label = match.group(1).strip()
-        rest_of_line = line[match.end():].strip()
+        rest_of_line = line[match.end() :].strip()
         try:
             # tenta o resto da PRÓPRIA linha primeiro (caso real: valor
             # grudado depois dos dois-pontos); só olha a linha seguinte se
@@ -626,16 +597,12 @@ def _sender_failed_dmarc(msg: dict) -> bool:
     sempre está presente nesse cenário comum."""
     for header in msg.get("internetMessageHeaders") or []:
         name = (header.get("name") or "").strip().lower()
-        if name == "authentication-results":
-            if "dmarc=fail" in (header.get("value") or "").lower():
-                return True
+        if name == "authentication-results" and "dmarc=fail" in (header.get("value") or "").lower():
+            return True
     return False
 
 
-_ATTACHMENT_CONTENT_TYPES = {
-    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "pdf": "application/pdf",
-}
+_ATTACHMENT_CONTENT_TYPES = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "pdf": "application/pdf"}
 
 # Assinatura fixa anexada a todo e-mail enviado por `send_report_email` —
 # imagens embutidas como anexo INLINE (`cid:`), não como <img src="https://...">
@@ -648,9 +615,7 @@ _ATTACHMENT_CONTENT_TYPES = {
 # imagens que o Vite copia pro build do site, mas aqui é o BACKEND lendo o
 # arquivo do disco puro, sem precisar que o frontend tenha sido buildado.
 _SIGNATURE_LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "email-logo.jpg")
-_SIGNATURE_ISO_BADGE_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "frontend", "public", "ícone para assinatura de e-mail.jpg"
-)
+_SIGNATURE_ISO_BADGE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "ícone para assinatura de e-mail.jpg")
 _SIGNATURE_LOGO_CID = "schwaben-email-logo"
 _SIGNATURE_ISO_BADGE_CID = "schwaben-iso-badge"
 
@@ -692,34 +657,28 @@ def _load_signature_inline_attachments() -> list[dict]:
     assinatura — lidos do disco a cada envio (não vale a pena cachear em
     memória: são poucos KB, e um deploy pode trocar a imagem sem reiniciar
     o processo só pra pegar o arquivo novo)."""
-    inline_images = [
-        (_SIGNATURE_LOGO_CID, _SIGNATURE_LOGO_PATH),
-        (_SIGNATURE_ISO_BADGE_CID, _SIGNATURE_ISO_BADGE_PATH),
-    ]
+    inline_images = [(_SIGNATURE_LOGO_CID, _SIGNATURE_LOGO_PATH), (_SIGNATURE_ISO_BADGE_CID, _SIGNATURE_ISO_BADGE_PATH)]
     attachments = []
     for content_id, path in inline_images:
         if not os.path.isfile(path):
             continue
         with open(path, "rb") as f:
             content = f.read()
-        attachments.append({
-            "@odata.type": "#microsoft.graph.fileAttachment",
-            "name": os.path.basename(path),
-            "contentType": "image/jpeg",
-            "contentBytes": base64.b64encode(content).decode("ascii"),
-            "contentId": content_id,
-            "isInline": True,
-        })
+        attachments.append(
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": os.path.basename(path),
+                "contentType": "image/jpeg",
+                "contentBytes": base64.b64encode(content).decode("ascii"),
+                "contentId": content_id,
+                "isInline": True,
+            }
+        )
     return attachments
 
 
 def send_report_email(
-    sender_email: str,
-    to_email: str | list[str],
-    subject: str,
-    body_text: str,
-    attachments: list[tuple[str, bytes]],
-    cc_emails: list[str] | None = None,
+    sender_email: str, to_email: str | list[str], subject: str, body_text: str, attachments: list[tuple[str, bytes]], cc_emails: list[str] | None = None
 ) -> None:
     """Envia relatório(s) por e-mail via Microsoft Graph, "como" o usuário
     logado (`sender_email` — vem da sessão, `auser.rEmail`, nunca digitado
@@ -750,9 +709,7 @@ def send_report_email(
         {
             "@odata.type": "#microsoft.graph.fileAttachment",
             "name": name,
-            "contentType": _ATTACHMENT_CONTENT_TYPES.get(
-                name.rsplit(".", 1)[-1].lower(), "application/octet-stream"
-            ),
+            "contentType": _ATTACHMENT_CONTENT_TYPES.get(name.rsplit(".", 1)[-1].lower(), "application/octet-stream"),
             "contentBytes": base64.b64encode(content).decode("ascii"),
         }
         for name, content in attachments
@@ -770,9 +727,7 @@ def send_report_email(
     _graph_post(url, body)
 
 
-def _kpi_samples_for_period(
-    base_sample: dict, start: tuple[int, int], end: tuple[int, int], total_billed_hours: float
-) -> list[dict]:
+def _kpi_samples_for_period(base_sample: dict, start: tuple[int, int], end: tuple[int, int], total_billed_hours: float) -> list[dict]:
     """Divide `total_billed_hours` IGUALMENTE entre cada mês do intervalo
     `start`..`end` (inclusive, ambos `(ano, mês)`) e devolve 1 amostra de KPI
     por mês, cada uma com `month`/`billed_hours` próprios e o resto dos
@@ -820,12 +775,10 @@ def process_new_emails() -> dict:
         try:
             sent_at = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
         except ValueError:
-            sent_at = datetime.now(timezone.utc)
+            sent_at = datetime.now(UTC)
 
         if _sender_failed_dmarc(msg):
-            management.append_skipped_message(
-                message_id, received_at, "Falha na verificação DMARC do remetente — possível spoofing"
-            )
+            management.append_skipped_message(message_id, received_at, "Falha na verificação DMARC do remetente — possível spoofing")
             summary["skipped"] += 1
             continue
 
@@ -911,10 +864,8 @@ def process_new_emails() -> dict:
                         attachment_errors.append(f"Anexo inválido ou corrompido: {e}")
             finally:
                 for path in attachments:
-                    try:
+                    with suppress(OSError):
                         os.remove(path)
-                    except OSError:
-                        pass
 
             if attachment_errors:
                 management.append_skipped_message(message_id, received_at, "; ".join(attachment_errors))

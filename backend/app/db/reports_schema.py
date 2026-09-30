@@ -18,6 +18,7 @@ Sem tabela `report_packages`: no payload real de `/generate`
 e independente (tem seu próprio header/signers), não uma coleção dentro de
 um relatório maior — `report_groups.report_version_id` referencia
 `report_versions.id` direto."""
+
 from __future__ import annotations
 
 from sqlalchemy import (
@@ -51,6 +52,7 @@ def _exact_string(length: int):
     caixa colidiriam como a mesma chave. `with_variant` mantém o tipo
     neutro em outros dialetos (SQLite dos testes não conhece esse collation)."""
     return String(length).with_variant(String(length, collation="utf8mb4_bin"), "mysql")
+
 
 reports = Table(
     "reports",
@@ -215,7 +217,7 @@ audit_log = Table(
 # manuais do gerente, amostras corrigidas à mão): não há fail-open, ver
 # services/management_store.py. Horas/dias em DOUBLE (não DECIMAL) pra
 # reproduzir exatamente o float que o JSON guardava.
-_MYSQL_TABLE_OPTS = dict(mysql_engine="InnoDB", mysql_charset="utf8mb4", mysql_collate="utf8mb4_unicode_ci")
+_MYSQL_TABLE_OPTS = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"}
 
 mgmt_manual_entries = Table(
     "mgmt_manual_entries",
@@ -279,19 +281,9 @@ mgmt_skipped_messages = Table(
     **_MYSQL_TABLE_OPTS,
 )
 
-mgmt_closed_clients = Table(
-    "mgmt_closed_clients",
-    metadata,
-    Column("client", _exact_string(255), primary_key=True),
-    **_MYSQL_TABLE_OPTS,
-)
+mgmt_closed_clients = Table("mgmt_closed_clients", metadata, Column("client", _exact_string(255), primary_key=True), **_MYSQL_TABLE_OPTS)
 
-mgmt_closed_projects = Table(
-    "mgmt_closed_projects",
-    metadata,
-    Column("project_id", _exact_string(100), primary_key=True),
-    **_MYSQL_TABLE_OPTS,
-)
+mgmt_closed_projects = Table("mgmt_closed_projects", metadata, Column("project_id", _exact_string(100), primary_key=True), **_MYSQL_TABLE_OPTS)
 
 # Linha única usada como mutex (`SELECT ... FOR UPDATE`) pra toda escrita
 # que precisa ler TODAS as amostras antes de gravar (recalcular flags de

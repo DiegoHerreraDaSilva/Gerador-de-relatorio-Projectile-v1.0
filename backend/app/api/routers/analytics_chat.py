@@ -1,10 +1,10 @@
 """`POST /analytics/chat` — chat analítico (só gerente). Separado do
 `/chat` de edição do relatório: este lê histórico e horas, nunca mexe no
 relatório aberto. Fluxo em `analytics/service.py`."""
+
 from __future__ import annotations
 
 import asyncio
-
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends
@@ -41,7 +41,5 @@ async def analytics_chat_export_endpoint(payload: ExportRequest, _user: dict = D
     content = await asyncio.to_thread(export.build_xlsx, payload)
     filename = export.filename_for(payload.title)
     return Response(
-        content,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"},
+        content, media_type=XLSX_MEDIA_TYPE, headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"}
     )

@@ -1,5 +1,6 @@
 """Rotas de geração e envio de relatório (`/generate`, `/send-report`) —
 extraído de `main.py`."""
+
 from __future__ import annotations
 
 import os
@@ -16,24 +17,14 @@ from starlette.background import BackgroundTask
 
 from ... import email_ingest
 from ...generator import NonFiniteValueError
-from ...services.report_files import (  # noqa: F401 — modelos re-exportados (contrato da rota)
-    FORMAT_MEDIA_TYPES as _FORMAT_MEDIA_TYPES,
-    ActivityPayload,
-    GeneratePayload,
-    GroupPayload,
-    HeaderPayload,
-    ReportPackagePayload,
-)
+from ...services.report_files import FORMAT_MEDIA_TYPES as _FORMAT_MEDIA_TYPES  # noqa: F401 — modelos re-exportados (contrato da rota)
+from ...services.report_files import GeneratePayload, ReportPackagePayload
 from ...services.report_files import build_report_file as _build_report
 from ...services.report_files import dedupe_name as _dedupe_name
 from ...services.report_files import persistence_headers as _persistence_headers
 from ...services.report_files import persistence_pkg_data as _persistence_pkg_data
 from ...services.report_files import sanitized_file_name as _sanitized_file_name
-from ...services.report_persistence import (
-    GenerationGuard,
-    finish_generation_failure,
-    finish_generation_success,
-)
+from ...services.report_persistence import GenerationGuard, finish_generation_failure, finish_generation_success
 from ..dependencies import require_session
 from ..errors import GENERIC_EMAIL_ERROR, log_and_generic_error
 
@@ -56,9 +47,7 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
         # persistência estiver desligada ou falhar (ver GenerationGuard/
         # begin_generation) — a geração do arquivo nunca fica bloqueada por
         # causa disso.
-        handle = GenerationGuard().begin(
-            _persistence_pkg_data(payload.packages[0]), fmt, _user["login"], _user["name"]
-        )
+        handle = GenerationGuard().begin(_persistence_pkg_data(payload.packages[0]), fmt, _user["login"], _user["name"])
         try:
             header = _build_report(payload.packages[0], output_path, fmt)
         except NonFiniteValueError as e:
@@ -125,11 +114,7 @@ async def generate_endpoint(payload: GeneratePayload, _user: dict = Depends(requ
 
     headers = {"X-Report-Ids": ",".join(persisted_ids)} if persisted_ids else {}
     return FileResponse(
-        zip_path,
-        filename="Relatórios_Horas.zip",
-        media_type="application/zip",
-        background=BackgroundTask(os.remove, zip_path),
-        headers=headers,
+        zip_path, filename="Relatórios_Horas.zip", media_type="application/zip", background=BackgroundTask(os.remove, zip_path), headers=headers
     )
 
 
@@ -158,10 +143,7 @@ async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends
     em `pdf_generator.py` em vez de célula/fórmula)."""
     sender_email = (_user.get("email") or "").strip()
     if not sender_email:
-        raise HTTPException(
-            400,
-            "Seu usuário não tem e-mail cadastrado no Projectile — não é possível enviar o relatório.",
-        )
+        raise HTTPException(400, "Seu usuário não tem e-mail cadastrado no Projectile — não é possível enviar o relatório.")
     if not _EMAIL_RE.match(payload.to.strip()):
         raise HTTPException(400, "E-mail do destinatário inválido.")
 
@@ -177,10 +159,7 @@ async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends
                 # Mesma persistência fail-open de /generate — um relatório
                 # mandado por e-mail é tão real quanto um baixado, então
                 # entra no mesmo histórico (ver plano de implementação).
-                handle = guard.begin(
-                    _persistence_pkg_data(pkg_payload), fmt, _user["login"], _user["name"],
-                    created_from="send_report_endpoint",
-                )
+                handle = guard.begin(_persistence_pkg_data(pkg_payload), fmt, _user["login"], _user["name"], created_from="send_report_endpoint")
                 try:
                     header = _build_report(pkg_payload, output_path, fmt)
                 except Exception as e:
@@ -196,11 +175,7 @@ async def send_report_endpoint(payload: SendReportPayload, _user: dict = Depends
                     attachments.append((final_name, f.read()))
 
         email_ingest.send_report_email(
-            sender_email=sender_email,
-            to_email=payload.to.strip(),
-            subject=payload.subject,
-            body_text=payload.message,
-            attachments=attachments,
+            sender_email=sender_email, to_email=payload.to.strip(), subject=payload.subject, body_text=payload.message, attachments=attachments
         )
     except NonFiniteValueError as e:
         raise HTTPException(400, str(e))

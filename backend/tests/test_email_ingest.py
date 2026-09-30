@@ -10,9 +10,10 @@ não um mock da estrutura do arquivo. Os casos negativos (fórmula não
 reconhecida, label ausente) usam `openpyxl.Workbook()` manual, porque
 precisam representar exatamente uma forma que o `generator` NUNCA produz.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from openpyxl import Workbook
@@ -36,10 +37,10 @@ from backend.app.generator import ActivityInput, GroupInput
 
 from .helpers import make_report, make_report_pdf
 
-
 # ---------------------------------------------------------------------------
 # resolve_total_hours — caminho feliz
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_total_hours_single_group_single_activity(tmp_path):
     groups = [GroupInput(name="Grupo Único", performance=1.0, activities=[ActivityInput("Única Ativ", 7.5)])]
@@ -53,16 +54,8 @@ def test_resolve_total_hours_single_group_single_activity(tmp_path):
 
 def test_resolve_total_hours_multiple_groups_different_performance(tmp_path):
     groups = [
-        GroupInput(
-            name="Grupo A",
-            performance=1.1,
-            activities=[ActivityInput("Ativ 1", 10.0), ActivityInput("Ativ 2", 5.0)],
-        ),
-        GroupInput(
-            name="Grupo B",
-            performance=0.9,
-            activities=[ActivityInput("Ativ 3", 8.0)],
-        ),
+        GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0), ActivityInput("Ativ 2", 5.0)]),
+        GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 3", 8.0)]),
     ]
     path = make_report(tmp_path, month_label="Julho/2026", groups=groups)
 
@@ -115,11 +108,7 @@ def test_resolve_total_hours_mixed_real_and_extra_activities(tmp_path):
         GroupInput(
             name="Grupo Misto",
             performance=1.0,
-            activities=[
-                ActivityInput("Ativ Real 1", 6.0),
-                ActivityInput("Extra sem apontamento", None),
-                ActivityInput("Ativ Real 2", 2.0),
-            ],
+            activities=[ActivityInput("Ativ Real 1", 6.0), ActivityInput("Extra sem apontamento", None), ActivityInput("Ativ Real 2", 2.0)],
         )
     ]
     path = make_report(tmp_path, month_label="Outubro/2026", groups=groups)
@@ -133,6 +122,7 @@ def test_resolve_total_hours_mixed_real_and_extra_activities(tmp_path):
 # ---------------------------------------------------------------------------
 # resolve_total_hours — caminhos negativos
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_total_hours_raises_when_label_missing(tmp_path):
     wb = Workbook()
@@ -169,14 +159,10 @@ def test_resolve_total_hours_raises_on_unrecognized_formula_shape(tmp_path, form
 # read_project_identity
 # ---------------------------------------------------------------------------
 
+
 def test_read_project_identity_matches_header_written_by_generator(tmp_path):
     groups = [GroupInput(name="Grupo", performance=1.0, activities=[ActivityInput("Ativ", 1.0)])]
-    path = make_report(
-        tmp_path,
-        project_code="1546.6.4",
-        project_name="Sangam - Cabina Bruta",
-        groups=groups,
-    )
+    path = make_report(tmp_path, project_code="1546.6.4", project_name="Sangam - Cabina Bruta", groups=groups)
 
     project_code, project_name = read_project_identity(path)
 
@@ -187,6 +173,7 @@ def test_read_project_identity_matches_header_written_by_generator(tmp_path):
 # ---------------------------------------------------------------------------
 # read_pacote_scope
 # ---------------------------------------------------------------------------
+
 
 def test_read_pacote_scope_none_by_default(tmp_path):
     """Sem `pacote_scope` na geração, o relatório cobre o projeto inteiro —
@@ -211,18 +198,13 @@ def test_read_pacote_scope_matches_marker_written_by_generator(tmp_path):
 # .pdf carrega tudo isso como metadado, ver pdf_generator._embed_report_metadata)
 # ---------------------------------------------------------------------------
 
+
 def test_read_pdf_report_data_matches_metadata_written_by_generator(tmp_path):
     groups = [
         GroupInput(name="Grupo A", performance=1.1, activities=[ActivityInput("Ativ 1", 10.0)]),
         GroupInput(name="Grupo B", performance=0.9, activities=[ActivityInput("Ativ 2", 8.0)]),
     ]
-    pdf_path = make_report_pdf(
-        tmp_path,
-        project_code="1546.6.4",
-        project_name="Sangam - Cabina Bruta",
-        month_label="Julho/2026",
-        groups=groups,
-    )
+    pdf_path = make_report_pdf(tmp_path, project_code="1546.6.4", project_name="Sangam - Cabina Bruta", month_label="Julho/2026", groups=groups)
 
     data = read_pdf_report_data(pdf_path)
 
@@ -282,15 +264,18 @@ def test_read_pdf_report_data_from_text_matches_real_excel_export(tmp_path):
     em title case ("Relatório de Horas"), não "RELATÓRIO DE HORAS" — daí
     `_PDF_TEXT_TITLE_RE` ser case-insensitive."""
     path = str(tmp_path / "excel_export_real.pdf")
-    _write_excel_exported_pdf(path, [
-        "Relatório de Horas",
-        "SE.26.059 - 1/3 Santo André, 11.09.2026",
-        "Cabina Legislation Package",
-        "Relatório de horas referentes ao mês de Agosto/2026",
-        "Descritivo de Atividades Horas",
-        "Ativ 1",
-        "Total de horas Agosto/2026: 127,45",
-    ])
+    _write_excel_exported_pdf(
+        path,
+        [
+            "Relatório de Horas",
+            "SE.26.059 - 1/3 Santo André, 11.09.2026",
+            "Cabina Legislation Package",
+            "Relatório de horas referentes ao mês de Agosto/2026",
+            "Descritivo de Atividades Horas",
+            "Ativ 1",
+            "Total de horas Agosto/2026: 127,45",
+        ],
+    )
 
     data = read_pdf_report_data(path)
 
@@ -306,13 +291,7 @@ def test_read_pdf_report_data_from_text_handles_value_on_separate_line_and_engli
     nesse fallback) e o rótulo em inglês (relatório gerado com
     language="en", ver _PDF_TEXT_TOTAL_HOURS_RE aceitando "Total hours")."""
     path = str(tmp_path / "excel_export_en.pdf")
-    _write_excel_exported_pdf(path, [
-        "Hours Report",
-        "1471.3.1-002",
-        "TCI_Infraestrutura",
-        "Total hours August/2026:",
-        "282,54 h",
-    ])
+    _write_excel_exported_pdf(path, ["Hours Report", "1471.3.1-002", "TCI_Infraestrutura", "Total hours August/2026:", "282,54 h"])
 
     data = read_pdf_report_data(path)
 
@@ -326,13 +305,7 @@ def test_read_pdf_report_data_from_text_handles_german_label(tmp_path):
     gerado com language="de" — ver _PDF_TEXT_TOTAL_HOURS_RE/_PDF_TEXT_TITLE_RE
     aceitando "Gesamtstunden"/"Stundenbericht")."""
     path = str(tmp_path / "excel_export_de.pdf")
-    _write_excel_exported_pdf(path, [
-        "Stundenbericht",
-        "1471.3.1-002",
-        "TCI_Infraestrutura",
-        "Gesamtstunden August/2026:",
-        "282,54 h",
-    ])
+    _write_excel_exported_pdf(path, ["Stundenbericht", "1471.3.1-002", "TCI_Infraestrutura", "Gesamtstunden August/2026:", "282,54 h"])
 
     data = read_pdf_report_data(path)
 
@@ -357,6 +330,7 @@ def test_read_pdf_report_data_from_text_raises_without_total_hours_line(tmp_path
 # virar 1 amostra (billed_hours é SOMADO entre amostras em
 # management.compute_monthly_kpis — processar os dois dobraria a hora)
 # ---------------------------------------------------------------------------
+
 
 def test_dedupe_by_stem_prefers_xlsx_when_pdf_listed_first(tmp_path):
     xlsx_file = tmp_path / "a.xlsx"
@@ -399,6 +373,7 @@ def test_dedupe_by_stem_keeps_unrelated_stems_separate(tmp_path):
 # match_project
 # ---------------------------------------------------------------------------
 
+
 def test_match_project_exact_match_scores_one(tmp_path):
     candidates = {"1": "Sangam - Cabina Bruta", "2": "Projeto Alpha", "3": "Projeto Beta"}
 
@@ -428,13 +403,14 @@ def test_match_project_raises_when_no_candidates():
 # compute_business_days_elapsed
 # ---------------------------------------------------------------------------
 
+
 def test_compute_business_days_elapsed_known_case():
     # Caso já validado manualmente nesta sessão:
     # count_business_days(date(2026,7,31), date(2026,8,5)) == 3.
     # compute_business_days_elapsed ancora no ÚLTIMO dia do mês do relatório
     # (31/07/2026), então o mesmo intervalo reaparece aqui usando 05/08/2026
     # como data de envio do e-mail.
-    sent_at = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+    sent_at = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
 
     result = compute_business_days_elapsed("Julho/2026", sent_at)
 
@@ -447,12 +423,8 @@ def test_compute_business_days_elapsed_crosses_fixed_national_holiday():
     ver `generator._national_holidays`). Prova de que o feriado é excluído:
     contar até 24/12 e até 25/12 dá o MESMO resultado — se 25/12 fosse
     contado como dia útil comum, o segundo valor seria 1 a mais."""
-    result_before_holiday = compute_business_days_elapsed(
-        "Novembro/2026", datetime(2026, 12, 24, 9, 0, tzinfo=timezone.utc)
-    )
-    result_including_holiday = compute_business_days_elapsed(
-        "Novembro/2026", datetime(2026, 12, 25, 9, 0, tzinfo=timezone.utc)
-    )
+    result_before_holiday = compute_business_days_elapsed("Novembro/2026", datetime(2026, 12, 24, 9, 0, tzinfo=UTC))
+    result_including_holiday = compute_business_days_elapsed("Novembro/2026", datetime(2026, 12, 25, 9, 0, tzinfo=UTC))
 
     assert result_before_holiday == 18
     assert result_including_holiday == 18  # 25/12 (sexta) não soma por ser feriado
@@ -463,7 +435,7 @@ def test_compute_business_days_elapsed_weekend_only_span():
     em 03/08/2026 (segunda seguinte), cruzando só um fim de semana (01/08
     sábado, 02/08 domingo) sem nenhum feriado no meio -> só a segunda-feira
     conta como dia útil."""
-    sent_at = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
+    sent_at = datetime(2026, 8, 3, 10, 0, tzinfo=UTC)
 
     result = compute_business_days_elapsed("Julho/2026", sent_at)
 
@@ -472,14 +444,14 @@ def test_compute_business_days_elapsed_weekend_only_span():
 
 def test_compute_business_days_elapsed_invalid_label_raises():
     with pytest.raises(EmailIngestError):
-        compute_business_days_elapsed("não é uma competência válida", datetime.now(timezone.utc))
+        compute_business_days_elapsed("não é uma competência válida", datetime.now(UTC))
 
 
 def test_compute_business_days_elapsed_period_label_anchors_on_end_month():
     """Uma label de período ("Junho a Julho/2026") ancora no mês FINAL —
     mesmo resultado do caso de mês único já validado acima pra Julho/2026
     sozinho, com o mesmo `sent_at`."""
-    sent_at = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+    sent_at = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
 
     result = compute_business_days_elapsed("Junho a Julho/2026", sent_at)
 
@@ -489,6 +461,7 @@ def test_compute_business_days_elapsed_period_label_anchors_on_end_month():
 # ---------------------------------------------------------------------------
 # _kpi_samples_for_period
 # ---------------------------------------------------------------------------
+
 
 def test_kpi_samples_for_period_splits_hours_evenly_one_per_month():
     base = {"project_id": "P1", "business_days": 2, "pacote_scope": None}
@@ -527,6 +500,7 @@ def test_kpi_samples_for_period_single_month_still_works():
 # ALBERTO_EMAIL com 1+ e-mails (ver fetch_new_messages)
 # ---------------------------------------------------------------------------
 
+
 def test_parse_sender_emails_single_email():
     assert _parse_sender_emails("alberto@empresa.com") == ["alberto@empresa.com"]
 
@@ -541,10 +515,7 @@ def test_parse_sender_emails_multiple_trims_whitespace():
 
 def test_parse_sender_emails_drops_empty_entries():
     """Vírgula sobrando no fim ou dupla vírgula não vira e-mail vazio na lista."""
-    assert _parse_sender_emails("alberto@empresa.com,,outra@empresa.com,") == [
-        "alberto@empresa.com",
-        "outra@empresa.com",
-    ]
+    assert _parse_sender_emails("alberto@empresa.com,,outra@empresa.com,") == ["alberto@empresa.com", "outra@empresa.com"]
 
 
 def test_build_sender_filter_single_email_has_no_parentheses():

@@ -18,11 +18,13 @@ tela (`allows_percentage`). Jornada estimada serve pra desenhar referência
 tracejada e comparar com o próprio histórico — nunca pra afirmar "você
 cumpriu X% da sua jornada", porque a jornada não é conhecida.
 """
+
 from __future__ import annotations
 
 import datetime
 import statistics
-from typing import Callable, Iterable, Literal, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from typing import Literal
 
 from .generator import _national_holidays, business_days_between
 
@@ -48,20 +50,13 @@ EMPIRICAL_WIDE_MIN_DAYS = 10
 # padrão medido. Não troca a referência (contrato declarado ganha), só avisa.
 DIVERGENCE_NOTE_THRESHOLD_HOURS = 1.0
 
-_LABELS = {
-    "contract": "Contrato",
-    "empirical": "Estimado do seu histórico",
-    "calendar": "Padrão da empresa (calendário)",
-    "none": "Sem referência de jornada",
-}
+_LABELS = {"contract": "Contrato", "empirical": "Estimado do seu histórico", "calendar": "Padrão da empresa (calendário)", "none": "Sem referência de jornada"}
 
 
 # --------------------------------------------------------------------------
 # jornada / referência
 # --------------------------------------------------------------------------
-def contract_weekday_hours(
-    day: datetime.date, contracts: Iterable[dict]
-) -> dict[int, float] | None:
+def contract_weekday_hours(day: datetime.date, contracts: Iterable[dict]) -> dict[int, float] | None:
     """Jornada semanal (`{0..6 -> horas}`, 0=segunda) do contrato vigente em
     `day`, ou `None` se nenhum contrato cobre a data ou se o que cobre tem
     jornada toda zerada.
@@ -91,10 +86,7 @@ def contract_weekday_hours(
     return found
 
 
-def empirical_daily_baseline(
-    daily_totals: dict[datetime.date, float],
-    today: datetime.date,
-) -> tuple[float, int, int] | None:
+def empirical_daily_baseline(daily_totals: dict[datetime.date, float], today: datetime.date) -> tuple[float, int, int] | None:
     """Jornada praticada pelo próprio funcionário:
     `(horas_por_dia, dias_na_amostra, tamanho_da_janela)` ou `None`.
 
@@ -107,16 +99,9 @@ def empirical_daily_baseline(
     se não alcançar, amplia a janela e baixa o piso. Arredonda a 0,25 h — a
     jornada real é um número redondo, e mediana crua tipo 5,97 dá falsa
     precisão."""
-    for window, minimum in (
-        (EMPIRICAL_WINDOW_DAYS, EMPIRICAL_MIN_DAYS),
-        (EMPIRICAL_WIDE_WINDOW_DAYS, EMPIRICAL_WIDE_MIN_DAYS),
-    ):
+    for window, minimum in ((EMPIRICAL_WINDOW_DAYS, EMPIRICAL_MIN_DAYS), (EMPIRICAL_WIDE_WINDOW_DAYS, EMPIRICAL_WIDE_MIN_DAYS)):
         start = today - datetime.timedelta(days=window)
-        sample = [
-            hours
-            for day, hours in daily_totals.items()
-            if start <= day < today and day.weekday() < 5 and hours > 0
-        ]
+        sample = [hours for day, hours in daily_totals.items() if start <= day < today and day.weekday() < 5 and hours > 0]
         if len(sample) >= minimum:
             median = statistics.median(sample)
             return round(median * 4) / 4, len(sample), window
@@ -201,7 +186,7 @@ def resolve_reference(
 
 
 def _hours_pt(value: float) -> str:
-    """"8.0" -> "8 h"; "6.5" -> "6,5 h" — só pra compor a nota de divergência
+    """ "8.0" -> "8 h"; "6.5" -> "6,5 h" — só pra compor a nota de divergência
     no idioma da interface."""
     text = f"{value:.1f}".rstrip("0").rstrip(".")
     return f"{text.replace('.', ',')} h"
@@ -220,9 +205,7 @@ def expected_hours_for_days(days: Iterable[datetime.date], reference: dict) -> f
 # --------------------------------------------------------------------------
 # séries e estatísticas
 # --------------------------------------------------------------------------
-def daily_stats(
-    daily_totals: dict[datetime.date, float], today: datetime.date, window_days: int = 60
-) -> dict:
+def daily_stats(daily_totals: dict[datetime.date, float], today: datetime.date, window_days: int = 60) -> dict:
     """Percentis das horas dos dias com apontamento na janela recente — usados
     pra projetar o fim do mês como FAIXA (p25–p75), não como número único.
 
@@ -257,10 +240,7 @@ def percentile(sorted_values: Sequence[float], fraction: float) -> float:
 
 
 def monthly_series(
-    daily_totals: dict[datetime.date, float],
-    today: datetime.date,
-    months: int = 13,
-    extra_holidays_for_year: Callable[[int], set[datetime.date]] | None = None,
+    daily_totals: dict[datetime.date, float], today: datetime.date, months: int = 13, extra_holidays_for_year: Callable[[int], set[datetime.date]] | None = None
 ) -> list[dict]:
     """Uma entrada por mês (os `months-1` fechados mais o corrente), sempre
     ignorando o período selecionado na tela.
@@ -289,19 +269,21 @@ def monthly_series(
         closed = [d for d in business if d < today]
         in_month = {d: h for d, h in daily_totals.items() if first <= d <= last}
         days_worked = sum(1 for h in in_month.values() if h > 0)
-        result.append({
-            "month": f"{y:04d}-{m:02d}",
-            "hours": round(sum(in_month.values()), 2),
-            "days_worked": days_worked,
-            "business_days": len(business),
-            "business_days_closed": len(closed),
-            "partial": (y, m) == (today.year, today.month),
-            # mês sem nenhum lançamento NÃO é mês de zero hora: é mês sem
-            # informação (admissão posterior, licença, ou simplesmente fora do
-            # histórico). Uma coluna de altura zero afirmaria "trabalhou
-            # nada", que é diferente — o frontend desenha como "sem dado".
-            "no_data": days_worked == 0,
-        })
+        result.append(
+            {
+                "month": f"{y:04d}-{m:02d}",
+                "hours": round(sum(in_month.values()), 2),
+                "days_worked": days_worked,
+                "business_days": len(business),
+                "business_days_closed": len(closed),
+                "partial": (y, m) == (today.year, today.month),
+                # mês sem nenhum lançamento NÃO é mês de zero hora: é mês sem
+                # informação (admissão posterior, licença, ou simplesmente fora do
+                # histórico). Uma coluna de altura zero afirmaria "trabalhou
+                # nada", que é diferente — o frontend desenha como "sem dado".
+                "no_data": days_worked == 0,
+            }
+        )
     return result
 
 
@@ -362,23 +344,17 @@ def day_matched_comparison(
     }
 
 
-def gap_days(
-    business_days_closed: Iterable[datetime.date], daily_totals: dict[datetime.date, float]
-) -> list[datetime.date]:
+def gap_days(business_days_closed: Iterable[datetime.date], daily_totals: dict[datetime.date, float]) -> list[datetime.date]:
     """Dias úteis já encerrados sem nenhuma hora apontada, mais recentes
     primeiro. O dia em curso nunca entra — quem chama já filtrou por `< today`.
 
     Esta é a única métrica da tela que a tabela de lançamentos é incapaz de
     mostrar por construção: um dia sem apontamento é uma linha que não
     existe."""
-    return sorted(
-        (d for d in business_days_closed if daily_totals.get(d, 0.0) <= 0), reverse=True
-    )
+    return sorted((d for d in business_days_closed if daily_totals.get(d, 0.0) <= 0), reverse=True)
 
 
-def outlier_days(
-    daily_totals: dict[datetime.date, float], min_sample: int = 10
-) -> set[datetime.date]:
+def outlier_days(daily_totals: dict[datetime.date, float], min_sample: int = 10) -> set[datetime.date]:
     """Dias cujo total se afasta do padrão do próprio funcionário, por desvio
     absoluto mediano (MAD) — robusto a poucos dias extremos, diferente do
     desvio padrão. Conjunto vazio se a amostra for menor que `min_sample`,

@@ -1,4 +1,5 @@
 """Rota do dashboard pessoal (`/my-hours`) — extraído de `main.py`."""
+
 from __future__ import annotations
 
 import html
@@ -7,12 +8,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ...generator import (
-    business_days_between,
-    is_santo_andre_filiale,
-    local_holidays_for_filiale,
-    national_holidays_between,
-)
+from ...generator import business_days_between, is_santo_andre_filiale, local_holidays_for_filiale, national_holidays_between
 from ...hours_analytics import (
     daily_stats,
     day_matched_comparison,
@@ -32,9 +28,9 @@ from ...projectile_db import (
     fetch_my_hours,
     fetch_project_details,
 )
+from .. import period_access
 from ..dependencies import is_coordinator, is_manager, require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
-from .. import period_access
 
 router = APIRouter()
 
@@ -82,9 +78,7 @@ def _engineering_employees() -> list[dict]:
     if cached is not None and time.time() - float(_employees_cache["fetched_at"]) < _EMPLOYEES_CACHE_TTL_SECONDS:
         return cached  # type: ignore[return-value]
     today = date.today()
-    employees = fetch_engineering_employees(
-        (today - timedelta(days=_MY_HOURS_HISTORY_DAYS)).isoformat(), today.isoformat()
-    )
+    employees = fetch_engineering_employees((today - timedelta(days=_MY_HOURS_HISTORY_DAYS)).isoformat(), today.isoformat())
     _employees_cache.update(fetched_at=time.time(), employees=employees)
     return employees
 
@@ -119,12 +113,7 @@ async def my_hours_employees_endpoint(_user: dict = Depends(require_manager_or_c
         employees = _engineering_employees()
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
-    return {
-        "employees": [
-            {"employee_id": e["employee_id"], "name": e["name"], "cost_center": e["cost_center"]}
-            for e in employees
-        ]
-    }
+    return {"employees": [{"employee_id": e["employee_id"], "name": e["name"], "cost_center": e["cost_center"]} for e in employees]}
 
 
 def _entry_times(row: dict) -> tuple[str | None, str | None]:
@@ -138,11 +127,7 @@ def _entry_times(row: dict) -> tuple[str | None, str | None]:
 
 
 @router.get("/my-hours")
-async def my_hours_endpoint(
-    period: str = "current_month",
-    employee_id: str | None = None,
-    _user: dict = Depends(require_session),
-):
+async def my_hours_endpoint(period: str = "current_month", employee_id: str | None = None, _user: dict = Depends(require_session)):
     """Dashboard de horas — por padrão do PRÓPRIO usuário logado (mesma
     regra de `/parse-db`: nunca confia em identidade vinda do cliente).
     `employee_id` de outra pessoa só vale pra gerente/coordenador, e só pra
@@ -179,53 +164,42 @@ async def my_hours_endpoint(
         return local_holidays_for_filiale(year, filiale)
 
     try:
-        rows = fetch_my_hours(
-            start_date.isoformat(), end_date.isoformat(),
-            employee_id=employee_id, employee_name=employee_name,
-        )
-        history_rows = fetch_daily_hours_totals(
-            history_start.isoformat(), end_date.isoformat(),
-            employee_id=employee_id, employee_name=employee_name,
-        )
+        rows = fetch_my_hours(start_date.isoformat(), end_date.isoformat(), employee_id=employee_id, employee_name=employee_name)
+        history_rows = fetch_daily_hours_totals(history_start.isoformat(), end_date.isoformat(), employee_id=employee_id, employee_name=employee_name)
         contracts = fetch_employee_contracts(employee_id) if employee_id else []
         project_ids = sorted({r["project_id"] for r in rows if r.get("project_id")})
         project_details = fetch_project_details(project_ids) if project_ids else {}
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
 
-    daily_totals = {
-        (r["data"] if isinstance(r["data"], date) else date.fromisoformat(str(r["data"]))): float(r["horas"] or 0)
-        for r in history_rows
-    }
+    daily_totals = {(r["data"] if isinstance(r["data"], date) else date.fromisoformat(str(r["data"]))): float(r["horas"] or 0) for r in history_rows}
 
     entries = []
     for i, r in enumerate(rows):
         entry_date = r["data"] if isinstance(r["data"], date) else date.fromisoformat(str(r["data"]))
         start_hhmm, end_hhmm = _entry_times(r)
-        entries.append({
-            # `ttimebit` não expõe PK utilizável nesta query; o ordinal do
-            # resultado é estável dentro de um payload porque a query tem
-            # ORDER BY determinístico (pDate, pStart).
-            "id": f"{i}-{entry_date.isoformat()}-{start_hhmm or ''}",
-            "date": entry_date.isoformat(),
-            "start": start_hhmm,
-            "end": end_hhmm,
-            "hours": float(r["horas"] or 0),
-            "pacote": _unescape_twice(r.get("pacote")),
-            "observacao": _unescape_twice(r.get("observacao")),
-            "project_id": r.get("project_id"),
-            "project_name": _unescape_twice(
-                (project_details.get(r.get("project_id")) or {}).get("name")
-            ) or "Sem projeto",
-            "client": _unescape_twice(
-                (project_details.get(r.get("project_id")) or {}).get("client")
-            ) or None,
-            "top_project": _unescape_twice(r.get("top_project")) or None,
-            "cost_center": r.get("cost_center"),
-            # tri-estado deliberado: `external != "0"` empurrava NULL e
-            # qualquer valor inesperado pra "faturável", inventando receita.
-            "billing_class": _BILLING_CLASS.get(str(r.get("external") or ""), "nao_classificado"),
-        })
+        entries.append(
+            {
+                # `ttimebit` não expõe PK utilizável nesta query; o ordinal do
+                # resultado é estável dentro de um payload porque a query tem
+                # ORDER BY determinístico (pDate, pStart).
+                "id": f"{i}-{entry_date.isoformat()}-{start_hhmm or ''}",
+                "date": entry_date.isoformat(),
+                "start": start_hhmm,
+                "end": end_hhmm,
+                "hours": float(r["horas"] or 0),
+                "pacote": _unescape_twice(r.get("pacote")),
+                "observacao": _unescape_twice(r.get("observacao")),
+                "project_id": r.get("project_id"),
+                "project_name": _unescape_twice((project_details.get(r.get("project_id")) or {}).get("name")) or "Sem projeto",
+                "client": _unescape_twice((project_details.get(r.get("project_id")) or {}).get("client")) or None,
+                "top_project": _unescape_twice(r.get("top_project")) or None,
+                "cost_center": r.get("cost_center"),
+                # tri-estado deliberado: `external != "0"` empurrava NULL e
+                # qualquer valor inesperado pra "faturável", inventando receita.
+                "billing_class": _BILLING_CLASS.get(str(r.get("external") or ""), "nao_classificado"),
+            }
+        )
 
     # o recorte pode cruzar a virada do ano (last_12 em janeiro, por exemplo)
     # — resolve o feriado extra por ano em vez de um conjunto único.
@@ -234,9 +208,7 @@ async def my_hours_endpoint(
     closed_business = [d for d in period_business if d < today]
     month_start = date(today.year, today.month, 1)
     month_end = date(today.year + (today.month == 12), (today.month % 12) + 1, 1) - timedelta(days=1)
-    month_business = business_days_between(
-        month_start, month_end, extra_holidays=extra_holidays_for_year(today.year)
-    )
+    month_business = business_days_between(month_start, month_end, extra_holidays=extra_holidays_for_year(today.year))
 
     reference = resolve_reference(contracts, daily_totals, today)
     series = monthly_series(daily_totals, today, extra_holidays_for_year=extra_holidays_for_year)
@@ -260,10 +232,7 @@ async def my_hours_endpoint(
             "closed_count": len(closed_business),
             "month_total": len(month_business),
             "month_remaining": sum(1 for d in month_business if d >= today),
-            "holidays": [
-                d.isoformat()
-                for d in national_holidays_between(start_date, end_date, extra_holidays=extra_period)
-            ],
+            "holidays": [d.isoformat() for d in national_holidays_between(start_date, end_date, extra_holidays=extra_period)],
             "source": "national_hardcoded",
             "note": (
                 "seg–sex, feriados nacionais, estadual de São Paulo"
@@ -281,8 +250,7 @@ async def my_hours_endpoint(
         "outlier_days": sorted(d.isoformat() for d in outlier_days(daily_totals)),
         "monthly_series": series,
         "comparison": day_matched_comparison(
-            daily_totals, start_date, end_date, today, extra_holidays_for_year=extra_holidays_for_year,
-            not_before=history_start if limits is not None else None,
+            daily_totals, start_date, end_date, today, extra_holidays_for_year=extra_holidays_for_year, not_before=history_start if limits is not None else None
         ),
         "daily_stats": daily_stats(daily_totals, today),
     }

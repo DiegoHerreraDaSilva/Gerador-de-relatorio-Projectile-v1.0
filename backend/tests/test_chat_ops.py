@@ -1,6 +1,7 @@
 """Cobertura de `chat_ops.apply_operations` — localização de alvo por `id`
 estável, não por nome/
 descrição. Não havia teste nenhum pra este módulo antes desta mudança."""
+
 from __future__ import annotations
 
 import pytest
@@ -10,14 +11,7 @@ from backend.app.chat_ops import OperationError, apply_operations
 
 def _state(groups=None):
     return {
-        "packages": [
-            {
-                "key": "pkg-1",
-                "projectCode": "SE.01.002",
-                "projectName": "Projeto Teste",
-                "groups": groups if groups is not None else [],
-            }
-        ],
+        "packages": [{"key": "pkg-1", "projectCode": "SE.01.002", "projectName": "Projeto Teste", "groups": groups if groups is not None else []}],
         "activePackageIndex": 0,
         "locationDate": "São Paulo, 01/01/2026",
         "monthLabel": "Julho/2026",
@@ -76,16 +70,22 @@ def test_add_group_gera_id_novo():
 
 def test_add_group_com_atividades_iniciais():
     state = _state([])
-    result = apply_operations(state, [
-        {
-            "op": "add_group", "packageKey": "pkg-1", "name": "Grupo Novo", "performance": 100.0,
-            "activities": [{"description": "Atividade X", "hours": 4.0}, {"description": "Atividade Y", "hours": None}],
-        }
-    ])
+    result = apply_operations(
+        state,
+        [
+            {
+                "op": "add_group",
+                "packageKey": "pkg-1",
+                "name": "Grupo Novo",
+                "performance": 100.0,
+                "activities": [{"description": "Atividade X", "hours": 4.0}, {"description": "Atividade Y", "hours": None}],
+            }
+        ],
+    )
     activities = result["packages"][0]["groups"][0]["activities"]
     assert len(activities) == 2
     assert {a["id"] for a in activities} == {activities[0]["id"], activities[1]["id"]}
-    assert len(set(a["id"] for a in activities)) == 2  # ids únicos entre si
+    assert len({a["id"] for a in activities}) == 2  # ids únicos entre si
     assert activities[0]["description"] == "Atividade X"
     assert activities[1]["hours"] is None
 
@@ -106,55 +106,42 @@ def test_remove_group_por_id():
 
 def test_set_activity_hours_por_id():
     state = _state([_group("g1", activities=[_activity("a1", hours=8.0)])])
-    result = apply_operations(state, [
-        {"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a1", "hours": 5.5}
-    ])
+    result = apply_operations(state, [{"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a1", "hours": 5.5}])
     assert result["packages"][0]["groups"][0]["activities"][0]["hours"] == 5.5
 
 
 def test_set_activity_hours_aceita_null_para_atividade_extra():
     state = _state([_group("g1", activities=[_activity("a1", hours=8.0)])])
-    result = apply_operations(state, [
-        {"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a1", "hours": None}
-    ])
+    result = apply_operations(state, [{"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a1", "hours": None}])
     assert result["packages"][0]["groups"][0]["activities"][0]["hours"] is None
 
 
 def test_set_activity_description_por_id():
     state = _state([_group("g1", activities=[_activity("a1", description="Original")])])
-    result = apply_operations(state, [
-        {"op": "set_activity_description", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a1", "newDescription": "Corrigida"}
-    ])
+    result = apply_operations(
+        state, [{"op": "set_activity_description", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a1", "newDescription": "Corrigida"}]
+    )
     assert result["packages"][0]["groups"][0]["activities"][0]["description"] == "Corrigida"
 
 
 def test_activity_inexistente_levanta_operation_error():
     state = _state([_group("g1", activities=[_activity("a1")])])
     with pytest.raises(OperationError, match="não encontrada"):
-        apply_operations(state, [
-            {"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "id-inexistente", "hours": 1.0}
-        ])
+        apply_operations(state, [{"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "id-inexistente", "hours": 1.0}])
 
 
 def test_duas_atividades_com_mesma_descricao_nao_sao_mais_ambiguas():
     """Mesmo raciocínio do teste de grupos duplicados: descrição repetida
     (comum em relatórios reais) não impede mais localizar o alvo certo."""
-    state = _state([_group("g1", activities=[
-        _activity("a1", description="Reunião", hours=1.0),
-        _activity("a2", description="Reunião", hours=2.0),
-    ])])
-    result = apply_operations(state, [
-        {"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a2", "hours": 9.0}
-    ])
+    state = _state([_group("g1", activities=[_activity("a1", description="Reunião", hours=1.0), _activity("a2", description="Reunião", hours=2.0)])])
+    result = apply_operations(state, [{"op": "set_activity_hours", "packageKey": "pkg-1", "groupId": "g1", "activityId": "a2", "hours": 9.0}])
     hours = {a["id"]: a["hours"] for a in result["packages"][0]["groups"][0]["activities"]}
     assert hours == {"a1": 1.0, "a2": 9.0}
 
 
 def test_add_activity_gera_id_novo():
     state = _state([_group("g1", activities=[_activity("a1")])])
-    result = apply_operations(state, [
-        {"op": "add_activity", "packageKey": "pkg-1", "groupId": "g1", "description": "Nova atividade", "hours": 3.0}
-    ])
+    result = apply_operations(state, [{"op": "add_activity", "packageKey": "pkg-1", "groupId": "g1", "description": "Nova atividade", "hours": 3.0}])
     activities = result["packages"][0]["groups"][0]["activities"]
     assert len(activities) == 2
     new_activity = next(a for a in activities if a["description"] == "Nova atividade")
@@ -170,9 +157,7 @@ def test_remove_activity_por_id():
 
 
 def test_sort_activities_alphabetically():
-    state = _state([_group("g1", activities=[
-        _activity("a1", description="Zebra"), _activity("a2", description="Abelha"),
-    ])])
+    state = _state([_group("g1", activities=[_activity("a1", description="Zebra"), _activity("a2", description="Abelha")])])
     result = apply_operations(state, [{"op": "sort_activities_alphabetically", "packageKey": "pkg-1", "groupId": "g1"}])
     descriptions = [a["description"] for a in result["packages"][0]["groups"][0]["activities"]]
     assert descriptions == ["Abelha", "Zebra"]
@@ -217,10 +202,13 @@ def test_operacao_malformada_levanta_operation_error_nao_key_error():
 def test_falha_no_meio_nao_aplica_nenhuma_operacao_tudo_ou_nada():
     state = _state([_group("g1", "A")])
     with pytest.raises(OperationError):
-        apply_operations(state, [
-            {"op": "rename_group", "packageKey": "pkg-1", "groupId": "g1", "newName": "Renomeado"},
-            {"op": "rename_group", "packageKey": "pkg-1", "groupId": "id-invalido", "newName": "X"},
-        ])
+        apply_operations(
+            state,
+            [
+                {"op": "rename_group", "packageKey": "pkg-1", "groupId": "g1", "newName": "Renomeado"},
+                {"op": "rename_group", "packageKey": "pkg-1", "groupId": "id-invalido", "newName": "X"},
+            ],
+        )
     # o estado ORIGINAL passado pra função nunca é mutado (apply_operations
     # trabalha sobre uma cópia) — continua com o nome original
     assert state["packages"][0]["groups"][0]["name"] == "A"

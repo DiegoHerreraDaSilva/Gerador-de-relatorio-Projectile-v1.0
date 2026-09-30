@@ -5,6 +5,7 @@ test_projectile_db_group_hours.py). Validação end-to-end contra um MySQL de
 verdade (reuso de conexão, fila sob concorrência, reconexão após queda) foi
 feita manualmente contra o container `reports-mysql` antes deste commit —
 ver as notas do commit que criou o pool."""
+
 from __future__ import annotations
 
 import threading
@@ -67,9 +68,8 @@ def test_borrowed_connection_devolve_mesmo_quando_a_query_falha(monkeypatch):
     fake = _FakeConn()
     monkeypatch.setattr(projectile_db, "_get_connection", lambda: fake)
 
-    with pytest.raises(ValueError):
-        with projectile_db._borrowed_connection():
-            raise ValueError("falha simulada durante a query")
+    with pytest.raises(ValueError), projectile_db._borrowed_connection():
+        raise ValueError("falha simulada durante a query")
     assert fake.closed
 
 
@@ -95,14 +95,8 @@ def test_get_pool_usa_tamanho_configurado_em_settings(monkeypatch):
 
     monkeypatch.setattr(projectile_db, "_pool", None)
     monkeypatch.setattr(projectile_db, "PooledDB", _FakePooledDB)
-    monkeypatch.setattr(
-        projectile_db, "_connection_kwargs",
-        lambda: {"host": "h", "user": "u", "password": "p", "database": "d", "port": 3306},
-    )
-    monkeypatch.setattr(
-        projectile_db, "get_settings",
-        lambda: type("S", (), {"projectile_sys_client_id": "0", "projectile_db_pool_size": 7})(),
-    )
+    monkeypatch.setattr(projectile_db, "_connection_kwargs", lambda: {"host": "h", "user": "u", "password": "p", "database": "d", "port": 3306})
+    monkeypatch.setattr(projectile_db, "get_settings", lambda: type("S", (), {"projectile_sys_client_id": "0", "projectile_db_pool_size": 7})())
 
     projectile_db._get_pool()
 
@@ -126,14 +120,8 @@ def test_get_pool_e_thread_safe_na_inicializacao(monkeypatch):
             build_calls.append(1)
 
     monkeypatch.setattr(projectile_db, "PooledDB", _FakePooledDB)
-    monkeypatch.setattr(
-        projectile_db, "_connection_kwargs",
-        lambda: {"host": "h", "user": "u", "password": "p", "database": "d", "port": 3306},
-    )
-    monkeypatch.setattr(
-        projectile_db, "get_settings",
-        lambda: type("S", (), {"projectile_sys_client_id": "0", "projectile_db_pool_size": 5})(),
-    )
+    monkeypatch.setattr(projectile_db, "_connection_kwargs", lambda: {"host": "h", "user": "u", "password": "p", "database": "d", "port": 3306})
+    monkeypatch.setattr(projectile_db, "get_settings", lambda: type("S", (), {"projectile_sys_client_id": "0", "projectile_db_pool_size": 5})())
 
     results = []
 

@@ -1,12 +1,12 @@
 """Contratos da geração automática — o rascunho que volta do editor e os
 pedidos das rotas. Tudo com `extra="forbid"` e números finitos: o rascunho
 vem do navegador e vira arquivo e memória do mês seguinte."""
+
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 _Id = Field(min_length=1, max_length=64)
 _Name = Field(max_length=500)
@@ -57,6 +57,7 @@ class DraftHeader(_Strict):
 class DraftIssue(BaseModel):
     """Linha do Projectile que não virou atividade (ex.: horas sem descrição)
     — o revisor vê no aviso do editor e pode "Adicionar como atividade"."""
+
     model_config = ConfigDict(extra="ignore")
     row: int | None = None
     reason: str | None = Field(default=None, max_length=100)
@@ -142,6 +143,7 @@ _Short = Annotated[str, Field(min_length=1, max_length=500)]
 class CustomBlock(_Strict):
     """Um recorte da geração personalizada. Os filtros de um bloco se
     cruzam; blocos diferentes se somam (`auto_generation/custom.py`)."""
+
     clients: list[_Short] = Field(default_factory=list, max_length=50)
     project_ids: list[_Short] = Field(default_factory=list, max_length=300)
     packages: list[_Short] = Field(default_factory=list, max_length=300)
@@ -158,6 +160,7 @@ class CustomConfig(_Strict):
     configuração de um projeto (assinantes, empresas, arquivos). Vazio = herda
     a do projeto (família) e, sem ela, o padrão geral. O "Relatório" (um por
     projeto ou por pacote de trabalho) é o `package_unit` do pedido."""
+
     signer1_name: str | None = Field(default=None, max_length=200)
     signer1_company: str | None = Field(default=None, max_length=200)
     signer2_name: str | None = Field(default=None, max_length=200)
