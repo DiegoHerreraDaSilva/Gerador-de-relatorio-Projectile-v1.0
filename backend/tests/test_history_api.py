@@ -1,49 +1,44 @@
 """Testes de integração dos endpoints de histórico (`GET /reports/*`) e
 download de artifact — precisa do reports-mysql real (ver
 conftest.py:reports_db_engine)."""
+
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import management
+from backend.app.core import authz
 from backend.app.main import app, require_session
 
 pytestmark = pytest.mark.reports_db
 
-_OWNER = {
-    "name": "Diego Herrera", "login": "dherrera",
-    "email": "diego.herrera@schwaben.com.br", "employee_id": "450", "filiale": None,
-}
-_OTHER_NON_MANAGER = {
-    "name": "Outro Usuário", "login": "outro.usuario",
-    "email": "outro@schwaben.com.br", "employee_id": "999", "filiale": None,
-}
+_OWNER = {"name": "Diego Herrera", "login": "dherrera", "email": "diego.herrera@schwaben.com.br", "employee_id": "450", "filiale": None}
+_OTHER_NON_MANAGER = {"name": "Outro Usuário", "login": "outro.usuario", "email": "outro@schwaben.com.br", "employee_id": "999", "filiale": None}
 
 
 def _client_for(user: dict, monkeypatch) -> TestClient:
     # allowlist fixa e determinística pro teste — não depende do
     # MANAGEMENT_PANEL_LOGINS real do .env.
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
     app.dependency_overrides[require_session] = lambda: user
     return TestClient(app)
 
 
-def _generate_payload(
-    report_number: str, project_name: str = "Projeto Histórico", month_label: str = "Julho/2026",
-) -> dict:
+def _generate_payload(report_number: str, project_name: str = "Projeto Histórico", month_label: str = "Julho/2026") -> dict:
     return {
         "packages": [
             {
                 "header": {
-                    "project_code": report_number, "project_name": project_name,
-                    "location_date": "São Paulo, 01/01/2026", "month_label": month_label,
-                    "signer1_name": "Fulano", "signer1_company": "Schwaben Engineering",
-                    "signer2_name": "Beltrano", "signer2_company": "Cliente Teste",
+                    "project_code": report_number,
+                    "project_name": project_name,
+                    "location_date": "São Paulo, 01/01/2026",
+                    "month_label": month_label,
+                    "signer1_name": "Fulano",
+                    "signer1_company": "Schwaben Engineering",
+                    "signer2_name": "Beltrano",
+                    "signer2_company": "Cliente Teste",
                 },
-                "groups": [
-                    {"name": "Grupo A", "performance": 100.0, "activities": [{"description": "Atividade 1", "hours": 8.0}]}
-                ],
+                "groups": [{"name": "Grupo A", "performance": 100.0, "activities": [{"description": "Atividade 1", "hours": 8.0}]}],
             }
         ],
         "formats": ["xlsx"],
@@ -158,14 +153,14 @@ def test_busca_geral_por_numero_projeto_competencia_e_criado_por(reports_db_engi
             assert response.status_code == 200
             return sorted(r["report_number"] for r in response.json()["items"] if r["report_number"].startswith("SE.BUSCA"))
 
-        assert numbers("se.busca.002") == ["SE.BUSCA.002"]          # número, sem diferenciar maiúscula
-        assert numbers("accelo") == ["SE.BUSCA.001"]               # projeto
-        assert numbers("Abril/2026") == ["SE.BUSCA.002"]           # competência
+        assert numbers("se.busca.002") == ["SE.BUSCA.002"]  # número, sem diferenciar maiúscula
+        assert numbers("accelo") == ["SE.BUSCA.001"]  # projeto
+        assert numbers("Abril/2026") == ["SE.BUSCA.002"]  # competência
         assert numbers("Diego Herrera") == ["SE.BUSCA.001", "SE.BUSCA.002"]  # criado por (nome)
-        assert numbers("dherrera") == ["SE.BUSCA.001", "SE.BUSCA.002"]       # criado por (login)
-        assert numbers("março mercedes") == ["SE.BUSCA.001"]       # cada palavra em alguma coluna
+        assert numbers("dherrera") == ["SE.BUSCA.001", "SE.BUSCA.002"]  # criado por (login)
+        assert numbers("março mercedes") == ["SE.BUSCA.001"]  # cada palavra em alguma coluna
         assert numbers("março lauer") == []
-        assert numbers("100%") == []                               # % é literal, não curinga
+        assert numbers("100%") == []  # % é literal, não curinga
 
 
 def test_busca_de_nao_gerente_fica_nos_proprios_relatorios(reports_db_engine, monkeypatch):
@@ -188,8 +183,7 @@ def test_nao_gerente_so_ve_relatorios_da_janela_de_12_meses(reports_db_engine, m
 
     from backend.app.api import period_access
 
-    months = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro",
-              "Outubro", "Novembro", "Dezembro"]
+    months = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
     start, _ = period_access.window()
     before = date(start.year - (start.month == 1), 12 if start.month == 1 else start.month - 1, 1)
     today = date.today()

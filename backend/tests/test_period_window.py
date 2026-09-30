@@ -1,6 +1,7 @@
 """Janela de período de quem não é gerente (`api/period_access.py`):
 coordenador e colaborador só veem e filtram os últimos 12 meses e o ano
 atual, em todas as rotas. Gerente sem limite. Projectile e bancos falsos."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -8,13 +9,13 @@ from datetime import date, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import management
 from backend.app.api import period_access
 from backend.app.api.dependencies import require_session
 from backend.app.api.routers import history as history_router
 from backend.app.api.routers import management as management_router
 from backend.app.api.routers import my_hours as my_hours_router
 from backend.app.api.routers import parsing as parsing_router
+from backend.app.core import authz
 from backend.app.main import app
 from backend.app.services import report_queries
 
@@ -22,8 +23,7 @@ _MANAGER = {"name": "Gerente", "login": "gerente", "email": "g@x", "employee_id"
 _COORDINATOR = {"name": "Coordenador", "login": "coord", "email": "c@x", "employee_id": "2"}
 _COLLABORATOR = {"name": "Colaborador", "login": "colab", "email": "o@x", "employee_id": "3"}
 
-_MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro",
-           "Outubro", "Novembro", "Dezembro"]
+_MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
 
 def _label(d: date) -> str:
@@ -37,8 +37,8 @@ def _before_window() -> date:
 
 @pytest.fixture(autouse=True)
 def _roles(monkeypatch):
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
-    monkeypatch.setattr(management, "COORDINATOR_LOGINS", {"coord"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "COORDINATOR_LOGINS", {"coord"})
     yield
     app.dependency_overrides.pop(require_session, None)
 
@@ -51,11 +51,14 @@ def _client(user) -> TestClient:
 # --- a regra -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("today, start, end", [
-    (date(2026, 9, 28), date(2025, 10, 1), date(2026, 12, 31)),
-    (date(2027, 1, 5), date(2026, 2, 1), date(2027, 12, 31)),     # virada do ano
-    (date(2026, 12, 31), date(2026, 1, 1), date(2026, 12, 31)),   # dezembro: o ano todo
-])
+@pytest.mark.parametrize(
+    "today, start, end",
+    [
+        (date(2026, 9, 28), date(2025, 10, 1), date(2026, 12, 31)),
+        (date(2027, 1, 5), date(2026, 2, 1), date(2027, 12, 31)),  # virada do ano
+        (date(2026, 12, 31), date(2026, 1, 1), date(2026, 12, 31)),  # dezembro: o ano todo
+    ],
+)
 def test_janela_e_os_ultimos_12_meses_e_o_ano_atual(today, start, end):
     assert period_access.window(today) == (start, end)
     assert len(period_access.allowed_months(today)) == (end.year * 12 + end.month) - (start.year * 12 + start.month) + 1
@@ -106,8 +109,7 @@ def test_coordenador_nao_busca_projeto_nem_lista_clientes_fora_da_janela(monkeyp
 
 def test_coordenador_nao_mexe_em_amostra_fora_da_janela(monkeypatch):
     old = _before_window().strftime("%Y-%m")
-    monkeypatch.setattr(management_router, "list_samples",
-                        lambda month=None: {"samples": [{"id": "S1", "month": old}], "skipped_messages": []})
+    monkeypatch.setattr(management_router, "list_samples", lambda month=None: {"samples": [{"id": "S1", "month": old}], "skipped_messages": []})
     monkeypatch.setattr(management_router, "delete_project_kpi_sample", lambda sample_id: True)
     monkeypatch.setattr(management_router, "update_project_kpi_sample", lambda sample_id, patch: True)
     monkeypatch.setattr(management_router, "list_pacotes_for_project", lambda pid, month: [])
@@ -138,11 +140,11 @@ def test_dashboard_de_horas_nao_devolve_nada_antes_da_janela(monkeypatch):
     first = period_access.window()[0]
 
     mine = _client(_COLLABORATOR).get("/my-hours", params={"period": "last_12"}).json()
-    assert starts[-1] == first.isoformat()                             # nem busca antes
+    assert starts[-1] == first.isoformat()  # nem busca antes
     assert all(p["month"] >= first.strftime("%Y-%m") for p in mine["monthly_series"])
     assert len(mine["monthly_series"]) == 12
     assert all(d >= first.isoformat() for d in mine["outlier_days"])
-    assert mine["comparison"] is None                                  # a janela anterior cai fora
+    assert mine["comparison"] is None  # a janela anterior cai fora
 
     boss = _client(_MANAGER).get("/my-hours", params={"period": "last_12"}).json()
     assert starts[-1] < first.isoformat() and len(boss["monthly_series"]) == 13
@@ -168,4 +170,3 @@ def test_historico_nao_lista_nem_abre_relatorio_fora_da_janela(monkeypatch):
     assert _client(_COLLABORATOR).get("/reports/R1").status_code == 404
     _client(_MANAGER).get("/reports")
     assert seen["competence_from"] is None
-

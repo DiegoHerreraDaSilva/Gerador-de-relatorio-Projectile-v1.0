@@ -1,5 +1,6 @@
 """Rotas de histórico de relatórios (`GET /reports/*`,
 `GET /artifacts/{id}/download`) — extraído de `main.py`."""
+
 from __future__ import annotations
 
 import os
@@ -7,11 +8,11 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from ... import management
+from ...core import authz
 from ...services import report_queries
 from ...services.audit import record_event
-from ..dependencies import require_session
 from .. import period_access
+from ..dependencies import require_session
 from ..errors import GENERIC_REPORTS_DB_ERROR, log_and_generic_error
 
 router = APIRouter()
@@ -23,12 +24,10 @@ def _require_report_access(report: dict, user: dict) -> None:
     """Relatórios pessoais (gerados via /parse-db) só podem ser vistos por
     quem os criou; gerentes veem tudo — mesmo princípio de /parse-db e
     /my-hours: nunca expor dado de uma pessoa pra outra sem ser gerente.
-    Referencia `management.MANAGEMENT_PANEL_LOGINS` via atributo do módulo
-    (não `from ... import MANAGEMENT_PANEL_LOGINS`) pelo mesmo motivo de
-    `api/dependencies.py`: um teste que faz
-    `monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", ...)`
-    precisa afetar esta checagem também."""
-    if user["login"].lower() in management.MANAGEMENT_PANEL_LOGINS:
+    Gerente vem de `core.authz` (função chamada na hora, nunca um set
+    importado) — monkeypatch em `authz.MANAGEMENT_PANEL_LOGINS` afeta esta
+    checagem junto com todo o resto."""
+    if authz.is_manager(user):
         return
     if (report.get("created_by") or "").lower() != user["login"].lower():
         raise HTTPException(403, "Sem acesso a este relatório.")
@@ -62,7 +61,7 @@ async def list_reports_endpoint(
     """`q` = busca geral por Número, Projeto, Competência e Criado por. Pra
     quem não é gerente ela roda DENTRO dos próprios relatórios — nunca amplia
     o recorte de `created_by`."""
-    is_mgr = _user["login"].lower() in management.MANAGEMENT_PANEL_LOGINS
+    is_mgr = authz.is_manager(_user)
     # nunca aceita created_by de quem não é gerente — mesma regra de
     # /parse-db (não confiar em identidade vinda do cliente pra consultar
     # dado de outra pessoa).
@@ -70,8 +69,13 @@ async def list_reports_endpoint(
     limits = period_access.window_for(_user)
     try:
         return report_queries.list_reports(
-            page=page, page_size=page_size, report_number=report_number,
-            competence=competence, status=status, created_by=effective_created_by, search=q,
+            page=page,
+            page_size=page_size,
+            report_number=report_number,
+            competence=competence,
+            status=status,
+            created_by=effective_created_by,
+            search=q,
             competence_from=limits[0] if limits else None,
         )
     except Exception as e:
@@ -87,10 +91,7 @@ async def get_report_endpoint(report_id: str, _user: dict = Depends(require_sess
 
 @router.get("/reports/{report_id}/versions")
 async def list_report_versions_endpoint(
-    report_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
-    _user: dict = Depends(require_session),
+    report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
     report = _get_report_or_404(report_id)
     _require_report_access(report, _user)
@@ -115,10 +116,7 @@ async def get_report_version_endpoint(report_id: str, version_id: str, _user: di
 
 @router.get("/reports/{report_id}/generations")
 async def list_report_generations_endpoint(
-    report_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
-    _user: dict = Depends(require_session),
+    report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
     report = _get_report_or_404(report_id)
     _require_report_access(report, _user)
@@ -130,10 +128,7 @@ async def list_report_generations_endpoint(
 
 @router.get("/reports/{report_id}/artifacts")
 async def list_report_artifacts_endpoint(
-    report_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
-    _user: dict = Depends(require_session),
+    report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
     report = _get_report_or_404(report_id)
     _require_report_access(report, _user)
@@ -145,10 +140,7 @@ async def list_report_artifacts_endpoint(
 
 @router.get("/reports/{report_id}/audit")
 async def get_report_audit_endpoint(
-    report_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
-    _user: dict = Depends(require_session),
+    report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
     report = _get_report_or_404(report_id)
     _require_report_access(report, _user)
@@ -170,7 +162,11 @@ async def download_artifact_endpoint(artifact_id: str, _user: dict = Depends(req
     if not os.path.exists(artifact["storage_path"]):
         raise HTTPException(404, "O arquivo deste artifact não existe mais em disco.")
     record_event(
-        actor_id=_user["login"], actor_name=_user["name"], action="artifact_downloaded",
-        entity_type="report_artifact", entity_id=artifact_id, source="download_endpoint",
+        actor_id=_user["login"],
+        actor_name=_user["name"],
+        action="artifact_downloaded",
+        entity_type="report_artifact",
+        entity_id=artifact_id,
+        source="download_endpoint",
     )
     return FileResponse(artifact["storage_path"], filename=artifact["file_name"], media_type=artifact["mime_type"])

@@ -1,28 +1,23 @@
 """Testes de integração de `GET /analytics/summary` — precisa do
 reports-mysql real (ver conftest.py:reports_db_engine), mesmo padrão de
 test_history_api.py."""
+
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import management
+from backend.app.core import authz
 from backend.app.main import app, require_session
 
 pytestmark = pytest.mark.reports_db
 
-_MANAGER = {
-    "name": "Diego Herrera", "login": "dherrera",
-    "email": "diego.herrera@schwaben.com.br", "employee_id": "450", "filiale": None,
-}
-_NON_MANAGER = {
-    "name": "Outro Usuário", "login": "outro.usuario",
-    "email": "outro@schwaben.com.br", "employee_id": "999", "filiale": None,
-}
+_MANAGER = {"name": "Diego Herrera", "login": "dherrera", "email": "diego.herrera@schwaben.com.br", "employee_id": "450", "filiale": None}
+_NON_MANAGER = {"name": "Outro Usuário", "login": "outro.usuario", "email": "outro@schwaben.com.br", "employee_id": "999", "filiale": None}
 
 
 def _client_for(user: dict, monkeypatch) -> TestClient:
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
     app.dependency_overrides[require_session] = lambda: user
     return TestClient(app)
 
@@ -32,10 +27,14 @@ def _generate_payload(report_number: str, project_name: str, month_label: str, g
         "packages": [
             {
                 "header": {
-                    "project_code": report_number, "project_name": project_name,
-                    "location_date": "São Paulo, 01/01/2026", "month_label": month_label,
-                    "signer1_name": "Fulano", "signer1_company": "Schwaben Engineering",
-                    "signer2_name": "Beltrano", "signer2_company": "Cliente Teste",
+                    "project_code": report_number,
+                    "project_name": project_name,
+                    "location_date": "São Paulo, 01/01/2026",
+                    "month_label": month_label,
+                    "signer1_name": "Fulano",
+                    "signer1_company": "Schwaben Engineering",
+                    "signer2_name": "Beltrano",
+                    "signer2_company": "Cliente Teste",
                 },
                 "groups": groups,
             }
@@ -65,7 +64,9 @@ def test_summary_agrega_horas_da_versao_atual_e_ignora_versao_antiga(reports_db_
         gen_a1 = manager_client.post(
             "/generate",
             json=_generate_payload(
-                "SE.ANALYTICS.001", "Projeto Alpha", "Julho/2026",
+                "SE.ANALYTICS.001",
+                "Projeto Alpha",
+                "Julho/2026",
                 [{"name": "ENG", "performance": 100.0, "activities": [{"description": "Ativ 1", "hours": 8.0}]}],
             ),
         )
@@ -76,7 +77,9 @@ def test_summary_agrega_horas_da_versao_atual_e_ignora_versao_antiga(reports_db_
         gen_a2 = manager_client.post(
             "/generate",
             json=_generate_payload(
-                "SE.ANALYTICS.001", "Projeto Alpha", "Julho/2026",
+                "SE.ANALYTICS.001",
+                "Projeto Alpha",
+                "Julho/2026",
                 [{"name": "ENG", "performance": 100.0, "activities": [{"description": "Ativ 1", "hours": 10.0}]}],
             ),
         )
@@ -87,7 +90,9 @@ def test_summary_agrega_horas_da_versao_atual_e_ignora_versao_antiga(reports_db_
         gen_b = manager_client.post(
             "/generate",
             json=_generate_payload(
-                "SE.ANALYTICS.002", "Projeto Beta", "Agosto/2026",
+                "SE.ANALYTICS.002",
+                "Projeto Beta",
+                "Agosto/2026",
                 [
                     {"name": "QA", "performance": 100.0, "activities": [{"description": "Testes", "hours": 5.0}]},
                     {"name": "ENG", "performance": 100.0, "activities": [{"description": "Ativ 2", "hours": 3.0}]},

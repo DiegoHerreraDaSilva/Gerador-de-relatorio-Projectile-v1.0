@@ -46,13 +46,14 @@ fontes possíveis:
   match de projeto sair errado, remover só aquela amostra sem precisar
   "desfazer" um agregado.
 """
+
 from __future__ import annotations
 
 import calendar
 import html
 import os
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from .db.reports_schema import mgmt_closed_clients, mgmt_closed_projects
@@ -67,60 +68,6 @@ from .projectile_db import (
     open_connection,
 )
 from .services import management_store
-
-
-def _load_management_panel_logins() -> set[str]:
-    """Allowlist de logins com acesso ao Painel de Gerência, via
-    MANAGEMENT_PANEL_LOGINS (logins separados por vírgula). Fallback pra
-    {"dherrera"} se a env var estiver ausente/vazia — muda quem tem acesso
-    sem precisar de commit + redeploy.
-
-    Normalizado em minúsculas porque `auser.rLogin` (Projectile) não tem
-    capitalização padronizada — cadastros antigos podem estar como "Lbrito"
-    em vez de "lbrito" — e `auth.verify_projectile_login` devolve o login
-    exatamente como está no banco, sem normalizar. Comparar sem normalizar
-    fazia um login já correto no .env falhar silenciosamente (403 sem
-    explicação) só por causa da caixa. Quem consome este set (main.py)
-    precisa comparar com `.lower()` do lado do login também."""
-    raw = os.environ.get("MANAGEMENT_PANEL_LOGINS", "")
-    logins = {login.strip().lower() for login in raw.split(",") if login.strip()}
-    return logins or {"dherrera"}
-
-
-MANAGEMENT_PANEL_LOGINS = _load_management_panel_logins()
-
-
-def _load_translate_allowed_logins() -> set[str]:
-    """Allowlist de logins com acesso ao botão "EN" do preview (tradução via
-    IA), via TRANSLATE_ALLOWED_LOGINS (logins separados por vírgula) — cada
-    clique chama a API da Anthropic, então isso existe pra limitar o gasto a
-    quem realmente precisa. Mesmo fallback de MANAGEMENT_PANEL_LOGINS
-    (`{"dherrera"}` se a env var estiver ausente/vazia) pra nunca travar todo
-    mundo por falta de configuração. Mesma normalização em minúsculas, pelo
-    mesmo motivo (ver `_load_management_panel_logins`)."""
-    raw = os.environ.get("TRANSLATE_ALLOWED_LOGINS", "")
-    logins = {login.strip().lower() for login in raw.split(",") if login.strip()}
-    return logins or {"dherrera"}
-
-
-TRANSLATE_ALLOWED_LOGINS = _load_translate_allowed_logins()
-
-
-def _load_coordinator_logins() -> set[str]:
-    """Allowlist de coordenadores, via COORDINATOR_LOGINS (logins separados
-    por vírgula). Coordenador acessa Gerar relatório (inclusive busca por
-    cliente/projeto), Dashboard de horas, o próprio Histórico e o Diagnóstico
-    — nunca o Painel de Gerência nem o Analytics, e nunca os KPIs
-    (`/management/kpis`) nem pela API. Sem fallback, ao contrário das outras
-    allowlists: env vazia = nenhum coordenador (dar acesso a mais por falta
-    de configuração seria o erro perigoso aqui). Gerente não precisa estar
-    nesta lista — já tem acesso a tudo. Mesma normalização em minúsculas
-    (ver `_load_management_panel_logins`)."""
-    raw = os.environ.get("COORDINATOR_LOGINS", "")
-    return {login.strip().lower() for login in raw.split(",") if login.strip()}
-
-
-COORDINATOR_LOGINS = _load_coordinator_logins()
 
 # times/centros de custo de engenharia disponíveis pro filtro — o usuário
 # confirmou que "CAD + CAE juntos" é a equipe (não existe um valor literal
@@ -148,15 +95,13 @@ def _is_manual_send_marker(sample: dict) -> bool:
         and float(sample.get("business_days") or 0) == 0
     )
 
+
 # Arquivo onde esses dados viviam antes de irem pro reports_db (tabelas
 # mgmt_*, ver services/management_store.py). Só é lido uma vez, pela
 # importação (`python -m backend.app.tools.import_management_json`).
 LEGACY_JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "management_kpi.json")
 
-_LEGACY_SECTIONS = (
-    "manual_entries", "project_kpi_samples", "processed_message_ids",
-    "skipped_messages", "closed_clients", "closed_projects",
-)
+_LEGACY_SECTIONS = ("manual_entries", "project_kpi_samples", "processed_message_ids", "skipped_messages", "closed_clients", "closed_projects")
 
 # cache em memória das linhas cruas de `fetch_engineering_hours` por
 # intervalo de datas — essa query é o gargalo real do painel (~50s neste
@@ -220,9 +165,7 @@ def normalize_legacy_document(raw: dict) -> tuple[dict, dict]:
 
 def import_legacy_document(raw: dict, source_path: str | None = None, replace_existing: bool = False) -> dict:
     document, ignored = normalize_legacy_document(raw)
-    return management_store.import_document(
-        document, source_path=source_path, ignored_keys=ignored, replace_existing=replace_existing,
-    )
+    return management_store.import_document(document, source_path=source_path, ignored_keys=ignored, replace_existing=replace_existing)
 
 
 def _recompute_duplicate_flags(samples: list[dict]) -> None:
@@ -391,9 +334,7 @@ def set_project_closed(project_id: str, closed: bool) -> None:
         session.set_closed(mgmt_closed_projects, "project_id", project_id, closed)
 
 
-def create_manual_project_kpi_sample(
-    project_id: str, project_name: str, month: str, billed_hours: float, business_days: float
-) -> dict:
+def create_manual_project_kpi_sample(project_id: str, project_name: str, month: str, billed_hours: float, business_days: float) -> dict:
     """Cadastro manual — usado pela tela de Diagnóstico quando um relatório
     foi enviado fora do fluxo de e-mail, ou o match automático nunca achou o
     projeto certo. `email_message_id` sintético (`manual-<uuid>`) só pra
@@ -402,7 +343,7 @@ def create_manual_project_kpi_sample(
     passou por fuzzy match — foi escolhido direto pelo gerente."""
     sample = {
         "email_message_id": f"manual-{uuid4().hex}",
-        "received_at": datetime.now(timezone.utc).isoformat(),
+        "received_at": datetime.now(UTC).isoformat(),
         "sender": "manual",
         "report_project_text": project_name,
         "project_id": project_id,
@@ -447,9 +388,7 @@ def _resolve_period(months: int, year: int | None) -> tuple[date, date, list[str
     return range_start, range_end, month_keys
 
 
-def _build_month_row(
-    month_key: str, bucket: dict | None, manual: dict, auto: dict | None, persons_filter_active: bool = False
-) -> dict:
+def _build_month_row(month_key: str, bucket: dict | None, manual: dict, auto: dict | None, persons_filter_active: bool = False) -> dict:
     """Monta a linha de resultado de um mês a partir do bucket agregado do
     banco (worked_hours/nonbillable_hours), do override manual do gerente e
     da amostra automática (`project_kpi_samples`) — mesma regra de
@@ -534,7 +473,6 @@ def compute_monthly_kpis(
     # Precisa devolver ao pool no fim (`finally` abaixo), por isso o try.
     conn = open_connection()
     try:
-
         # Cliente e Projeto resolvem pro mesmo mecanismo de filtro
         # (tj.pProject IN (...), ver fetch_engineering_hours) — com os dois
         # ativos ao mesmo tempo, só entra quem atende AMBOS (interseção dos
@@ -646,11 +584,7 @@ def compute_monthly_kpis(
         conn.close()
     # nome -> código, pro frontend prefixar a opção no dropdown de Projeto
     # sem mudar o valor usado no filtro (que continua sendo o nome).
-    project_codes = {
-        info["name"]: project_codes_by_id[pid]
-        for pid, info in project_details.items()
-        if pid in project_codes_by_id
-    }
+    project_codes = {info["name"]: project_codes_by_id[pid] for pid, info in project_details.items() if pid in project_codes_by_id}
     # nome do projeto -> cliente, pro frontend só listar no dropdown de
     # Projeto quem pertence ao(s) cliente(s) já marcado(s) no filtro de
     # Cliente (os dois dropdowns hoje eram independentes).
@@ -690,10 +624,7 @@ def compute_monthly_kpis(
         for month_key in month_keys
     ]
 
-    nonbillable_breakdown = [
-        {"month": month_key, "package": package, "hours": round(hours, 2)}
-        for (month_key, package), hours in package_buckets.items()
-    ]
+    nonbillable_breakdown = [{"month": month_key, "package": package, "hours": round(hours, 2)} for (month_key, package), hours in package_buckets.items()]
 
     # status por (projeto, mês) a partir das amostras de e-mail
     # (project_kpi_samples) — não é editável manualmente na tela, é marcado
@@ -758,9 +689,7 @@ def compute_monthly_kpis(
         manual_send_marker_removable = False
         if manual_marker_id:
             scopes_excl_marker = sent_scopes_excl_marker_by_pm.get(pm_key, set())
-            still_sent_without_marker = _PACOTE_SCOPE_ALL in scopes_excl_marker or (
-                all_pacotes and all_pacotes.issubset(scopes_excl_marker)
-            )
+            still_sent_without_marker = _PACOTE_SCOPE_ALL in scopes_excl_marker or (all_pacotes and all_pacotes.issubset(scopes_excl_marker))
             manual_send_marker_removable = not still_sent_without_marker
 
         # "Fechado" (permanente, ver get_closed_registry/set_*_closed) tem
@@ -773,16 +702,18 @@ def compute_monthly_kpis(
             status = "closed"
             missing_pacotes = []
 
-        project_send_status.append({
-            "month": month_key,
-            "project_id": project_id,
-            "project_name": details["name"] or "Sem nome",
-            "client": client_display,
-            "status": status,
-            "missing_pacotes": missing_pacotes,
-            "manual_send_marker_id": manual_marker_id,
-            "manual_send_marker_removable": manual_send_marker_removable,
-        })
+        project_send_status.append(
+            {
+                "month": month_key,
+                "project_id": project_id,
+                "project_name": details["name"] or "Sem nome",
+                "client": client_display,
+                "status": status,
+                "missing_pacotes": missing_pacotes,
+                "manual_send_marker_id": manual_marker_id,
+                "manual_send_marker_removable": manual_send_marker_removable,
+            }
+        )
 
     return {
         "months": result_months,
@@ -828,9 +759,5 @@ def list_pacotes_for_project(project_id: str, month: str | None, force_refresh: 
         last_day = date(first_day.year, first_day.month, calendar.monthrange(first_day.year, first_day.month)[1])
         start_date, end_date = first_day.isoformat(), last_day.isoformat()
     rows = _get_cached_rows(start_date, end_date, force_refresh)
-    pacotes = {
-        html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome"
-        for row in rows
-        if row.get("project_id") == project_id
-    }
+    pacotes = {html.unescape(str(row.get("pacote") or "")).strip() or "Sem nome" for row in rows if row.get("project_id") == project_id}
     return sorted(pacotes, key=lambda p: p.casefold())

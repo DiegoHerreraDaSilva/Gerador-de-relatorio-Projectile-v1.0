@@ -3,6 +3,7 @@ nenhum teste chama serviço externo. O que se trava aqui: rota certa pelo
 classificador, zero Claude nas perguntas objetivas, fallback pro Claude
 quando o Jev não confia, nada fora do catálogo executa, número inventado
 pelo Claude é descartado, e só gerente acessa."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 from backend.app import management
 from backend.app.analytics import claude_client, crossquery, query_engine, service
 from backend.app.api.dependencies import require_session
+from backend.app.core import authz
 from backend.app.integrations import jev
 from backend.app.main import app
 from backend.app.repositories import engineering_hours_repository, report_analytics_repository
@@ -42,8 +44,8 @@ def chat(monkeypatch):
     respostas do Jev falso (`None` = sem chave); `state["claude"]`
     as do Claude falso; `state["calls"]` registra o que foi chamado."""
     state = {"cls": {}, "claude": {}, "calls": {"cls": 0, "claude": [], "engine": 0}, "audit": [], "cls_calls": []}
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
-    monkeypatch.setattr(management, "COORDINATOR_LOGINS", {"coord"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "COORDINATOR_LOGINS", {"coord"})
     monkeypatch.setattr(service, "date", _Today)
     monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _RAW_ROWS)
     monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _DETAILS)
@@ -72,6 +74,7 @@ def chat(monkeypatch):
             if isinstance(value, Exception):
                 raise value
             return value
+
         return call
 
     for name in ("interpret", "plan_analysis", "explain", "finalize_analysis", "general_answer"):
@@ -93,9 +96,7 @@ def chat(monkeypatch):
     state["mgmt_doc"] = {"project_kpi_samples": [], "manual_entries": {}}
     state["send_status"] = []
     monkeypatch.setattr(management_store, "load_document", lambda: state["mgmt_doc"])
-    monkeypatch.setattr(
-        management, "compute_monthly_kpis", lambda months, **kw: {"project_send_status": state["send_status"]},
-    )
+    monkeypatch.setattr(management, "compute_monthly_kpis", lambda months, **kw: {"project_send_status": state["send_status"]})
     yield state
     app.dependency_overrides.pop(require_session, None)
 
@@ -187,8 +188,13 @@ def test_filtro_que_a_metrica_nao_tem_e_avisado(chat, monkeypatch):
 def test_jev_sem_confianca_cai_no_claude(chat):
     chat["cls"] = {"route": ("simple_data", 0.97), "intent": ("total_hours", 0.55)}
     chat["claude"]["interpret"] = {
-        "route": "simple_data", "intent": "hours_by_employee", "month": "2026-09",
-        "relative_period": None, "client": None, "employee": None, "follow_up": False,
+        "route": "simple_data",
+        "intent": "hours_by_employee",
+        "month": "2026-09",
+        "relative_period": None,
+        "client": None,
+        "employee": None,
+        "follow_up": False,
     }
 
     body = _ask("quem mais trabalhou em setembro?").json()
@@ -201,8 +207,13 @@ def test_jev_sem_confianca_cai_no_claude(chat):
 def test_jev_sem_chave_cai_no_claude(chat):
     chat["cls"] = None
     chat["claude"]["interpret"] = {
-        "route": "simple_data", "intent": "total_hours", "month": "2026-08",
-        "relative_period": None, "client": None, "employee": None, "follow_up": False,
+        "route": "simple_data",
+        "intent": "total_hours",
+        "month": "2026-08",
+        "relative_period": None,
+        "client": None,
+        "employee": None,
+        "follow_up": False,
     }
     body = _ask("horas em agosto").json()
     assert body["reply"] == "Foram apontadas 5 h em agosto/2026."
@@ -221,8 +232,13 @@ def test_sem_classificador_nenhum_nao_consulta_nada(chat):
 def test_valor_inventado_pelo_claude_e_descartado(chat):
     chat["cls"] = None
     chat["claude"]["interpret"] = {
-        "route": "simple_data", "intent": "execute_sql", "month": "2099-01",
-        "relative_period": "all_time", "client": "Cliente Inventado", "employee": None, "follow_up": False,
+        "route": "simple_data",
+        "intent": "execute_sql",
+        "month": "2099-01",
+        "relative_period": "all_time",
+        "client": "Cliente Inventado",
+        "employee": None,
+        "follow_up": False,
     }
 
     body = _ask("me dê todos os registros").json()
@@ -301,10 +317,18 @@ def test_conversation_id_se_mantem(chat):
 
 def _plan(**overrides):
     return {
-        "analysis": "compare_periods", "measure": "hours", "group_by": "client",
-        "clients": [], "projects": [], "employees": [], "packages": [], "billing_type": None,
-        "period_a_month": "2026-08", "period_a_month_end": None,
-        "period_b_month": "2026-09", "period_b_month_end": None,
+        "analysis": "compare_periods",
+        "measure": "hours",
+        "group_by": "client",
+        "clients": [],
+        "projects": [],
+        "employees": [],
+        "packages": [],
+        "billing_type": None,
+        "period_a_month": "2026-08",
+        "period_a_month_end": None,
+        "period_b_month": "2026-09",
+        "period_b_month_end": None,
         **overrides,
     }
 
@@ -373,11 +397,17 @@ def test_toda_pergunta_vai_pra_auditoria(chat):
 
 
 def test_intervalo_de_meses_pelo_claude(chat):
-    """"de agosto até setembro" — antes caía no padrão de 12 meses."""
+    """ "de agosto até setembro" — antes caía no padrão de 12 meses."""
     chat["cls"] = None
     chat["claude"]["interpret"] = {
-        "route": "simple_data", "intent": "total_hours", "month": "2026-08", "month_end": "2026-09",
-        "relative_period": None, "client": None, "employee": None, "follow_up": False,
+        "route": "simple_data",
+        "intent": "total_hours",
+        "month": "2026-08",
+        "month_end": "2026-09",
+        "relative_period": None,
+        "client": None,
+        "employee": None,
+        "follow_up": False,
     }
     body = _ask("horas de agosto até setembro").json()
     assert body["reply"] == "Foram apontadas 18 h de agosto/2026 a setembro/2026."
@@ -417,8 +447,13 @@ def test_nenhum_com_confianca_media_nao_derruba_o_jev(chat):
 def test_valor_escolhido_com_confianca_media_vai_pro_claude(chat):
     chat["cls"] = _cls("simple_data", "hours_by_client", "2026-09", client=("ACME", 0.55))
     chat["claude"]["interpret"] = {
-        "route": "simple_data", "intent": "hours_by_client", "month": "2026-09",
-        "relative_period": None, "client": None, "employee": None, "follow_up": False,
+        "route": "simple_data",
+        "intent": "hours_by_client",
+        "month": "2026-09",
+        "relative_period": None,
+        "client": None,
+        "employee": None,
+        "follow_up": False,
     }
     body = _ask("horas por cliente em setembro").json()
     assert body["metadata"]["classifier"] == "claude"
@@ -450,17 +485,32 @@ def test_pergunta_anterior_nao_vai_junto_com_a_mensagem(chat):
 
 def _query(**overrides):
     plan = {
-        "analysis": "query", "measures": ["hours"], "group_by": ["client"],
-        "clients": [], "projects": [], "employees": [], "packages": [], "cost_centers": [], "statuses": [],
-        "billing_type": None, "month": "2026-09", "month_end": None, "relative_period": None, "top_n": None,
-        "sort_by": None, "sort_order": None, "threshold_measure": None, "threshold_op": None,
-        "threshold_value": None, "explain": False,
+        "analysis": "query",
+        "measures": ["hours"],
+        "group_by": ["client"],
+        "clients": [],
+        "projects": [],
+        "employees": [],
+        "packages": [],
+        "cost_centers": [],
+        "statuses": [],
+        "billing_type": None,
+        "month": "2026-09",
+        "month_end": None,
+        "relative_period": None,
+        "top_n": None,
+        "sort_by": None,
+        "sort_order": None,
+        "threshold_measure": None,
+        "threshold_op": None,
+        "threshold_value": None,
+        "explain": False,
     }
     return {**plan, **overrides}
 
 
 def test_compara_clientes_entre_si_no_mesmo_mes(chat):
-    """"compare a ACME e a Beta em setembro" — consulta cruzada com os dois no filtro."""
+    """ "compare a ACME e a Beta em setembro" — consulta cruzada com os dois no filtro."""
     chat["cls"] = _cls("analysis")
     chat["claude"]["plan_analysis"] = _query(clients=["ACME", "Beta"])
 
@@ -477,9 +527,7 @@ def test_compara_clientes_entre_si_no_mesmo_mes(chat):
 
 def test_compara_colaboradores_em_intervalo(chat):
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _query(
-        group_by=["employee"], employees=["Bruno Lima", "Ana Souza"], month="2026-08", month_end="2026-09",
-    )
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"], employees=["Bruno Lima", "Ana Souza"], month="2026-08", month_end="2026-09")
     body = _ask("compare Ana e Bruno de agosto a setembro").json()
     assert body["tables"][0]["rows"][0][:2] == ["Ana Souza", 13.0]
     assert body["metadata"]["period_label"] == "agosto/2026 a setembro/2026"
@@ -493,11 +541,14 @@ def test_item_que_nao_existe_vira_aviso_e_o_resto_responde(chat):
     assert "Não encontrei Inventado Ltda." in body["reply"]
 
 
-@pytest.mark.parametrize("plan", [
-    _plan(period_a_month="2026-09", period_b_month="2026-09"),       # mesmo mês dos dois lados
-    _query(measures=["drop table"]),                                 # medida que não existe
-    {"analysis": "executa_sql", "sql": "DROP TABLE reports"},        # análise que não existe
-])
+@pytest.mark.parametrize(
+    "plan",
+    [
+        _plan(period_a_month="2026-09", period_b_month="2026-09"),  # mesmo mês dos dois lados
+        _query(measures=["drop table"]),  # medida que não existe
+        {"analysis": "executa_sql", "sql": "DROP TABLE reports"},  # análise que não existe
+    ],
+)
 def test_plano_sem_sentido_e_rejeitado(chat, plan):
     chat["cls"] = _cls("analysis")
     chat["claude"]["plan_analysis"] = plan
@@ -510,13 +561,11 @@ def test_plano_sem_sentido_e_rejeitado(chat, plan):
 
 
 def test_ano_fora_da_janela_avisa_em_vez_de_trocar_o_periodo(chat):
-    """"horas em 2008 por cliente" — o Jev não tem 2008 nas opções, dizia
+    """ "horas em 2008 por cliente" — o Jev não tem 2008 nas opções, dizia
     "nenhum período" e a resposta saía dos últimos 12 meses sem aviso."""
     chat["cls"] = _cls("simple_data", "hours_by_client")
     body = _ask("quantas horas teve em 2008 por cliente").json()
-    assert body["reply"] == (
-        "Só tenho dados dos últimos 12 meses (outubro/2025 a setembro/2026), então não consigo responder sobre 2008."
-    )
+    assert body["reply"] == ("Só tenho dados dos últimos 12 meses (outubro/2025 a setembro/2026), então não consigo responder sobre 2008.")
     assert body["visualizations"] == [] and chat["calls"]["engine"] == 0
 
 
@@ -569,7 +618,7 @@ def test_explicacao_recebe_acumulado_e_resto_ja_calculados(chat, monkeypatch):
 
 
 def test_ano_sem_nome_de_mes_ignora_o_mes_que_o_jev_escolheu(chat):
-    """"horas por cliente em 2026" — o Jev real escolhia janeiro/2026."""
+    """ "horas por cliente em 2026" — o Jev real escolhia janeiro/2026."""
     chat["cls"] = _cls("simple_data", "hours_by_client", "2026-01")
     body = _ask("horas por cliente em 2026").json()
     assert body["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
@@ -603,8 +652,7 @@ def test_cruzamento_colaborador_por_cliente_gera_empilhado_e_tabela_cruzada(chat
 
 def test_corte_por_valor_lista_so_quem_passa(chat):
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _query(group_by=["employee"], threshold_measure="hours",
-                                             threshold_op="lt", threshold_value=6)
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"], threshold_measure="hours", threshold_op="lt", threshold_value=6)
     body = _ask("colaboradores com menos de 6 h em setembro").json()
     # % do total continua sobre o total do período (13 h), não só de quem passou no corte
     assert body["tables"][0]["rows"] == [["Bruno Lima", 5.0, 38.5]]
@@ -685,7 +733,7 @@ def test_status_de_envio_por_projeto(chat):
 
 
 def test_atalho_do_jev_que_perderia_a_quebra_vai_pro_planner(chat):
-    """"pessoas EM CADA CLIENTE" — o Jev real escolhia só a contagem de pessoas."""
+    """ "pessoas EM CADA CLIENTE" — o Jev real escolhia só a contagem de pessoas."""
     chat["cls"] = _cls("simple_data", "employee_count", "2026-09")
     chat["claude"]["plan_analysis"] = _query(measures=["employees"], group_by=["client"])
     body = _ask("quantas pessoas trabalharam em cada cliente em setembro?").json()
@@ -694,7 +742,7 @@ def test_atalho_do_jev_que_perderia_a_quebra_vai_pro_planner(chat):
 
 
 def test_pergunta_de_dados_sem_atalho_vai_pro_planner(chat):
-    """"em quais projetos o Lucca trabalhou" — sem intent simples; antes caía em
+    """ "em quais projetos o Lucca trabalhou" — sem intent simples; antes caía em
     "não identifiquei qual número você quer"."""
     chat["cls"] = _cls("simple_data", "none", "2026-09")
     chat["claude"]["plan_analysis"] = _query(group_by=["project"], employees=["Ana Souza"])
@@ -718,6 +766,7 @@ def test_pergunta_nova_nao_manda_a_anterior_pro_planner(chat):
         return _query()
 
     import backend.app.analytics.claude_client as cc
+
     chat["cls"] = _cls("analysis", follow_up=("no", 0.99))
     context = {"last_intent": "hours_by_client", "last_filters": {"client": "Beta"}}
     original = cc.plan_analysis
@@ -734,8 +783,15 @@ def test_periodo_que_nao_esta_no_texto_e_ignorado(chat):
     sem período — sem período no texto, vale o padrão (com aviso)."""
     chat["cls"] = None
     chat["claude"]["interpret"] = {
-        "route": "simple_data", "intent": "hours_by_client", "month": None, "month_end": None,
-        "relative_period": "last_3_months", "client": None, "employee": None, "project": None, "follow_up": False,
+        "route": "simple_data",
+        "intent": "hours_by_client",
+        "month": None,
+        "month_end": None,
+        "relative_period": "last_3_months",
+        "client": None,
+        "employee": None,
+        "project": None,
+        "follow_up": False,
     }
     body = _ask("horas por cliente", context={"last_intent": "total_hours", "last_filters": {"relative": "last_3_months"}}).json()
     assert body["metadata"]["period_label"] == "outubro/2025 a setembro/2026"
@@ -779,9 +835,7 @@ def test_estribo_no_ano_mes_a_mes_soma_todos_os_projetos(chat, monkeypatch):
     monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
     chat["cls"] = _cls("analysis")
     # o planner escolheu UM dos projetos e esqueceu o período, como no caso real
-    chat["claude"]["plan_analysis"] = _query(
-        group_by=["month"], projects=["Legislation Package - Estribo"], month=None,
-    )
+    chat["claude"]["plan_analysis"] = _query(group_by=["month"], projects=["Legislation Package - Estribo"], month=None)
 
     body = _ask("quantas horas teve durante o ano no projeto estribo mes a mes").json()
 
@@ -790,7 +844,7 @@ def test_estribo_no_ano_mes_a_mes_soma_todos_os_projetos(chat, monkeypatch):
     assert rows["junho/2026"] == 143.2
     assert rows["julho/2026"] == 13.5
     assert rows["agosto/2026"] == 210.1
-    assert rows["setembro/2026"] == 305.0          # o Projeto Um (7 h) não entra
+    assert rows["setembro/2026"] == 305.0  # o Projeto Um (7 h) não entra
     assert "671,8 h" in body["reply"]
     assert "projetos com “Estribo” no nome (4)" in body["reply"]
 
@@ -808,10 +862,10 @@ def test_continuacao_herda_os_varios_projetos_da_pergunta_anterior(chat, monkeyp
     chat["cls"] = _cls("simple_data", "total_hours", follow_up=("yes", 0.9))
     second = _ask("e durante o ano?", context=first["context"]).json()
     assert second["metadata"]["period_label"] == "janeiro/2026 a setembro/2026"
-    assert "671,8 h" in second["reply"]            # os 4 Estribo, sem o Projeto Um
+    assert "671,8 h" in second["reply"]  # os 4 Estribo, sem o Projeto Um
 
     everyone = _ask("e no time todo?", context=second["context"]).json()
-    assert "678,8 h" in everyone["reply"]          # pediu o todo: sem recorte
+    assert "678,8 h" in everyone["reply"]  # pediu o todo: sem recorte
 
 
 def test_continuacao_nao_fica_com_pedaco_do_recorte_que_o_planner_copiou(chat, monkeypatch):
@@ -827,11 +881,9 @@ def test_continuacao_nao_fica_com_pedaco_do_recorte_que_o_planner_copiou(chat, m
     assert "671,8 h" in second["reply"]
 
     # aqui a pergunta cita o projeto: vale a escolha, não o recorte anterior
-    chat["claude"]["plan_analysis"] = _query(
-        group_by=[], projects=["Legislation Package - Estribo 07.2026"], month=None)
+    chat["claude"]["plan_analysis"] = _query(group_by=[], projects=["Legislation Package - Estribo 07.2026"], month=None)
     third = _ask("e só o estribo 07.2026?", context=second["context"]).json()
     assert "13,5 h" in third["reply"]
-
 
 
 def test_continuacao_nao_repete_projeto_que_ja_esta_na_frase(chat, monkeypatch):
@@ -851,22 +903,22 @@ def test_pergunta_sem_projeto_escolhido_filtra_pelo_trecho_do_nome(chat, monkeyp
     monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ESTRIBO_ROWS)
     monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ESTRIBO_DETAILS)
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _query(group_by=["project"], month=None)   # nenhum projeto escolhido
+    chat["claude"]["plan_analysis"] = _query(group_by=["project"], month=None)  # nenhum projeto escolhido
     body = _ask("horas legislation package").json()
-    assert "671,8 h" in body["reply"]                   # os 4 Estribo; o Projeto Um (7 h) fica de fora
+    assert "671,8 h" in body["reply"]  # os 4 Estribo; o Projeto Um (7 h) fica de fora
     assert "projetos com “Legislation Package” no nome (4)" in body["reply"]
 
 
 def test_cad_sozinho_na_pergunta_filtra_o_centro_de_custo(chat):
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _query(group_by=["month"], month=None)    # o planner esqueceu o CAD
+    chat["claude"]["plan_analysis"] = _query(group_by=["month"], month=None)  # o planner esqueceu o CAD
     body = _ask("horas CAD por mês").json()
     assert body["context"]["last_spec"]["cost_centers"] == ["CAD"]
 
 
 def test_so_faturaveis_esquecido_pelo_planner_vira_filtro(chat):
     chat["cls"] = _cls("analysis")
-    chat["claude"]["plan_analysis"] = _query(group_by=["employee"])      # sem billing_type
+    chat["claude"]["plan_analysis"] = _query(group_by=["employee"])  # sem billing_type
     body = _ask("horas por colaborador em setembro, só faturáveis").json()
     assert body["context"]["last_spec"]["billing_type"] == "billable"
 
@@ -879,26 +931,24 @@ def test_filtro_invalido_do_planner_conta_como_esquecido(chat):
     assert body["context"]["last_spec"]["cost_centers"] == ["CAD"]
 
 
-_ENCAPS_ROWS = [
-    {"data": date(2026, m, 10), "horas": 10.0 * m, "pacote": "Pacote A", "project_id": f"C{m}", "person": "Ana Souza"}
-    for m in range(4, 10)
-]
-_ENCAPS_DETAILS = {f"C{m}": {"name": f"Legislation Package - Encapsulamento {m:02d}.2026", "client": "Mercedes"}
-                   for m in range(4, 10)}
+_ENCAPS_ROWS = [{"data": date(2026, m, 10), "horas": 10.0 * m, "pacote": "Pacote A", "project_id": f"C{m}", "person": "Ana Souza"} for m in range(4, 10)]
+_ENCAPS_DETAILS = {f"C{m}": {"name": f"Legislation Package - Encapsulamento {m:02d}.2026", "client": "Mercedes"} for m in range(4, 10)}
 
 
-@pytest.mark.parametrize("message, expected_group_by", [
-    # filtra por nome e não pede "por projeto": só mês (o planner às vezes quebrava por projeto)
-    ("horas nos projetos Legislation Package - Encapsulamento, mês a mês nos últimos 6 meses", ["month"]),
-    ("horas por projeto e mês do Legislation Package - Encapsulamento nos últimos 6 meses", ["project", "month"]),
-])
+@pytest.mark.parametrize(
+    "message, expected_group_by",
+    [
+        # filtra por nome e não pede "por projeto": só mês (o planner às vezes quebrava por projeto)
+        ("horas nos projetos Legislation Package - Encapsulamento, mês a mês nos últimos 6 meses", ["month"]),
+        ("horas por projeto e mês do Legislation Package - Encapsulamento nos últimos 6 meses", ["project", "month"]),
+    ],
+)
 def test_quebra_por_projeto_so_quando_pedida(chat, monkeypatch, message, expected_group_by):
     monkeypatch.setattr(management, "_get_cached_rows", lambda start, end, *a, **k: _ENCAPS_ROWS)
     monkeypatch.setattr(engineering_hours_repository, "fetch_project_details", lambda ids: _ENCAPS_DETAILS)
     chat["cls"] = _cls("analysis")
     chat["claude"]["plan_analysis"] = _query(
-        group_by=["project", "month"], month=None, relative_period="last_6_months",
-        projects=["Legislation Package - Encapsulamento 05.2026"],
+        group_by=["project", "month"], month=None, relative_period="last_6_months", projects=["Legislation Package - Encapsulamento 05.2026"]
     )
     body = _ask(message).json()
     assert body["context"]["last_spec"]["group_by"] == expected_group_by

@@ -2,14 +2,15 @@
 ver as horas de alguém de engenharia (CAD+CAE); colaborador comum só vê as
 próprias. O `employee_id` vindo do cliente nunca é usado direto — sempre
 re-resolvido contra a lista de engenharia no servidor."""
+
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import management
 from backend.app.api.dependencies import require_session
 from backend.app.api.routers import my_hours as my_hours_router
+from backend.app.core import authz
 from backend.app.main import app
 
 _COORDINATOR = {"name": "Coordenador", "login": "coord", "email": "c@x", "employee_id": "100", "filiale": None}
@@ -24,8 +25,8 @@ _ENGINEERING = [
 
 @pytest.fixture(autouse=True)
 def _setup(monkeypatch):
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
-    monkeypatch.setattr(management, "COORDINATOR_LOGINS", {"coord"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "COORDINATOR_LOGINS", {"coord"})
     monkeypatch.setattr(my_hours_router, "_employees_cache", {"fetched_at": 0.0, "employees": None})
     calls = {"my_hours": [], "employees": 0}
 

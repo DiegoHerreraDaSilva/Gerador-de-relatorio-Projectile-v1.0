@@ -3,6 +3,7 @@
 projeto inteiro como enviado quando cobre só 1 pacote de trabalho (ver
 `management.py`, `project_send_status`, e a marca oculta em `generator.py`/
 `email_ingest.py` que carrega o `pacote_scope` de cada amostra)."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -22,14 +23,16 @@ def _management_db(management_db):
 def _seed(samples, closed_clients=None, closed_projects=None):
     """Estado inicial no formato do antigo management_kpi.json, gravado pelo
     mesmo caminho da importação real (`import_legacy_document`)."""
-    management.import_legacy_document({
-        "manual_entries": {},
-        "project_kpi_samples": samples,
-        "processed_message_ids": [],
-        "skipped_messages": [],
-        "closed_clients": closed_clients or [],
-        "closed_projects": closed_projects or [],
-    })
+    management.import_legacy_document(
+        {
+            "manual_entries": {},
+            "project_kpi_samples": samples,
+            "processed_message_ids": [],
+            "skipped_messages": [],
+            "closed_clients": closed_clients or [],
+            "closed_projects": closed_projects or [],
+        }
+    )
 
 
 def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1", source="email", sample_id=None, business_days=1):
@@ -57,15 +60,7 @@ def _sample(project_id, month, pacote_scope, billed_hours=1.0, msg_id="m1", sour
 
 
 def _row(project_id, pacote, hours, day=1, person=None):
-    return {
-        "data": date(2026, 8, day),
-        "horas": hours,
-        "pacote": pacote,
-        "project_id": project_id,
-        "cost_center": "CAD",
-        "external": "1",
-        "person": person,
-    }
+    return {"data": date(2026, 8, day), "horas": hours, "pacote": pacote, "project_id": project_id, "cost_center": "CAD", "external": "1", "person": person}
 
 
 class _FakeConn:
@@ -84,14 +79,8 @@ def _patch_projectile(monkeypatch, rows):
     monkeypatch.setattr(management, "open_connection", lambda: _FakeConn())
     monkeypatch.setattr(management, "fetch_engineering_hours", lambda *a, **k: rows)
     monkeypatch.setattr(management, "fetch_clients_for_projects", lambda ids, conn=None: ["Cliente Teste"])
-    monkeypatch.setattr(
-        management,
-        "fetch_project_details",
-        lambda ids, conn=None: {pid: {"name": f"Projeto {pid}", "client": "Cliente Teste"} for pid in ids},
-    )
-    monkeypatch.setattr(
-        management, "fetch_project_names_for_ids", lambda ids, conn=None: [f"Projeto {pid}" for pid in ids]
-    )
+    monkeypatch.setattr(management, "fetch_project_details", lambda ids, conn=None: {pid: {"name": f"Projeto {pid}", "client": "Cliente Teste"} for pid in ids})
+    monkeypatch.setattr(management, "fetch_project_names_for_ids", lambda ids, conn=None: [f"Projeto {pid}" for pid in ids])
 
 
 def _find_status(result, project_id, month="2026-08"):
@@ -139,7 +128,7 @@ def test_all_pacotes_sent_is_sent(monkeypatch, tmp_path):
         [
             _sample("P1", "2026-08", pacote_scope="Pacote A", billed_hours=10.0, msg_id="m1"),
             _sample("P1", "2026-08", pacote_scope="Pacote B", billed_hours=5.0, msg_id="m2"),
-        ],
+        ]
     )
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
@@ -154,9 +143,7 @@ def test_one_sample_covering_multiple_pacotes_at_once_is_sent(monkeypatch, tmp_p
     amostra (ex: um relatório que na real cobriu 2 pacotes de trabalho) —
     não precisa de 2 amostras separadas pra fechar "enviado"."""
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    _seed(
-        [_sample("P1", "2026-08", pacote_scope=["Pacote A", "Pacote B"], billed_hours=15.0)],
-    )
+    _seed([_sample("P1", "2026-08", pacote_scope=["Pacote A", "Pacote B"], billed_hours=15.0)])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -196,11 +183,7 @@ def test_list_pacotes_for_project_filters_by_project(monkeypatch):
     já que o mock de `fetch_engineering_hours` (ver `_patch_projectile`)
     ignora o intervalo de datas recebido, igual ao resto dos testes deste
     arquivo."""
-    _patch_projectile(monkeypatch, [
-        _row("P1", "Pacote A", 10.0),
-        _row("P1", "Pacote B", 5.0),
-        _row("P2", "Pacote C", 3.0),
-    ])
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0), _row("P2", "Pacote C", 3.0)])
 
     pacotes = management.list_pacotes_for_project("P1", "2026-08", force_refresh=True)
 
@@ -214,11 +197,7 @@ def test_list_pacotes_for_project_month_none_ignores_month_filter(monkeypatch):
     específico. Mock de fetch_engineering_hours já ignora o intervalo
     recebido (mesma ressalva do teste acima), então isso só prova que a
     chamada não quebra e ainda filtra por projeto certo."""
-    _patch_projectile(monkeypatch, [
-        _row("P1", "Pacote Antigo", 1.0, day=1),
-        _row("P1", "Pacote Novo", 2.0, day=15),
-        _row("P2", "Pacote Outro Projeto", 3.0),
-    ])
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote Antigo", 1.0, day=1), _row("P1", "Pacote Novo", 2.0, day=15), _row("P2", "Pacote Outro Projeto", 3.0)])
 
     pacotes = management.list_pacotes_for_project("P1", None, force_refresh=True)
 
@@ -284,9 +263,7 @@ def test_manual_send_marker_created_and_detected(monkeypatch, tmp_path):
     "none"/"partial") é detectada como manual_send_marker_id, e como não há
     nenhuma outra evidência, é removível."""
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    _seed([
-        _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
-    ])
+    _seed([_sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1")])
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -301,10 +278,12 @@ def test_manual_send_marker_not_removable_when_real_evidence_covers_row(monkeypa
     e-mail real, ele não é removível (não faz sentido "desmarcar" algo que
     já está genuinamente enviado)."""
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0)])
-    _seed([
-        _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1", source="email"),
-        _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
-    ])
+    _seed(
+        [
+            _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1", source="email"),
+            _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
+        ]
+    )
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
     row = _find_status(result, "P1")
@@ -319,10 +298,12 @@ def test_deleting_manual_send_marker_reverts_partial_status(monkeypatch, tmp_pat
     endpoint que o botão "desmarcar" chama) reverte a linha pro status real
     calculado a partir das amostras que sobraram."""
     _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0), _row("P1", "Pacote B", 5.0)])
-    _seed([
-        _sample("P1", "2026-08", pacote_scope=["Pacote A"], billed_hours=10.0, msg_id="m1", source="email"),
-        _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
-    ])
+    _seed(
+        [
+            _sample("P1", "2026-08", pacote_scope=["Pacote A"], billed_hours=10.0, msg_id="m1", source="email"),
+            _sample("P1", "2026-08", pacote_scope=None, billed_hours=0, business_days=0, msg_id="manual-1", source="manual", sample_id="marker-1"),
+        ]
+    )
 
     management.delete_project_kpi_sample("marker-1")
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
@@ -360,12 +341,7 @@ def test_import_accepts_old_json_without_closed_keys(tmp_path, monkeypatch):
     """management_kpi.json de antes dos "fechados" existirem não tem
     closed_clients/closed_projects — a importação precisa tratar isso como
     listas vazias sem quebrar nada."""
-    management.import_legacy_document({
-        "manual_entries": {},
-        "project_kpi_samples": [],
-        "processed_message_ids": [],
-        "skipped_messages": [],
-    })
+    management.import_legacy_document({"manual_entries": {}, "project_kpi_samples": [], "processed_message_ids": [], "skipped_messages": []})
 
     assert management.get_closed_registry() == {"closed_clients": [], "closed_projects": []}
 
@@ -401,6 +377,7 @@ def test_no_samples_is_none(monkeypatch, tmp_path):
 # vezes em compute_monthly_kpis (ver management._recompute_duplicate_flags).
 # ---------------------------------------------------------------------------
 
+
 def _find_sample(samples, msg_id):
     for s in samples:
         if s["email_message_id"] == msg_id:
@@ -435,12 +412,8 @@ def test_duplicate_even_with_different_hours(tmp_path, monkeypatch):
     override manual do Painel de Gerência)."""
     _seed([])
 
-    management.append_project_kpi_sample(
-        _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1")
-    )
-    second_is_dup = management.append_project_kpi_sample(
-        _sample("P1", "2026-08", pacote_scope=None, billed_hours=999.0, msg_id="m2")
-    )
+    management.append_project_kpi_sample(_sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1"))
+    second_is_dup = management.append_project_kpi_sample(_sample("P1", "2026-08", pacote_scope=None, billed_hours=999.0, msg_id="m2"))
 
     assert second_is_dup is True
 
@@ -474,11 +447,9 @@ def test_deleting_original_sample_promotes_next_to_non_duplicate(tmp_path, monke
 # não têm dimensão de pessoa — ver docstring de _build_month_row).
 # ---------------------------------------------------------------------------
 
+
 def test_persons_filter_scopes_worked_hours(monkeypatch, tmp_path):
-    _patch_projectile(monkeypatch, [
-        _row("P1", "Pacote A", 10.0, person="Ana"),
-        _row("P1", "Pacote A", 4.0, person="Beto"),
-    ])
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0, person="Ana"), _row("P1", "Pacote A", 4.0, person="Beto")])
     _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
@@ -528,10 +499,7 @@ def test_available_persons_ignores_own_filter(monkeypatch, tmp_path):
     """`available_persons` reflete todo mundo que apontou no recorte de
     Centro de Custo/Cliente/Projeto/Pacote — não esvazia pras outras opções
     quando uma pessoa já está selecionada (mesmo padrão de available_packages)."""
-    _patch_projectile(monkeypatch, [
-        _row("P1", "Pacote A", 10.0, person="Ana"),
-        _row("P1", "Pacote A", 4.0, person="Beto"),
-    ])
+    _patch_projectile(monkeypatch, [_row("P1", "Pacote A", 10.0, person="Ana"), _row("P1", "Pacote A", 4.0, person="Beto")])
     _seed([])
 
     result = management.compute_monthly_kpis(months=1, year=2026, persons=["Ana"], force_refresh=True)
@@ -559,7 +527,7 @@ def test_duplicate_excluded_from_billed_hours_sum(monkeypatch, tmp_path):
         [
             _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m1"),
             _sample("P1", "2026-08", pacote_scope=None, billed_hours=10.0, msg_id="m2"),
-        ],
+        ]
     )
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
@@ -573,55 +541,9 @@ def test_different_pacote_scope_is_not_duplicate(monkeypatch, tmp_path):
         [
             _sample("P1", "2026-08", pacote_scope="Pacote A", billed_hours=10.0, msg_id="m1"),
             _sample("P1", "2026-08", pacote_scope="Pacote B", billed_hours=5.0, msg_id="m2"),
-        ],
+        ]
     )
 
     result = management.compute_monthly_kpis(months=1, year=2026, force_refresh=True)
 
     assert _month_billed_hours(result) == 15.0  # pacotes diferentes — não é o mesmo relatório
-
-
-# ---------------------------------------------------------------------------
-# _load_management_panel_logins — normalização de caixa (ver main.py, que
-# compara com .lower() do lado do login também; auser.rLogin no Projectile
-# não tem capitalização padronizada, ex: "Lbrito" em vez de "lbrito")
-# ---------------------------------------------------------------------------
-
-def test_load_management_panel_logins_normalizes_to_lowercase(monkeypatch):
-    monkeypatch.setenv("MANAGEMENT_PANEL_LOGINS", "Dherrera, LFranco, lvicente")
-
-    logins = management._load_management_panel_logins()
-
-    assert logins == {"dherrera", "lfranco", "lvicente"}
-
-
-def test_load_management_panel_logins_strips_whitespace_and_drops_empty(monkeypatch):
-    monkeypatch.setenv("MANAGEMENT_PANEL_LOGINS", " dherrera ,, lfranco,")
-
-    logins = management._load_management_panel_logins()
-
-    assert logins == {"dherrera", "lfranco"}
-
-
-def test_load_management_panel_logins_falls_back_when_env_missing(monkeypatch):
-    monkeypatch.delenv("MANAGEMENT_PANEL_LOGINS", raising=False)
-
-    logins = management._load_management_panel_logins()
-
-    assert logins == {"dherrera"}
-
-
-def test_load_translate_allowed_logins_normalizes_to_lowercase(monkeypatch):
-    monkeypatch.setenv("TRANSLATE_ALLOWED_LOGINS", "Dherrera, LFranco")
-
-    logins = management._load_translate_allowed_logins()
-
-    assert logins == {"dherrera", "lfranco"}
-
-
-def test_load_translate_allowed_logins_falls_back_when_env_missing(monkeypatch):
-    monkeypatch.delenv("TRANSLATE_ALLOWED_LOGINS", raising=False)
-
-    logins = management._load_translate_allowed_logins()
-
-    assert logins == {"dherrera"}

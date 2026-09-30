@@ -1,5 +1,6 @@
 """Peças do chat analítico isoladas: cliente do Jev (HTTP falso), trava de
 números (grounding), períodos, visualização e o SQL do reports_db."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -9,9 +10,9 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from backend.app import management
 from backend.app.analytics import grounding, periods, visualization
 from backend.app.analytics.query_engine import Filters, QueryResult
+from backend.app.core import authz
 from backend.app.integrations import jev
 from backend.app.main import app, require_session
 from backend.app.repositories import report_analytics_repository
@@ -20,9 +21,7 @@ from backend.app.repositories import report_analytics_repository
 
 
 def _settings(key="k", openrouter=""):
-    return SimpleNamespace(
-        openrouter_api_key=openrouter, typesafe_api_key=key, jev_model="jev-latest", jev_timeout_seconds=3.0,
-    )
+    return SimpleNamespace(openrouter_api_key=openrouter, typesafe_api_key=key, jev_model="jev-latest", jev_timeout_seconds=3.0)
 
 
 class _Response:
@@ -42,12 +41,16 @@ def test_jev_monta_a_requisicao_e_le_choice_e_noul(monkeypatch):
 
     def fake_post(url, headers, json, timeout):
         sent.update(url=url, headers=headers, json=json, timeout=timeout)
-        return _Response({"model": "jev-1.13.0", "answers": {
-            "intent": {"type": "choice", "choice": "total_hours", "confidence": 0.93,
-                       "probabilities": {"total_hours": 0.95, "none": 0.05}},
-            "follow_up": {"type": "noul", "noul": 0.9},
-            "extra_nao_pedida": {"type": "choice", "choice": "x", "confidence": 1.0},
-        }})
+        return _Response(
+            {
+                "model": "jev-1.13.0",
+                "answers": {
+                    "intent": {"type": "choice", "choice": "total_hours", "confidence": 0.93, "probabilities": {"total_hours": 0.95, "none": 0.05}},
+                    "follow_up": {"type": "noul", "noul": 0.9},
+                    "extra_nao_pedida": {"type": "choice", "choice": "x", "confidence": 1.0},
+                },
+            }
+        )
 
     monkeypatch.setattr(jev, "get_settings", lambda: _settings())
     monkeypatch.setattr(jev.requests, "post", fake_post)
@@ -165,13 +168,11 @@ def test_opcoes_de_mes_cobrem_a_janela_e_viram_a_virada_de_ano():
 
 def _result(intent, dimension, rows, unit="hours", total=None):
     filters = Filters(periods.resolve_period("2026-09", None, _TODAY, 24))
-    return QueryResult(intent=intent, source="projectile", unit=unit, dimension=dimension,
-                       filters=filters, total=total, rows=rows)
+    return QueryResult(intent=intent, source="projectile", unit=unit, dimension=dimension, filters=filters, total=total, rows=rows)
 
 
 def test_serie_mensal_vira_linha():
-    result = _result("hours_by_competence", "competence",
-                     [{"label": "agosto/2026", "value": 5.0}, {"label": "setembro/2026", "value": 13.0}])
+    result = _result("hours_by_competence", "competence", [{"label": "agosto/2026", "value": 5.0}, {"label": "setembro/2026", "value": 13.0}])
     assert visualization.build_visualizations(result)[0]["type"] == "line"
 
 
@@ -199,14 +200,21 @@ def test_valor_nulo_fica_fora_do_grafico():
 
 def _payload(number: str, hours: float) -> dict:
     return {
-        "packages": [{
-            "header": {
-                "project_code": number, "project_name": f"Projeto {number}",
-                "location_date": "São Paulo, 01/01/2026", "month_label": "Setembro/2026",
-                "signer1_name": "A", "signer1_company": "B", "signer2_name": "C", "signer2_company": "D",
-            },
-            "groups": [{"name": "ENG", "performance": 100.0, "activities": [{"description": "x", "hours": hours}]}],
-        }],
+        "packages": [
+            {
+                "header": {
+                    "project_code": number,
+                    "project_name": f"Projeto {number}",
+                    "location_date": "São Paulo, 01/01/2026",
+                    "month_label": "Setembro/2026",
+                    "signer1_name": "A",
+                    "signer1_company": "B",
+                    "signer2_name": "C",
+                    "signer2_company": "D",
+                },
+                "groups": [{"name": "ENG", "performance": 100.0, "activities": [{"description": "x", "hours": hours}]}],
+            }
+        ],
         "formats": ["xlsx", "pdf"],
         "include_performance": False,
     }
@@ -214,7 +222,7 @@ def _payload(number: str, hours: float) -> dict:
 
 @pytest.mark.reports_db
 def test_repository_conta_relatorio_uma_vez_mesmo_com_dois_formatos(reports_db_engine, monkeypatch):
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
     app.dependency_overrides[require_session] = lambda: {"name": "G", "login": "gerente", "email": "g@x"}
     try:
         with TestClient(app) as client:
@@ -253,7 +261,7 @@ def test_exporta_tabela_com_numeros_como_numeros_e_texto_sem_formula(monkeypatch
 
     from openpyxl import load_workbook
 
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
     app.dependency_overrides[require_session] = lambda: {"name": "G", "login": "gerente", "email": "g@x"}
     try:
         response = _export(TestClient(app))
@@ -270,15 +278,16 @@ def test_exporta_tabela_com_numeros_como_numeros_e_texto_sem_formula(monkeypatch
 
 
 def test_exportacao_recusa_numero_invalido_e_colaborador(monkeypatch):
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
     app.dependency_overrides[require_session] = lambda: {"name": "G", "login": "gerente", "email": "g@x"}
     try:
         client = TestClient(app)
-        assert client.post(
-            "/analytics/chat/export",
-            content='{"title": "t", "columns": ["a"], "rows": [[NaN]]}',
-            headers={"content-type": "application/json"},
-        ).status_code == 422
+        assert (
+            client.post(
+                "/analytics/chat/export", content='{"title": "t", "columns": ["a"], "rows": [[NaN]]}', headers={"content-type": "application/json"}
+            ).status_code
+            == 422
+        )
         app.dependency_overrides[require_session] = lambda: {"name": "C", "login": "colab", "email": "c@x"}
         assert _export(client).status_code == 403
     finally:
@@ -301,12 +310,10 @@ _ESTRIBO = [
 def test_nome_parcial_vira_frase_do_nome_do_projeto():
     from backend.app.analytics import signals
 
-    phrases, kept = signals.family_phrases(
-        "quantas horas teve no projeto estribo mes a mes", ["Legislation Package - Estribo 08.2026"], _ESTRIBO)
+    phrases, kept = signals.family_phrases("quantas horas teve no projeto estribo mes a mes", ["Legislation Package - Estribo 08.2026"], _ESTRIBO)
     assert (phrases, kept) == (["Estribo"], [])
-    phrases, _ = signals.family_phrases(
-        "horas projeto legislation package", ["Legislation Package - Estribo"], _ESTRIBO)
-    assert phrases == ["Legislation Package"]          # os 5 "Legislation Package", sem teto
+    phrases, _ = signals.family_phrases("horas projeto legislation package", ["Legislation Package - Estribo"], _ESTRIBO)
+    assert phrases == ["Legislation Package"]  # os 5 "Legislation Package", sem teto
     assert sum(signals.matches_phrase("Legislation Package", p) for p in _ESTRIBO) == 5
 
 
@@ -321,15 +328,18 @@ def test_nome_especifico_nao_vira_frase():
     assert signals.family_phrases("e em julho?", selected, _ESTRIBO) == ([], selected)
 
 
-@pytest.mark.parametrize("message, expected", [
-    ("horas legislation package", "Legislation Package"),   # grafia do nome do projeto       # 2 palavras seguidas no nome
-    ("horas do projeto estribo mes a mes", "Estribo"),          # 1 palavra depois de "projeto"
-    ("quanto o Legislation Package - Estribo teve", "Legislation Package Estribo"),
-    ("horas estribo em agosto", None),                          # 1 palavra solta: o planner decide
-    ("horas CAD por cliente", None),                            # centro de custo, não projeto
-    ("horas por cliente no último mês", None),                  # só vocabulário do chat
-    ("horas da ACME em setembro", None),                        # nome de cliente
-])
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("horas legislation package", "Legislation Package"),  # grafia do nome do projeto       # 2 palavras seguidas no nome
+        ("horas do projeto estribo mes a mes", "Estribo"),  # 1 palavra depois de "projeto"
+        ("quanto o Legislation Package - Estribo teve", "Legislation Package Estribo"),
+        ("horas estribo em agosto", None),  # 1 palavra solta: o planner decide
+        ("horas CAD por cliente", None),  # centro de custo, não projeto
+        ("horas por cliente no último mês", None),  # só vocabulário do chat
+        ("horas da ACME em setembro", None),  # nome de cliente
+    ],
+)
 def test_trecho_de_nome_de_projeto_na_pergunta(message, expected):
     from backend.app.analytics import signals
 
@@ -337,13 +347,16 @@ def test_trecho_de_nome_de_projeto_na_pergunta(message, expected):
     assert signals.detect_project_phrase(message, projects, ["ACME", "Ana Souza"]) == expected
 
 
-@pytest.mark.parametrize("message", [
-    "quantas horas teve durante o ano no projeto estribo",
-    "e durante o ano?",
-    "horas ao longo do ano por cliente",
-    "horas do ano todo",
-    "horas no ano inteiro",
-])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "quantas horas teve durante o ano no projeto estribo",
+        "e durante o ano?",
+        "horas ao longo do ano por cliente",
+        "horas do ano todo",
+        "horas no ano inteiro",
+    ],
+)
 def test_durante_o_ano_e_o_ano_corrente(message):
     from backend.app.analytics import signals
 
@@ -356,40 +369,48 @@ def test_ultimo_ano_continua_sendo_12_meses():
     assert signals.year_phrases("horas durante o último ano", date(2026, 9, 25)) == []
 
 
-@pytest.mark.parametrize("message, expected", [
-    ("e durante o ano?", True),
-    ("e em julho?", True),
-    ("e por colaborador?", True),
-    ("agora por cliente", True),
-    ("e quantas horas o Lucca apontou em agosto?", False),   # longa: decide o classificador
-    ("estribo em agosto", False),
-])
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("e durante o ano?", True),
+        ("e em julho?", True),
+        ("e por colaborador?", True),
+        ("agora por cliente", True),
+        ("e quantas horas o Lucca apontou em agosto?", False),  # longa: decide o classificador
+        ("estribo em agosto", False),
+    ],
+)
 def test_continuacao_obvia(message, expected):
     from backend.app.analytics import signals
 
     assert signals.obviously_follow_up(message) is expected
 
 
-
-@pytest.mark.parametrize("message, expected", [
-    ("horas CAD por mês", "CAD"),
-    ("quanto o time de cae apontou", "CAE"),
-    ("horas CAD x CAE por mês", None),     # os dois = comparação, não filtro
-    ("horas por cliente", None),
-])
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("horas CAD por mês", "CAD"),
+        ("quanto o time de cae apontou", "CAE"),
+        ("horas CAD x CAE por mês", None),  # os dois = comparação, não filtro
+        ("horas por cliente", None),
+    ],
+)
 def test_centro_de_custo_citado_sozinho(message, expected):
     from backend.app.analytics import signals
 
     assert signals.single_cost_center(message) == expected
 
 
-@pytest.mark.parametrize("message, expected", [
-    ("horas da Mercedes por colaborador em julho, só faturáveis", "billable"),
-    ("somente as horas não faturáveis por pacote", "non_billable"),
-    ("apenas horas faturáveis", "billable"),
-    ("quanto das horas foi não faturável por colaborador?", None),   # é medida, não filtro
-    ("horas faturáveis x não faturáveis por mês", None),
-])
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ("horas da Mercedes por colaborador em julho, só faturáveis", "billable"),
+        ("somente as horas não faturáveis por pacote", "non_billable"),
+        ("apenas horas faturáveis", "billable"),
+        ("quanto das horas foi não faturável por colaborador?", None),  # é medida, não filtro
+        ("horas faturáveis x não faturáveis por mês", None),
+    ],
+)
 def test_so_faturaveis_vira_filtro(message, expected):
     from backend.app.analytics import signals
 
@@ -399,24 +420,28 @@ def test_so_faturaveis_vira_filtro(message, expected):
 # --- trava de "em relação ao total" --------------------------------------------------
 
 
-@pytest.mark.parametrize("message, strength", [
-    ("horas do Lucca na Mercedes em relação ao total de horas", "strong"),
-    ("quanto o Lucca representa das horas da Mercedes", "strong"),
-    ("participação da Mercedes nas horas do time", "strong"),
-    ("percentual das horas do Lucca que foram pra Mercedes", "weak"),
-    # caso real de 2026-09-29: só "em relação ao total" era reconhecido
-    ("quantas horas o Lucca tem em projetos da Mercedes comparado as horas totais", "strong"),
-    ("horas do Lucca em relação às horas totais", "strong"),
-    ("em comparação ao total de horas", "strong"),
-    ("Mercedes versus o total", "strong"),
-    ("compare agosto com setembro", None),
-    ("horas totais da Mercedes", None),
-    ("quantas horas no total em agosto", None),                 # "no total" = somando tudo
-    ("qual o total de horas da Mercedes em agosto", None),
-    ("percentual não faturável por colaborador", None),
-])
+@pytest.mark.parametrize(
+    "message, strength",
+    [
+        ("horas do Lucca na Mercedes em relação ao total de horas", "strong"),
+        ("quanto o Lucca representa das horas da Mercedes", "strong"),
+        ("participação da Mercedes nas horas do time", "strong"),
+        ("percentual das horas do Lucca que foram pra Mercedes", "weak"),
+        # caso real de 2026-09-29: só "em relação ao total" era reconhecido
+        ("quantas horas o Lucca tem em projetos da Mercedes comparado as horas totais", "strong"),
+        ("horas do Lucca em relação às horas totais", "strong"),
+        ("em comparação ao total de horas", "strong"),
+        ("Mercedes versus o total", "strong"),
+        ("compare agosto com setembro", None),
+        ("horas totais da Mercedes", None),
+        ("quantas horas no total em agosto", None),  # "no total" = somando tudo
+        ("qual o total de horas da Mercedes em agosto", None),
+        ("percentual não faturável por colaborador", None),
+    ],
+)
 def test_sinal_de_comparacao_com_o_total(message, strength):
     from backend.app.analytics import signals
+
     assert signals.asks_share(message) == strength
 
 
@@ -425,8 +450,8 @@ def test_comparacao_do_planner_sem_sinal_na_frase_ainda_escolhe_a_base():
     novo de perguntar que o sinal não conhece: a trava escolhe a base mesmo
     assim (antes caía num aviso de "falta recorte" com o recorte presente)."""
     from backend.app.analytics.service import _with_share
-    raw = {"measures": ["hours", "total_hours", "share_percent"], "employees": ["Lucca Perchon Franco"],
-           "clients": ["MERCEDES BENZ DO BRASIL LTDA."]}
+
+    raw = {"measures": ["hours", "total_hours", "share_percent"], "employees": ["Lucca Perchon Franco"], "clients": ["MERCEDES BENZ DO BRASIL LTDA."]}
     out = _with_share(dict(raw), "o quanto do tempo do Lucca vai pra Mercedes?")
     assert out["share_of"] == "clients" and out["measures"] == ["hours", "total_hours", "share_percent"]
     # sem nenhum recorte não há o que comparar: a consulta segue como veio
@@ -436,6 +461,7 @@ def test_comparacao_do_planner_sem_sinal_na_frase_ainda_escolhe_a_base():
 
 def test_trava_escolhe_o_que_sai_da_base_pelo_texto():
     from backend.app.analytics.service import _with_share
+
     raw = {"measures": ["hours"], "employees": ["Lucca Perchon Franco"], "clients": ["MERCEDES BENZ DO BRASIL LTDA."]}
     mine = _with_share(dict(raw), "horas do Lucca na Mercedes em relação ao total dele, mês a mês")
     assert mine["share_of"] == "clients" and mine["measures"] == ["hours", "total_hours", "share_percent"]
@@ -443,14 +469,16 @@ def test_trava_escolhe_o_que_sai_da_base_pelo_texto():
     theirs = _with_share({**raw, "share_of": "clients"}, "quanto o Lucca representa das horas da Mercedes")
     assert theirs["share_of"] == "employees"
     # quebra não pedida sai ("em projetos da Mercedes" não é "por projeto")
-    split = _with_share({**raw, "group_by": ["month", "project"]},
-                        "horas do Lucca em projetos da Mercedes em relação ao total, mês a mês")
+    split = _with_share({**raw, "group_by": ["month", "project"]}, "horas do Lucca em projetos da Mercedes em relação ao total, mês a mês")
     assert split["group_by"] == ["month"]
     # nada sai da base: vira a participação de cada linha (% do total de sempre)
-    each = _with_share({"measures": ["hours", "share_percent"], "group_by": ["client"], "employees": ["Lucca Perchon Franco"],
-                        "share_of": "employees"}, "participação de cada cliente nas horas do Lucca")
+    each = _with_share(
+        {"measures": ["hours", "share_percent"], "group_by": ["client"], "employees": ["Lucca Perchon Franco"], "share_of": "employees"},
+        "participação de cada cliente nas horas do Lucca",
+    )
     assert each["measures"] == ["hours"] and each["share_of"] is None and each["group_by"] == ["client"]
     # "percentual não faturável" continua sendo a medida própria
-    assert _with_share({"measures": ["non_billable_percent"], "employees": ["Lucca Perchon Franco"]},
-                       "percentual das horas não faturáveis do Lucca") == {
-        "measures": ["non_billable_percent"], "employees": ["Lucca Perchon Franco"]}
+    assert _with_share({"measures": ["non_billable_percent"], "employees": ["Lucca Perchon Franco"]}, "percentual das horas não faturáveis do Lucca") == {
+        "measures": ["non_billable_percent"],
+        "employees": ["Lucca Perchon Franco"],
+    }

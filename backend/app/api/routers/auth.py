@@ -1,10 +1,10 @@
 """Rotas de autenticação (`/auth/*`) — extraído de `main.py`."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from ... import management
 from ...auth import (
     LoginError,
     RateLimitError,
@@ -16,6 +16,7 @@ from ...auth import (
     register_login_success,
     verify_projectile_login,
 )
+from ...core import authz
 from ...projectile_db import ProjectileDbError
 from ..dependencies import SESSION_COOKIE
 from ..errors import log_and_generic_error
@@ -48,18 +49,16 @@ async def login_endpoint(payload: LoginRequest, request: Request, response: Resp
     register_login_success(client_key)
     token = create_session(user)
     response.set_cookie(
-        SESSION_COOKIE, token,
-        httponly=True, samesite="lax", max_age=8 * 60 * 60,
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        max_age=8 * 60 * 60,
         # secure=True automaticamente quando servido via HTTPS — hoje é HTTP puro
         # (rede interna), então isso já fica pronto pro dia que rodar atrás de TLS.
         secure=(request.url.scheme == "https"),
     )
-    return {
-        "name": user["name"], "login": user["login"], "email": user["email"],
-        "is_manager": user["login"].lower() in management.MANAGEMENT_PANEL_LOGINS,
-        "is_coordinator": user["login"].lower() in management.COORDINATOR_LOGINS,
-        "is_translate_allowed": user["login"].lower() in management.TRANSLATE_ALLOWED_LOGINS,
-    }
+    return {"name": user["name"], "login": user["login"], "email": user["email"], **authz.roles_for(user)}
 
 
 @router.get("/auth/me")
@@ -67,12 +66,7 @@ async def me_endpoint(request: Request):
     session = get_session(request.cookies.get(SESSION_COOKIE))
     if not session:
         raise HTTPException(401, "Não autenticado.")
-    return {
-        "name": session["name"], "login": session["login"], "email": session["email"],
-        "is_manager": session["login"].lower() in management.MANAGEMENT_PANEL_LOGINS,
-        "is_coordinator": session["login"].lower() in management.COORDINATOR_LOGINS,
-        "is_translate_allowed": session["login"].lower() in management.TRANSLATE_ALLOWED_LOGINS,
-    }
+    return {"name": session["name"], "login": session["login"], "email": session["email"], **authz.roles_for(session)}
 
 
 @router.post("/auth/logout")

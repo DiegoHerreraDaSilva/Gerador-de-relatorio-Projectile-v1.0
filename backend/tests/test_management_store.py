@@ -5,6 +5,7 @@ test_management.py; aqui fica o que depende do banco em si:
 
 - `reports_db`: MySQL real (lock entre conexões, collation binária);
 - os demais usam o SQLite da fixture `management_db`."""
+
 from __future__ import annotations
 
 import json
@@ -15,16 +16,25 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import management
+from backend.app.core import authz
 from backend.app.services import management_store
 from backend.app.tools import import_management_json
 
 
 def _email_sample(sample_id: str, msg_id: str, **overrides) -> dict:
     sample = {
-        "email_message_id": msg_id, "received_at": "2026-09-10T12:00:00Z",
-        "sender": "alberto@schwaben.com.br", "report_project_text": "Projeto X", "project_id": "P1",
-        "project_name": "Projeto X", "match_score": 0.93, "month": "2026-08",
-        "billed_hours": 10.25, "business_days": 3, "pacote_scope": None, "sample_id": sample_id,
+        "email_message_id": msg_id,
+        "received_at": "2026-09-10T12:00:00Z",
+        "sender": "alberto@schwaben.com.br",
+        "report_project_text": "Projeto X",
+        "project_id": "P1",
+        "project_name": "Projeto X",
+        "match_score": 0.93,
+        "month": "2026-08",
+        "billed_hours": 10.25,
+        "business_days": 3,
+        "pacote_scope": None,
+        "sample_id": sample_id,
     }
     sample.update(overrides)
     return sample
@@ -116,9 +126,7 @@ def test_importacao_preserva_os_dados_no_mysql(reports_db_engine):
     assert sample["extra_field"] == "x"
     assert sample["source"] == "email" and sample["edited"] is False and sample["is_duplicate"] is False
     assert sorted(document["processed_message_ids"]) == ["msg-1", "msg-2"]
-    assert document["skipped_messages"] == [
-        {"message_id": "msg-2", "received_at": "2026-09-11T08:00:00Z", "reason": "sem anexo"}
-    ]
+    assert document["skipped_messages"] == [{"message_id": "msg-2", "received_at": "2026-09-11T08:00:00Z", "reason": "sem anexo"}]
     assert document["closed_clients"] == ["Cliente Fechado"]
     assert document["closed_projects"] == ["P9"]
 
@@ -155,9 +163,7 @@ def test_replace_existing_prefere_o_json_e_guarda_o_descartado(management_db):
     management.append_project_kpi_sample(_email_sample("do-polling", "msg-1", project_id="P-ERRADO"))
     corrected = _email_sample("corrigida", "msg-1", project_id="P-CERTO", edited=True)
 
-    result = management.import_legacy_document(
-        _legacy_document(project_kpi_samples=[corrected]), replace_existing=True,
-    )
+    result = management.import_legacy_document(_legacy_document(project_kpi_samples=[corrected]), replace_existing=True)
 
     assert result["replaced_samples"] == 1
     samples = management_store.load_document()["project_kpi_samples"]
@@ -171,9 +177,7 @@ def test_ordem_de_insercao_desempata_duplicata_com_mesmo_received_at(management_
     """Mesma identidade e mesmo `received_at`: a primeira da lista do JSON é
     a original, as outras são duplicatas — igual a quando isso vivia no
     arquivo (sort estável por `received_at`)."""
-    management.import_legacy_document(_legacy_document(project_kpi_samples=[
-        _email_sample("primeira", "m1"), _email_sample("segunda", "m2"),
-    ]))
+    management.import_legacy_document(_legacy_document(project_kpi_samples=[_email_sample("primeira", "m1"), _email_sample("segunda", "m2")]))
 
     flags = {s["sample_id"]: s["is_duplicate"] for s in management_store.load_document()["project_kpi_samples"]}
     assert flags == {"primeira": False, "segunda": True}
@@ -220,7 +224,7 @@ def test_ferramenta_avisa_de_json_gravado_depois_da_importacao(management_db, tm
 def test_falha_do_banco_vira_502_com_mensagem_generica(management_db, monkeypatch):
     from backend.app.main import app, require_session
 
-    monkeypatch.setattr(management, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
+    monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"dherrera"})
     app.dependency_overrides[require_session] = lambda: {"name": "Diego", "login": "dherrera", "email": "d@x"}
 
     def _down():
