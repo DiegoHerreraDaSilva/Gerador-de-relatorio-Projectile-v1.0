@@ -160,7 +160,7 @@ export function TeamPanel({ onNavigate }: { onNavigate: (view: AppView) => void 
                       direction={sort.direction}
                       onSort={sort.toggleSort}
                     >
-                      Dias com apontamento
+                      Dias úteis apontados
                     </SortableTh>
                     <SortableTh
                       sortKey="gaps"

@@ -54,7 +54,7 @@ def test_fim_de_semana_trabalhado_conta_nas_horas_mas_nao_vira_dia_util_nem_entr
     assert saturday.weekday() == 5
     [person] = summarize([employee("1", "Ana")], rows("1", [*CLOSED, saturday]))
     assert person["hours"] == 8.0 * (len(CLOSED) + 1)
-    assert person["days_worked"] == len(CLOSED) + 1
+    assert person["days_worked"] == len(CLOSED)  # fim de semana fica de fora da contagem de dias úteis
     assert person["closed_business_days"] == len(CLOSED) and person["gap_count"] == 0
     assert person["avg_hours_per_day"] == 8.0  # o sábado não puxa a média dos dias úteis
 

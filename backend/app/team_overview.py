@@ -60,7 +60,7 @@ def summarize(employees: list[dict], daily_rows: list[dict], start: date, end: d
                 "name": employee["name"],
                 "cost_center": employee.get("cost_center"),
                 "hours": hours,
-                "days_worked": len(in_period),
+                "days_worked": worked_closed,  # só dia útil já encerrado: nunca passa de closed_business_days
                 "closed_business_days": len(closed),
                 "gap_days": [d.isoformat() for d in gaps],
                 "gap_count": len(gaps),
