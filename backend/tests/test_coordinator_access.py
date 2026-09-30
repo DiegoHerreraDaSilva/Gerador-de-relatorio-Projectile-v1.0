@@ -51,6 +51,7 @@ _MANAGER_ONLY = {
     ("POST", "/auto-generation/reports/{report_id}/return"),
     ("GET", "/auto-generation/reports/{report_id}/send"),
     ("POST", "/auto-generation/reports/{report_id}/send"),
+    ("POST", "/auto-generation/reports/{report_id}/send/resolve"),
     ("GET", "/auto-generation/files"),
     ("POST", "/auto-generation/send"),
     ("PUT", "/auto-generation/competences/{competence}/numbers/{project_id}"),

@@ -127,6 +127,11 @@ class SendRequest(_Strict):
     formats: list[Literal["xlsx", "pdf"]] | None = Field(default=None, max_length=2)
 
 
+class ResolveSendRequest(_Strict):
+    # sent = o e-mail chegou; not_sent = não chegou (libera enviar de novo)
+    resolution: Literal["sent", "not_sent"]
+
+
 class CombinedSendRequest(SendRequest):
     # vários relatórios aprovados num e-mail só
     report_ids: list[str] = Field(min_length=1, max_length=100)

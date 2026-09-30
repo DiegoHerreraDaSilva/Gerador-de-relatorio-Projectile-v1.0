@@ -63,6 +63,10 @@ _CELL_REF_RE = re.compile(r"^([A-Z]+)(\d+)$")
 
 
 class EmailIngestError(RuntimeError):
+    # True quando o Graph pode ter aceitado o e-mail mesmo com o erro (timeout, queda de conexão, 5xx):
+    # só resposta 4xx prova que NÃO saiu. Quem envia usa isso pra não reenviar às cegas.
+    maybe_delivered: bool = False
+
     """Falha ao consultar o Graph, ler um anexo ou resolver a fórmula de
     "Total de horas" — nunca um erro do usuário, sempre um problema de
     configuração/anexo/template que precisa de atenção manual."""
@@ -138,7 +142,9 @@ def _graph_post(url: str, json_body: dict) -> None:
                 detail = f" — {e.response.json().get('error', {}).get('message', '')}"
             except ValueError:
                 detail = f" — {e.response.text[:200]}"
-        raise EmailIngestError(f"Falha ao enviar e-mail pelo Microsoft Graph{detail}") from e
+        failure = EmailIngestError(f"Falha ao enviar e-mail pelo Microsoft Graph{detail}")
+        failure.maybe_delivered = not (e.response is not None and 400 <= e.response.status_code < 500)
+        raise failure from e
 
 
 def diagnostics_sender_emails() -> list[str]:

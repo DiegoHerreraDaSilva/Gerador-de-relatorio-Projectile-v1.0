@@ -10,6 +10,7 @@ from ... import management
 from ...services import auto_generation_store as store
 from .. import builder, families, rules
 from .common import (
+    STATUS_APPROVED,
     STATUS_ERROR,
     STATUS_RETURNED,
     STATUS_REVIEWED,
@@ -76,8 +77,22 @@ def _attach_activity(items: list[dict]) -> None:
     (pra quem foi o último envio) de cada item da lista."""
     comments = store.latest_comments([i["id"] for i in items if i["status"] in (STATUS_REVIEWED, STATUS_RETURNED)], ("submitted", "returned"))
     sends = store.latest_comments([i["id"] for i in items if i["status"] == STATUS_SENT], ("sent",))
+    from .send import uncertain_sends
+
+    pending = uncertain_sends([i["id"] for i in items if i["status"] in (STATUS_APPROVED, STATUS_SENT)])
     for item in items:
         item["last_comment"] = comments.get(item["id"])
+        attempt = pending.get(item["id"])
+        item["send_uncertain"] = (
+            {
+                "to": (attempt.get("metadata") or {}).get("to", []),
+                "cc": (attempt.get("metadata") or {}).get("cc", []),
+                "actor_name": attempt["actor_name"],
+                "created_at": attempt["created_at"],
+            }
+            if attempt
+            else None
+        )
         sent = sends.get(item["id"])
         item["last_sent"] = (
             {

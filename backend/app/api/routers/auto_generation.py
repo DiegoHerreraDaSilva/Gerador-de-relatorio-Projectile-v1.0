@@ -24,6 +24,7 @@ from ...auto_generation.schemas import (
     FamilyRequest,
     NumbersRequest,
     PlannedNumberRequest,
+    ResolveSendRequest,
     ReviewerRequest,
     RunRequest,
     SaveDraftRequest,
@@ -255,6 +256,12 @@ async def send_defaults_endpoint(report_id: str, _user: dict = Depends(require_m
 async def send_endpoint(report_id: str, body: SendRequest, _user: dict = Depends(require_manager)):
     """Envia ao cliente os arquivos aprovados, pela caixa de quem está logado."""
     return await run_in_threadpool(_call, service.send_report, report_id, body.to, body.cc, body.subject, body.message, _user, body.formats)
+
+
+@router.post("/auto-generation/reports/{report_id}/send/resolve")
+async def resolve_send_endpoint(report_id: str, body: ResolveSendRequest, _user: dict = Depends(require_manager)):
+    """Confirma o que aconteceu com um envio sem confirmação (chegou / não chegou)."""
+    return await run_in_threadpool(_call, service.resolve_send, report_id, body.resolution, _user)
 
 
 @router.get("/auto-generation/files")

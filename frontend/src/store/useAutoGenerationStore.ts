@@ -108,6 +108,8 @@ export type AutoItem = {
   sent_at: string | null;
   // último envio ao cliente (só em "enviado")
   last_sent: { to: string[]; cc: string[]; actor_name: string | null; created_at: string } | null;
+  // envio sem desfecho (banco/Graph falhou no meio): o e-mail pode ter chegado ao cliente
+  send_uncertain: { to: string[]; cc: string[]; actor_name: string | null; created_at: string } | null;
   error: string | null;
   updated_at: string;
   badges: AutoBadges;
@@ -306,6 +308,7 @@ interface AutoGenerationState {
   submitReview: (reportId: string, comment: string) => Promise<void>;
   loadSendDefaults: (reportId: string) => Promise<SendDefaults>;
   sendReport: (item: AutoItem, body: SendRequest) => Promise<void>;
+  resolveSend: (item: AutoItem, resolution: "sent" | "not_sent") => Promise<void>;
   sendCombined: (items: AutoItem[], body: SendRequest) => Promise<void>;
   loadConfig: () => Promise<void>;
   saveConfig: (config: Record<string, unknown>) => Promise<void>;
@@ -680,6 +683,15 @@ export const useAutoGenerationStore = create<AutoGenerationState>((set, get) => 
   sendReport: async (item, body) => {
     await api(`/auto-generation/reports/${item.id}/send`, { method: "POST", body: JSON.stringify(body) });
     useReportTabsStore.getState().updateAutoMeta(item.id, { status: "enviado" });
+    await get().refresh();
+  },
+
+  resolveSend: async (item, resolution) => {
+    await api(`/auto-generation/reports/${item.id}/send/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ resolution }),
+    });
+    if (resolution === "sent") useReportTabsStore.getState().updateAutoMeta(item.id, { status: "enviado" });
     await get().refresh();
   },
 

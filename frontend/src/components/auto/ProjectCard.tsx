@@ -37,6 +37,7 @@ import { AutoSendModal, BulkSendModal } from "../AutoSendModal";
 import { confirmDialog } from "../ConfirmDialog";
 import { CUSTOM_UNIT_LABELS, MODE_LABELS, PLANNED_LABELS, SELECTABLE, fmtDate, reopenWarning } from "./format";
 import { StatusPill } from "./StatusPill";
+import { UncertainSend } from "./UncertainSend";
 import { NumbersField, PlannedNumberField, PlannedReviewerField, ReturnForm, ReviewerField } from "./fields";
 import { CustomBlocksList } from "./CustomRequestCard";
 import { ProjectConfig } from "./ProjectConfig";
@@ -228,6 +229,7 @@ export function ProjectCard({
               </span>
             </p>
           )}
+          {item?.send_uncertain && <UncertainSend item={item} busy={busy} />}
           {preview && preview.planned === "sera_gerado" && (
             <PlannedNumberField preview={preview} pattern={effective.number_pattern} model={effective.number_model} />
           )}
@@ -258,7 +260,7 @@ export function ProjectCard({
                 <Undo2 size={14} strokeWidth={2} /> Devolver
               </button>
             )}
-            {item && (item.status === "aprovado" || sent) && (
+            {item && !item.send_uncertain && (item.status === "aprovado" || sent) && (
               <button
                 type="button"
                 className={sent ? "btn-secondary" : "primary"}

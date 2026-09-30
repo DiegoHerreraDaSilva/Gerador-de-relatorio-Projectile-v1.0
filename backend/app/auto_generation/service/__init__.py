@@ -50,6 +50,7 @@ from .common import (
     InvalidRequest,
     NotFound,
     RunInProgress,
+    SendUncertain,
     WorkflowError,
     _badges,
     _load,
@@ -98,7 +99,20 @@ from .reviews import (
     submit_review,
 )
 from .run import _apply_planned_number, _execute_run, _generate_one, start_run
-from .send import _EMAIL_RE, _MAX_RECIPIENTS, _clean_addresses, _default_texts, _pick_formats, _sending, _sending_lock, send_defaults, send_report, send_reports
+from .send import (
+    _EMAIL_RE,
+    _MAX_RECIPIENTS,
+    _clean_addresses,
+    _default_texts,
+    _pick_formats,
+    _sending,
+    _sending_lock,
+    resolve_send,
+    send_defaults,
+    send_report,
+    send_reports,
+    uncertain_sends,
+)
 from .views import _attach_activity, _backfill_badges, _count_statuses, competence_view, list_competences, preview, set_planned_number
 
 __all__ = [
@@ -123,6 +137,7 @@ __all__ = [
     "STATUS_REVIEWED",
     "STATUS_SENT",
     "STATUS_SKIPPED",
+    "SendUncertain",
     "WorkflowError",
     "_EMAIL_RE",
     "_MAX_BULK",
@@ -194,9 +209,11 @@ __all__ = [
     "reviewer_candidates",
     "save_draft",
     "schedule_custom",
+    "resolve_send",
     "send_defaults",
     "send_report",
     "send_reports",
+    "uncertain_sends",
     "set_family_override",
     "set_family_rule",
     "set_global_config",

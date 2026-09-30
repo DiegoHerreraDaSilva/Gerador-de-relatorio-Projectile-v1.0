@@ -796,3 +796,146 @@ def test_numero_da_previa_so_cabe_em_relatorio_de_um_pacote():
     assert [p["project_code"] for p in many["packages"]] == ["", ""]
     service._apply_planned_number(one, None)  # sem número reservado: não mexe
     assert one["packages"][0]["project_code"] == "SE.26.070"
+
+
+# --- envio incerto (sem e-mail real: Graph e banco são simulados) ----------------------------
+
+
+_SEND_BODY = {"to": ["cliente@mbb.com"], "subject": "Relatório"}
+
+
+def _send(report_id):
+    return _client().post(f"/auto-generation/reports/{report_id}/send", json=_SEND_BODY)
+
+
+def _item(report_id, competence="2026-08"):
+    return next(i for i in service.competence_view(competence)["items"] if i["id"] == report_id)
+
+
+def _fail_nth_write(monkeypatch, n):
+    """`write_session` falha na n-ésima abertura (1 = a tentativa, 2 = o registro do desfecho)."""
+    real = auto_generation_store.write_session
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == n:
+            raise auto_generation_store.AutoGenerationStoreError("banco caiu")
+        return real()
+
+    monkeypatch.setattr(auto_generation_store, "write_session", flaky)
+    return lambda: monkeypatch.setattr(auto_generation_store, "write_session", real)
+
+
+def test_a_tentativa_e_gravada_antes_do_graph(auto_db, monkeypatch):
+    report_id = _approved()
+    seen = {}
+
+    def graph(**kw):
+        seen["uncertain_during_send"] = report_id in service.uncertain_sends([report_id])
+
+    monkeypatch.setattr(service.email_ingest, "send_report_email", graph)
+    assert _send(report_id).status_code == 200
+    assert seen["uncertain_during_send"] is True
+    assert service.uncertain_sends([report_id]) == {}  # o "sent" resolveu a tentativa
+
+
+def test_banco_cai_depois_do_graph_vira_envio_incerto_e_bloqueia_reenvio(auto_db, graph, monkeypatch):
+    report_id = _approved()
+    restore = _fail_nth_write(monkeypatch, 2)
+    response = _send(report_id)
+    assert response.status_code == 409 and "FOI enviado" in response.json()["detail"]
+    assert len(graph) == 1
+    assert service.detail(report_id)["status"] == "aprovado"
+
+    restore()  # o banco voltou — mas a tentativa continua sem desfecho
+    again = _send(report_id)
+    assert again.status_code == 409 and "sem confirmação" in again.json()["detail"]
+    assert len(graph) == 1, "não pode mandar o e-mail de novo às cegas"
+    assert _item(report_id)["send_uncertain"]["to"] == ["cliente@mbb.com"]
+
+
+def test_confirmar_que_chegou_marca_enviado_sem_mandar_nada(auto_db, graph, monkeypatch):
+    report_id = _approved()
+    restore = _fail_nth_write(monkeypatch, 2)
+    _send(report_id)
+    restore()
+
+    response = _client().post(f"/auto-generation/reports/{report_id}/send/resolve", json={"resolution": "sent"})
+    assert response.status_code == 200 and response.json()["status"] == "enviado"
+    assert len(graph) == 1
+    item = _item(report_id)
+    assert item["status"] == "enviado" and item["send_uncertain"] is None
+    assert item["last_sent"]["to"] == ["cliente@mbb.com"]
+
+
+def test_timeout_do_graph_e_incerto_e_nao_chegou_libera_o_reenvio(auto_db, monkeypatch):
+    report_id = _approved()
+    sent = []
+
+    def timeout(**kw):
+        error = service.email_ingest.EmailIngestError("timeout")
+        error.maybe_delivered = True
+        raise error
+
+    monkeypatch.setattr(service.email_ingest, "send_report_email", timeout)
+    response = _send(report_id)
+    assert response.status_code == 409 and "confirmar se o e-mail foi enviado" in response.json()["detail"]
+    assert _send(report_id).status_code == 409
+
+    resolved = _client().post(f"/auto-generation/reports/{report_id}/send/resolve", json={"resolution": "not_sent"})
+    assert resolved.status_code == 200 and _item(report_id)["send_uncertain"] is None
+    monkeypatch.setattr(service.email_ingest, "send_report_email", lambda **kw: sent.append(kw))
+    assert _send(report_id).status_code == 200 and len(sent) == 1
+
+
+def test_graph_que_recusa_prova_que_nao_saiu_e_nao_fica_incerto(auto_db, monkeypatch):
+    report_id = _approved()
+
+    def refused(**kw):
+        raise service.email_ingest.EmailIngestError("403")  # maybe_delivered = False
+
+    monkeypatch.setattr(service.email_ingest, "send_report_email", refused)
+    assert _send(report_id).status_code == 502
+    assert service.uncertain_sends([report_id]) == {}
+    sent = []
+    monkeypatch.setattr(service.email_ingest, "send_report_email", lambda **kw: sent.append(kw))
+    assert _send(report_id).status_code == 200 and len(sent) == 1
+
+
+def test_sem_gravar_a_tentativa_nada_e_enviado(auto_db, graph, monkeypatch):
+    report_id = _approved()
+    _fail_nth_write(monkeypatch, 1)
+    assert _send(report_id).status_code == 502
+    assert graph == []
+
+
+def test_envio_em_lote_recusa_se_um_deles_esta_incerto(auto_db, graph, monkeypatch):
+    first = _approved(project="E8")
+    second = _approved(project="P1")
+    restore = _fail_nth_write(monkeypatch, 2)
+    _send(first)
+    restore()
+    body = {**_SEND_BODY, "report_ids": [first, second]}
+    response = _client().post("/auto-generation/send", json=body)
+    assert response.status_code == 409 and "sem confirmação" in response.json()["detail"]
+    assert len(graph) == 1
+    assert _client().post("/auto-generation/send", json={**body, "report_ids": [second]}).status_code == 200  # o outro segue livre
+
+
+def test_resolver_sem_envio_pendente_e_so_gerente(auto_db, graph):
+    report_id = _approved()
+    url = f"/auto-generation/reports/{report_id}/send/resolve"
+    assert _client().post(url, json={"resolution": "sent"}).status_code == 409
+    assert _client(_COLLABORATOR).post(url, json={"resolution": "sent"}).status_code == 403
+    assert _client().post(url, json={"resolution": "talvez"}).status_code == 422
+
+
+def test_clique_duplo_enquanto_envia_e_recusado(auto_db, graph):
+    report_id = _approved()
+    service._sending.add(report_id)
+    try:
+        assert _send(report_id).status_code == 409
+    finally:
+        service._sending.discard(report_id)
+    assert graph == []

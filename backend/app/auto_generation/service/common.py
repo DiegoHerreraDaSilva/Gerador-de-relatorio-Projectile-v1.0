@@ -48,6 +48,11 @@ class WorkflowError(Exception):
     """Ação que o estado atual não permite (vira 409 na rota)."""
 
 
+class SendUncertain(WorkflowError):
+    """Não dá pra afirmar se o e-mail saiu (vira 409 na rota): reenviar às cegas
+    poderia duplicar o que o cliente recebe. O gerente confirma em "Envio incerto"."""
+
+
 class NotFound(Exception):
     pass
 
