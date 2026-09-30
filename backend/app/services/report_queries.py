@@ -52,6 +52,22 @@ def _paginate(conn, base_query, order_by, page: int, page_size: int) -> tuple[li
     return [dict(r) for r in rows], total
 
 
+def _own_version(viewer: str):
+    """Versão criada por `viewer` (login, sem diferenciar caixa)."""
+    return func.lower(report_versions.c.created_by) == viewer.lower()
+
+
+def viewer_has_access(report_id: str, viewer: str) -> bool:
+    """Quem não é gerente só vê o que ELE gerou: o `report` é a identidade
+    compartilhada (número + escopo + competência), mas versões, gerações,
+    arquivos e auditoria são de quem as criou. Vale também pro histórico
+    antigo, sem backfill: a versão 1 já guarda o `created_by` de quem a criou."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(select(report_versions.c.id).where(report_versions.c.report_id == report_id, _own_version(viewer)).limit(1)).first()
+    return row is not None
+
+
 def list_reports(
     *,
     page: int,
@@ -62,8 +78,13 @@ def list_reports(
     created_by: str | None = None,
     search: str | None = None,
     competence_from: date | None = None,
+    visible_to: str | None = None,
+    viewer_name: str | None = None,
 ) -> dict:
     conditions = []
+    if visible_to:
+        # só relatórios em que o usuário criou ao menos uma versão
+        conditions.append(select(report_versions.c.id).where(report_versions.c.report_id == reports.c.id, _own_version(visible_to)).exists())
     if competence_from is not None:
         # janela de quem não é gerente (ver `api/period_access.py`); relatório
         # sem competência reconhecida vale pela data em que foi gerado
@@ -88,37 +109,51 @@ def list_reports(
     engine = get_engine()
     with engine.connect() as conn:
         items, total = _paginate(conn, base_query, desc(reports.c.updated_at), page, page_size)
-        items = [_with_current_version_number(conn, item) for item in items]
+        items = [_with_current_version_number(conn, item, visible_to) for item in items]
+        if visible_to:
+            # quem criou o registro pode ser outra pessoa: não aparece pra quem só vê o próprio
+            items = [{**item, "created_by": visible_to, "created_by_name_snapshot": viewer_name or visible_to} for item in items]
 
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
 
-def _with_current_version_number(conn, report: dict) -> dict:
+def _with_current_version_number(conn, report: dict, viewer: str | None = None) -> dict:
     version_number = None
+    if viewer:
+        # a "versão atual" de quem não é gerente é a mais recente DELE
+        own = conn.execute(
+            select(report_versions.c.id, report_versions.c.version_number)
+            .where(report_versions.c.report_id == report["id"], _own_version(viewer))
+            .order_by(desc(report_versions.c.version_number))
+            .limit(1)
+        ).first()
+        return {**report, "current_version_id": own.id if own else None, "current_version_number": own.version_number if own else None}
     if report.get("current_version_id"):
         row = conn.execute(select(report_versions.c.version_number).where(report_versions.c.id == report["current_version_id"])).first()
         version_number = row.version_number if row else None
     return {**report, "current_version_number": version_number}
 
 
-def get_report(report_id: str) -> dict | None:
+def get_report(report_id: str, viewer: str | None = None) -> dict | None:
     engine = get_engine()
     with engine.connect() as conn:
         row = conn.execute(select(reports).where(reports.c.id == report_id)).mappings().first()
         if row is None:
             return None
-        return _with_current_version_number(conn, dict(row))
+        return _with_current_version_number(conn, dict(row), viewer)
 
 
-def list_versions(report_id: str, *, page: int, page_size: int) -> dict:
+def list_versions(report_id: str, *, page: int, page_size: int, viewer: str | None = None) -> dict:
     base_query = select(report_versions).where(report_versions.c.report_id == report_id)
+    if viewer:
+        base_query = base_query.where(_own_version(viewer))
     engine = get_engine()
     with engine.connect() as conn:
         items, total = _paginate(conn, base_query, desc(report_versions.c.version_number), page, page_size)
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
 
-def get_version_detail(report_id: str, version_id: str) -> dict | None:
+def get_version_detail(report_id: str, version_id: str, viewer: str | None = None) -> dict | None:
     from ..db.reports_schema import report_source_snapshots
 
     engine = get_engine()
@@ -139,7 +174,7 @@ def get_version_detail(report_id: str, version_id: str) -> dict | None:
                     report_source_snapshots.c.captured_at,
                 )
                 .select_from(report_versions.join(report_source_snapshots, report_versions.c.source_snapshot_id == report_source_snapshots.c.id))
-                .where(report_versions.c.id == version_id, report_versions.c.report_id == report_id)
+                .where(report_versions.c.id == version_id, report_versions.c.report_id == report_id, *([_own_version(viewer)] if viewer else []))
             )
             .mappings()
             .first()
@@ -159,7 +194,7 @@ def get_version_detail(report_id: str, version_id: str) -> dict | None:
     }
 
 
-def list_generations(report_id: str, *, page: int, page_size: int) -> dict:
+def list_generations(report_id: str, *, page: int, page_size: int, viewer: str | None = None) -> dict:
     base_query = (
         select(
             report_generation.c.id,
@@ -178,13 +213,15 @@ def list_generations(report_id: str, *, page: int, page_size: int) -> dict:
         .select_from(report_generation.join(report_versions, report_generation.c.report_version_id == report_versions.c.id))
         .where(report_generation.c.report_id == report_id)
     )
+    if viewer:
+        base_query = base_query.where(func.lower(report_generation.c.requested_by) == viewer.lower())
     engine = get_engine()
     with engine.connect() as conn:
         items, total = _paginate(conn, base_query, desc(report_generation.c.started_at), page, page_size)
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
 
-def list_artifacts(report_id: str, *, page: int, page_size: int) -> dict:
+def list_artifacts(report_id: str, *, page: int, page_size: int, viewer: str | None = None) -> dict:
     base_query = (
         select(
             report_artifacts.c.id,
@@ -205,6 +242,8 @@ def list_artifacts(report_id: str, *, page: int, page_size: int) -> dict:
         )
         .where(report_generation.c.report_id == report_id)
     )
+    if viewer:
+        base_query = base_query.where(func.lower(report_generation.c.requested_by) == viewer.lower())
     engine = get_engine()
     with engine.connect() as conn:
         items, total = _paginate(conn, base_query, desc(report_artifacts.c.created_at), page, page_size)
@@ -223,7 +262,9 @@ def get_artifact(artifact_id: str) -> dict | None:
                     report_artifacts.c.mime_type,
                     report_artifacts.c.artifact_type,
                     report_generation.c.report_id,
-                    reports.c.created_by,
+                    report_generation.c.requested_by,
+                    reports.c.competence_start,
+                    reports.c.created_at,
                 )
                 .select_from(
                     report_artifacts.join(report_generation, report_artifacts.c.generation_id == report_generation.c.id).join(
@@ -400,15 +441,23 @@ def get_artifacts_on_disk(directory: str | None = None) -> dict:
     return {"count": count, "bytes": total_bytes}
 
 
-def list_audit_events_for_report(report_id: str, *, page: int, page_size: int) -> dict:
+def list_audit_events_for_report(report_id: str, *, page: int, page_size: int, viewer: str | None = None) -> dict:
     engine = get_engine()
     with engine.connect() as conn:
-        version_ids = [r.id for r in conn.execute(select(report_versions.c.id).where(report_versions.c.report_id == report_id))]
-        generation_ids = [r.id for r in conn.execute(select(report_generation.c.id).where(report_generation.c.report_id == report_id))]
+        version_query = select(report_versions.c.id).where(report_versions.c.report_id == report_id)
+        generation_query = select(report_generation.c.id).where(report_generation.c.report_id == report_id)
+        if viewer:
+            version_query = version_query.where(_own_version(viewer))
+            generation_query = generation_query.where(func.lower(report_generation.c.requested_by) == viewer.lower())
+        version_ids = [r.id for r in conn.execute(version_query)]
+        generation_ids = [r.id for r in conn.execute(generation_query)]
         artifact_ids = []
         if generation_ids:
             artifact_ids = [r.id for r in conn.execute(select(report_artifacts.c.id).where(report_artifacts.c.generation_id.in_(generation_ids)))]
         entity_ids = [report_id, *version_ids, *generation_ids, *artifact_ids]
         base_query = select(audit_log).where(audit_log.c.entity_id.in_(entity_ids))
+        if viewer:
+            # o evento do próprio relatório (entity = report_id) é de quem agiu
+            base_query = base_query.where(func.lower(audit_log.c.actor_id) == viewer.lower())
         items, total = _paginate(conn, base_query, desc(audit_log.c.created_at), page, page_size)
     return {"items": items, "page": page, "page_size": page_size, "total": total}

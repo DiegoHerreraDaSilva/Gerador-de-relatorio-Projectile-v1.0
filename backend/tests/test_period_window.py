@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.api import period_access
 from backend.app.api.dependencies import require_session
-from backend.app.api.routers import history as history_router
 from backend.app.api.routers import management as management_router
 from backend.app.api.routers import my_hours as my_hours_router
 from backend.app.api.routers import parsing as parsing_router
@@ -162,8 +161,8 @@ def test_historico_nao_lista_nem_abre_relatorio_fora_da_janela(monkeypatch):
 
     old = {"id": "R1", "created_by": "colab", "competence_start": _before_window(), "created_at": datetime(2026, 9, 1)}
     monkeypatch.setattr(report_queries, "list_reports", list_reports)
-    monkeypatch.setattr(report_queries, "get_report", lambda report_id: dict(old))
-    monkeypatch.setattr(history_router.report_queries, "get_report", lambda report_id: dict(old), raising=False)
+    monkeypatch.setattr(report_queries, "get_report", lambda report_id, viewer=None: dict(old))
+    monkeypatch.setattr(report_queries, "viewer_has_access", lambda report_id, viewer: True)
 
     _client(_COLLABORATOR).get("/reports")
     assert seen["competence_from"] == period_access.window()[0]

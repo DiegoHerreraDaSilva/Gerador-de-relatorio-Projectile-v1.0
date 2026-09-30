@@ -20,26 +20,38 @@ router = APIRouter()
 _MAX_PAGE_SIZE = report_queries.MAX_PAGE_SIZE
 
 
-def _require_report_access(report: dict, user: dict) -> None:
-    """Relatórios pessoais (gerados via /parse-db) só podem ser vistos por
-    quem os criou; gerentes veem tudo — mesmo princípio de /parse-db e
-    /my-hours: nunca expor dado de uma pessoa pra outra sem ser gerente.
-    Gerente vem de `core.authz` (função chamada na hora, nunca um set
-    importado) — monkeypatch em `authz.MANAGEMENT_PANEL_LOGINS` afeta esta
-    checagem junto com todo o resto."""
-    if authz.is_manager(user):
-        return
-    if (report.get("created_by") or "").lower() != user["login"].lower():
-        raise HTTPException(403, "Sem acesso a este relatório.")
+def _viewer(user: dict) -> str | None:
+    """Login que limita o que se vê; `None` = gerente, vê tudo."""
+    return None if authz.is_manager(user) else user["login"]
+
+
+def _check_window(user: dict, start) -> None:
     # fora da janela (últimos 12 meses e o ano atual): some pra quem não é gerente
-    start = report.get("competence_start") or report.get("created_at")
     if start is not None and not period_access.in_window(user, start):
         raise HTTPException(404, "Relatório não encontrado.")
 
 
-def _get_report_or_404(report_id: str) -> dict:
+def _require_report_access(report: dict, user: dict) -> None:
+    """O `report` é a identidade compartilhada (número + escopo + competência);
+    quem não é gerente só acessa se ELE criou ao menos uma versão e, dentro
+    dele, só vê o que ele mesmo gerou (versões, gerações, arquivos e auditoria
+    filtram pelo mesmo login). Gerente vê tudo — mesmo princípio de /parse-db
+    e /my-hours: nunca expor dado de uma pessoa pra outra. Gerente vem de
+    `core.authz` (função chamada na hora, nunca um set importado)."""
+    if authz.is_manager(user):
+        return
     try:
-        report = report_queries.get_report(report_id)
+        allowed = report_queries.viewer_has_access(report["id"], user["login"])
+    except Exception as e:
+        raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
+    if not allowed:
+        raise HTTPException(403, "Sem acesso a este relatório.")
+    _check_window(user, report.get("competence_start") or report.get("created_at"))
+
+
+def _get_report_or_404(report_id: str, user: dict) -> dict:
+    try:
+        report = report_queries.get_report(report_id, viewer=_viewer(user))
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
     if report is None:
@@ -48,7 +60,7 @@ def _get_report_or_404(report_id: str) -> dict:
 
 
 @router.get("/reports")
-async def list_reports_endpoint(
+def list_reports_endpoint(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE),
     report_number: str | None = None,
@@ -61,11 +73,11 @@ async def list_reports_endpoint(
     """`q` = busca geral por Número, Projeto, Competência e Criado por. Pra
     quem não é gerente ela roda DENTRO dos próprios relatórios — nunca amplia
     o recorte de `created_by`."""
-    is_mgr = authz.is_manager(_user)
+    viewer = _viewer(_user)
     # nunca aceita created_by de quem não é gerente — mesma regra de
     # /parse-db (não confiar em identidade vinda do cliente pra consultar
-    # dado de outra pessoa).
-    effective_created_by = created_by if is_mgr else _user["login"]
+    # dado de outra pessoa); ele só enxerga o que ele mesmo gerou.
+    effective_created_by = created_by if viewer is None else None
     limits = period_access.window_for(_user)
     try:
         return report_queries.list_reports(
@@ -77,36 +89,38 @@ async def list_reports_endpoint(
             created_by=effective_created_by,
             search=q,
             competence_from=limits[0] if limits else None,
+            visible_to=viewer,
+            viewer_name=_user.get("name"),
         )
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 
 
 @router.get("/reports/{report_id}")
-async def get_report_endpoint(report_id: str, _user: dict = Depends(require_session)):
-    report = _get_report_or_404(report_id)
+def get_report_endpoint(report_id: str, _user: dict = Depends(require_session)):
+    report = _get_report_or_404(report_id, _user)
     _require_report_access(report, _user)
     return report
 
 
 @router.get("/reports/{report_id}/versions")
-async def list_report_versions_endpoint(
+def list_report_versions_endpoint(
     report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
-    report = _get_report_or_404(report_id)
+    report = _get_report_or_404(report_id, _user)
     _require_report_access(report, _user)
     try:
-        return report_queries.list_versions(report_id, page=page, page_size=page_size)
+        return report_queries.list_versions(report_id, page=page, page_size=page_size, viewer=_viewer(_user))
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 
 
 @router.get("/reports/{report_id}/versions/{version_id}")
-async def get_report_version_endpoint(report_id: str, version_id: str, _user: dict = Depends(require_session)):
-    report = _get_report_or_404(report_id)
+def get_report_version_endpoint(report_id: str, version_id: str, _user: dict = Depends(require_session)):
+    report = _get_report_or_404(report_id, _user)
     _require_report_access(report, _user)
     try:
-        version = report_queries.get_version_detail(report_id, version_id)
+        version = report_queries.get_version_detail(report_id, version_id, viewer=_viewer(_user))
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
     if version is None:
@@ -115,50 +129,55 @@ async def get_report_version_endpoint(report_id: str, version_id: str, _user: di
 
 
 @router.get("/reports/{report_id}/generations")
-async def list_report_generations_endpoint(
+def list_report_generations_endpoint(
     report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
-    report = _get_report_or_404(report_id)
+    report = _get_report_or_404(report_id, _user)
     _require_report_access(report, _user)
     try:
-        return report_queries.list_generations(report_id, page=page, page_size=page_size)
+        return report_queries.list_generations(report_id, page=page, page_size=page_size, viewer=_viewer(_user))
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 
 
 @router.get("/reports/{report_id}/artifacts")
-async def list_report_artifacts_endpoint(
+def list_report_artifacts_endpoint(
     report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
-    report = _get_report_or_404(report_id)
+    report = _get_report_or_404(report_id, _user)
     _require_report_access(report, _user)
     try:
-        return report_queries.list_artifacts(report_id, page=page, page_size=page_size)
+        return report_queries.list_artifacts(report_id, page=page, page_size=page_size, viewer=_viewer(_user))
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 
 
 @router.get("/reports/{report_id}/audit")
-async def get_report_audit_endpoint(
+def get_report_audit_endpoint(
     report_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=_MAX_PAGE_SIZE), _user: dict = Depends(require_session)
 ):
-    report = _get_report_or_404(report_id)
+    report = _get_report_or_404(report_id, _user)
     _require_report_access(report, _user)
     try:
-        return report_queries.list_audit_events_for_report(report_id, page=page, page_size=page_size)
+        return report_queries.list_audit_events_for_report(report_id, page=page, page_size=page_size, viewer=_viewer(_user))
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 
 
 @router.get("/artifacts/{artifact_id}/download")
-async def download_artifact_endpoint(artifact_id: str, _user: dict = Depends(require_session)):
+def download_artifact_endpoint(artifact_id: str, _user: dict = Depends(require_session)):
     try:
         artifact = report_queries.get_artifact(artifact_id)
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
     if artifact is None:
         raise HTTPException(404, "Artifact não encontrado.")
-    _require_report_access(artifact, _user)
+    viewer = _viewer(_user)
+    # arquivo é de quem mandou gerar: outro usuário do mesmo relatório não baixa
+    if viewer is not None:
+        if (artifact.get("requested_by") or "").lower() != viewer.lower():
+            raise HTTPException(403, "Sem acesso a este relatório.")
+        _check_window(_user, artifact.get("competence_start") or artifact.get("created_at"))
     if not os.path.exists(artifact["storage_path"]):
         raise HTTPException(404, "O arquivo deste artifact não existe mais em disco.")
     record_event(
