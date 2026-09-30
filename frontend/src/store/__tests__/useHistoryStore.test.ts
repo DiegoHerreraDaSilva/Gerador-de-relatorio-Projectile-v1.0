@@ -38,6 +38,7 @@ beforeEach(() => {
     reports: [report("1"), report("2"), report("3")],
     total: 3,
     sort: null,
+    trashMode: false,
     checkedIds: [],
     checkedAll: null,
     selectedReportId: null,
@@ -104,35 +105,31 @@ describe("seleção", () => {
   });
 });
 
-describe("apagar", () => {
-  it("manda DELETE em lotes de 200, limpa a seleção e recarrega a lista", async () => {
+const EMPTY_LIST = { items: [], page: 1, page_size: 20, total: 0 };
+
+describe("mover pra lixeira", () => {
+  it("manda DELETE em lotes de 200, devolve os ids movidos, limpa a seleção e recarrega a lista", async () => {
     const ids = Array.from({ length: 450 }, (_, i) => `id${i}`);
-    const calls = mockFetch((call) => {
-      if (call.method === "DELETE") {
-        const sent = (call.body as { ids: string[] }).ids;
-        return { deleted: sent.map((id) => ({ id })), not_found: [], files_removed: sent.length, files_failed: 0 };
-      }
-      return { items: [], page: 1, page_size: 20, total: 0 };
-    });
+    const calls = mockFetch((call) =>
+      call.method === "DELETE"
+        ? { trashed: (call.body as { ids: string[] }).ids.map((id) => ({ id })), not_found: [] }
+        : EMPTY_LIST,
+    );
     useHistoryStore.setState({ checkedIds: ids });
-    const result = await useHistoryStore.getState().deleteChecked();
+    const moved = await useHistoryStore.getState().trashChecked();
 
     const deletes = calls.filter((c) => c.method === "DELETE");
+    expect(deletes.every((c) => c.url === "/reports")).toBe(true);
     expect(deletes.map((c) => (c.body as { ids: string[] }).ids.length)).toEqual([200, 200, 50]);
-    expect(result.deleted).toHaveLength(450);
-    expect(result.files_removed).toBe(450);
+    expect(moved).toHaveLength(450);
     expect(useHistoryStore.getState().checkedIds).toEqual([]);
-    expect(calls[calls.length - 1]?.url).toContain("/reports?"); // recarregou a lista
+    expect(calls[calls.length - 1]?.url).toContain("/reports?");
   });
 
-  it("fecha o detalhe se o relatório aberto foi apagado", async () => {
-    mockFetch((call) =>
-      call.method === "DELETE"
-        ? { deleted: [{ id: "1" }], not_found: [], files_removed: 0, files_failed: 0 }
-        : { items: [], page: 1, page_size: 20, total: 0 },
-    );
+  it("fecha o detalhe se o relatório aberto foi movido", async () => {
+    mockFetch((call) => (call.method === "DELETE" ? { trashed: [{ id: "1" }], not_found: [] } : EMPTY_LIST));
     useHistoryStore.setState({ selectedReportId: "1", checkedIds: ["1"] });
-    await useHistoryStore.getState().deleteChecked();
+    await useHistoryStore.getState().trashChecked();
     expect(useHistoryStore.getState().selectedReportId).toBeNull();
   });
 
@@ -142,7 +139,90 @@ describe("apagar", () => {
       vi.fn(async () => ({ ok: false, status: 502, text: async () => "falhou" })),
     );
     useHistoryStore.setState({ checkedIds: ["1", "2"] });
-    await expect(useHistoryStore.getState().deleteChecked()).rejects.toThrow();
+    await expect(useHistoryStore.getState().trashChecked()).rejects.toThrow();
     expect(useHistoryStore.getState().checkedIds).toEqual(["1", "2"]);
+  });
+});
+
+describe("restaurar (inclusive o Desfazer do aviso)", () => {
+  it("restaura os ids dados, sem depender da seleção, e recarrega", async () => {
+    const calls = mockFetch((call) =>
+      call.method === "POST"
+        ? { restored: (call.body as { ids: string[] }).ids.map((id) => ({ id })), not_found: [] }
+        : EMPTY_LIST,
+    );
+    useHistoryStore.setState({ checkedIds: ["outro"] });
+    const back = await useHistoryStore.getState().restoreIds(["a", "b"]);
+    expect(back).toEqual(["a", "b"]);
+    const post = calls.find((c) => c.method === "POST");
+    expect(post?.url).toBe("/reports/restore");
+    expect(post?.body).toEqual({ ids: ["a", "b"] });
+    expect(calls[calls.length - 1]?.url).toContain("/reports?");
+  });
+
+  it("sem ids dados, restaura os marcados", async () => {
+    const calls = mockFetch((call) =>
+      call.method === "POST" ? { restored: [{ id: "x" }], not_found: [] } : EMPTY_LIST,
+    );
+    useHistoryStore.setState({ checkedIds: ["x"] });
+    await useHistoryStore.getState().restoreIds();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ ids: ["x"] });
+    expect(useHistoryStore.getState().checkedIds).toEqual([]);
+  });
+});
+
+describe("apagar definitivamente", () => {
+  it("vai pela rota da lixeira, soma os lotes e limpa a seleção", async () => {
+    const calls = mockFetch((call) =>
+      call.method === "DELETE"
+        ? {
+            deleted: (call.body as { ids: string[] }).ids.map((id) => ({ id })),
+            not_found: [],
+            files_removed: 2,
+            files_failed: 1,
+          }
+        : EMPTY_LIST,
+    );
+    useHistoryStore.setState({ checkedIds: Array.from({ length: 250 }, (_, i) => `id${i}`) });
+    const result = await useHistoryStore.getState().purgeChecked();
+    expect(calls.filter((c) => c.method === "DELETE").every((c) => c.url === "/reports/trash")).toBe(true);
+    expect(result.deleted).toHaveLength(250);
+    expect(result.files_removed).toBe(4); // 2 por lote, 2 lotes
+    expect(result.files_failed).toBe(2);
+    expect(useHistoryStore.getState().checkedIds).toEqual([]);
+  });
+});
+
+describe("modo lixeira", () => {
+  it("entrar na lixeira pede a lista com trash=true e zera seleção e ordem", async () => {
+    const calls = mockFetch(() => EMPTY_LIST);
+    useHistoryStore.setState({ checkedIds: ["1"], sort: { column: "numero", order: "asc" } });
+    useHistoryStore.getState().setTrashMode(true);
+    await vi.waitFor(() => expect(calls.length).toBe(1));
+    const params = new URLSearchParams(calls[0].url.split("?")[1]);
+    expect(params.get("trash")).toBe("true");
+    expect(params.get("sort")).toBeNull();
+    expect(useHistoryStore.getState().checkedIds).toEqual([]);
+  });
+
+  it("sair da lixeira volta à lista normal, sem trash", async () => {
+    const calls = mockFetch(() => EMPTY_LIST);
+    useHistoryStore.setState({ trashMode: true });
+    useHistoryStore.getState().setTrashMode(false);
+    await vi.waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].url).not.toContain("trash");
+  });
+
+  it("escolher o modo que já está ativo não refaz a busca", () => {
+    const calls = mockFetch(() => EMPTY_LIST);
+    useHistoryStore.getState().setTrashMode(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("'selecionar todos' na lixeira busca os ids da lixeira", async () => {
+    const calls = mockFetch(() => ({ ids: ["1", "2"], total: 2, truncated: false }));
+    useHistoryStore.setState({ trashMode: true });
+    await useHistoryStore.getState().checkAllMatching();
+    expect(calls[0].url).toBe("/reports/ids?trash=true");
   });
 });

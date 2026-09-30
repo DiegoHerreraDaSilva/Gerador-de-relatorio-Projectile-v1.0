@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronUp, ChevronsUpDown, Download, History, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, Download, History, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { PageHeader } from "./PageHeader";
 import { confirmDialog } from "./ConfirmDialog";
 import { EmptyState, ErrorState, LoadingState } from "./PageStates";
@@ -49,7 +49,11 @@ export function HistoryPanel() {
   const checkPage = useHistoryStore((s) => s.checkPage);
   const checkAllMatching = useHistoryStore((s) => s.checkAllMatching);
   const clearChecked = useHistoryStore((s) => s.clearChecked);
-  const deleteChecked = useHistoryStore((s) => s.deleteChecked);
+  const trashMode = useHistoryStore((s) => s.trashMode);
+  const setTrashMode = useHistoryStore((s) => s.setTrashMode);
+  const trashChecked = useHistoryStore((s) => s.trashChecked);
+  const restoreIds = useHistoryStore((s) => s.restoreIds);
+  const purgeChecked = useHistoryStore((s) => s.purgeChecked);
   const [working, setWorking] = useState(false);
   const pageCheckbox = useRef<HTMLInputElement>(null);
 
@@ -110,21 +114,61 @@ export function HistoryPanel() {
     }
   }
 
-  async function deleteSelected() {
+  // apagar = mover pra lixeira (volta por 30 dias); o aviso traz o "Desfazer"
+  async function trashSelected() {
+    setWorking(true);
+    try {
+      const ids = await trashChecked();
+      const count = ids.length;
+      toast.success(
+        count === 1 ? "1 relatório movido para a lixeira." : `${count} relatórios movidos para a lixeira.`,
+        {
+          actionLabel: "Desfazer",
+          onAction: () => {
+            restoreIds(ids)
+              .then((back) =>
+                toast.success(back.length === 1 ? "Relatório restaurado." : `${back.length} relatórios restaurados.`),
+              )
+              .catch(() => toast.error("Não consegui desfazer. Abra a Lixeira e restaure por lá."));
+          },
+        },
+      );
+    } catch {
+      toast.error("Não consegui mover para a lixeira. Atualize a lista e confira.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function restoreSelected() {
+    setWorking(true);
+    try {
+      const back = await restoreIds();
+      toast.success(back.length === 1 ? "Relatório restaurado." : `${back.length} relatórios restaurados.`);
+    } catch {
+      toast.error("Não consegui restaurar. Atualize a lista e confira.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function purgeSelected() {
     const n = checkedIds.length;
     const ok = await confirmDialog({
-      title: n === 1 ? "Apagar 1 relatório?" : `Apagar ${n} relatórios?`,
+      title: n === 1 ? "Apagar 1 relatório de vez?" : `Apagar ${n} relatórios de vez?`,
       message:
         "Versões, arquivos gerados e cópias dos dados serão apagados do banco e do disco. Não dá pra desfazer. A trilha de auditoria continua, com o registro de quem apagou.",
-      confirmLabel: "Apagar",
+      confirmLabel: "Apagar definitivamente",
       danger: true,
     });
     if (!ok) return;
     setWorking(true);
     try {
-      const result = await deleteChecked();
+      const result = await purgeChecked();
       const count = result.deleted.length;
-      toast.success(count === 1 ? "1 relatório apagado." : `${count} relatórios apagados.`);
+      toast.success(
+        count === 1 ? "1 relatório apagado definitivamente." : `${count} relatórios apagados definitivamente.`,
+      );
       if (result.files_failed > 0)
         toast.error(`${result.files_failed} arquivo(s) não saíram do disco — confira a pasta de artefatos.`);
     } catch {
@@ -176,6 +220,29 @@ export function HistoryPanel() {
         )}
       </form>
 
+      {isManager && (
+        <div className="history-views" role="tablist" aria-label="Relatórios ou lixeira">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!trashMode}
+            className={!trashMode ? "active" : ""}
+            onClick={() => setTrashMode(false)}
+          >
+            Relatórios
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={trashMode}
+            className={trashMode ? "active" : ""}
+            onClick={() => setTrashMode(true)}
+          >
+            <Trash2 size={13} strokeWidth={2} aria-hidden="true" /> Lixeira
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="card">
           <ErrorState message={error} onRetry={() => loadReports(page)} busy={loading} />
@@ -201,18 +268,46 @@ export function HistoryPanel() {
             <button type="button" className="btn-secondary" onClick={clearChecked} disabled={working}>
               Limpar seleção
             </button>
-            <button
-              type="button"
-              className="btn-secondary auto-delete-button"
-              onClick={deleteSelected}
-              disabled={working}
-            >
-              <Trash2 size={14} strokeWidth={2} /> Apagar
-            </button>
+            {trashMode ? (
+              <>
+                <button type="button" className="btn-secondary" onClick={restoreSelected} disabled={working}>
+                  <RotateCcw size={14} strokeWidth={2} /> Restaurar
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary auto-delete-button"
+                  onClick={purgeSelected}
+                  disabled={working}
+                >
+                  <Trash2 size={14} strokeWidth={2} /> Apagar definitivamente
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn-secondary auto-delete-button"
+                onClick={trashSelected}
+                disabled={working}
+              >
+                <Trash2 size={14} strokeWidth={2} /> Mover para a lixeira
+              </button>
+            )}
           </div>
         )}
+        {trashMode && (
+          <p className="muted history-trash-note">
+            Relatórios apagados ficam aqui por 30 dias e podem ser restaurados; depois são apagados de vez.
+          </p>
+        )}
         {loading && <LoadingState label="Carregando relatórios..." rows={5} />}
-        {!loading && !error && reports.length === 0 && (
+        {!loading && !error && reports.length === 0 && trashMode && (
+          <EmptyState
+            icon={<Trash2 size={22} strokeWidth={1.6} />}
+            title="A lixeira está vazia"
+            description="Quando você apagar um relatório do Histórico, ele fica aqui por 30 dias antes de sumir de vez."
+          />
+        )}
+        {!loading && !error && reports.length === 0 && !trashMode && (
           <EmptyState
             icon={<History size={22} strokeWidth={1.6} />}
             title={
@@ -256,6 +351,7 @@ export function HistoryPanel() {
                     </th>
                   );
                 })}
+                {trashMode && <th>Apagado em</th>}
                 <th aria-label="Ações" />
               </tr>
             </thead>
@@ -289,10 +385,17 @@ export function HistoryPanel() {
                     <td>v{r.current_version_number ?? "—"}</td>
                     <td>{r.created_by_name_snapshot}</td>
                     <td>{formatDateTime(r.updated_at)}</td>
+                    {trashMode && (
+                      <td title={r.deleted_by ? `Apagado por ${r.deleted_by}` : undefined}>
+                        {r.deleted_at ? formatDateTime(r.deleted_at) : "—"}
+                      </td>
+                    )}
                     <td>
-                      <button type="button" className="btn-secondary" onClick={() => selectReport(r.id)}>
-                        Ver detalhes
-                      </button>
+                      {!trashMode && (
+                        <button type="button" className="btn-secondary" onClick={() => selectReport(r.id)}>
+                          Ver detalhes
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

@@ -13,6 +13,9 @@ export type ReportSummary = {
   created_by_name_snapshot: string;
   created_at: string;
   updated_at: string;
+  /** Só na lixeira: quando e por quem foi apagado. */
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 };
 
 export type VersionSummary = {
@@ -116,12 +119,33 @@ export function nextSort(current: SortState, column: SortColumn): SortState {
   return current.order === "asc" ? { column, order: "desc" } : null;
 }
 
-export type DeleteResult = {
+/** Resposta de mover pra lixeira / restaurar (`DELETE /reports`, `POST /reports/restore`). */
+export type TrashResult = { trashed?: { id: string }[]; restored?: { id: string }[]; not_found: string[] };
+
+/** Resposta de apagar definitivamente (`DELETE /reports/trash`). */
+export type PurgeResult = {
   deleted: { id: string }[];
   not_found: string[];
   files_removed: number;
   files_failed: number;
 };
+
+/** O servidor aceita até 200 ids por chamada. */
+const BATCH = 200;
+
+async function sendIds<T>(method: "DELETE" | "POST", url: string, ids: string[]): Promise<T[]> {
+  const parts: T[] = [];
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ids.slice(i, i + BATCH) }),
+    });
+    if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
+    parts.push((await res.json()) as T);
+  }
+  return parts;
+}
 
 // só a resposta da busca mais recente vale: digitando rápido, uma busca
 // antiga que volte depois da nova não pode sobrescrever o resultado
@@ -141,6 +165,10 @@ interface HistoryState {
   sort: SortState;
   setSort: (column: SortColumn) => void;
 
+  // lixeira (só gerente): a lista passa a ser a dos relatórios apagados, restaurável por 30 dias
+  trashMode: boolean;
+  setTrashMode: (on: boolean) => void;
+
   // seleção para apagar (só gerente): ids marcados, inclusive de outras páginas
   checkedIds: string[];
   // "selecionar todos" do filtro inteiro: quantos existem e se o teto do servidor cortou
@@ -149,7 +177,12 @@ interface HistoryState {
   checkPage: (checked: boolean) => void;
   checkAllMatching: () => Promise<void>;
   clearChecked: () => void;
-  deleteChecked: () => Promise<DeleteResult>;
+  /** Move os marcados pra lixeira; devolve os ids movidos (pro "Desfazer"). */
+  trashChecked: () => Promise<string[]>;
+  /** Tira da lixeira os ids dados (ou os marcados). */
+  restoreIds: (ids?: string[]) => Promise<string[]>;
+  /** Apaga DEFINITIVAMENTE os marcados (só o que está na lixeira). */
+  purgeChecked: () => Promise<PurgeResult>;
 
   selectedReportId: string | null;
   selectedReport: ReportSummary | null;
@@ -184,6 +217,14 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   filters: { search: "", status: "" },
   setFilter: (key, value) => set((s) => ({ filters: { ...s.filters, [key]: value } })),
 
+  trashMode: false,
+  setTrashMode: (on) => {
+    if (get().trashMode === on) return;
+    // a lista é outra: seleção e ordem da anterior não valem
+    set({ trashMode: on, checkedIds: [], checkedAll: null, sort: null });
+    void get().loadReports(1);
+  },
+
   sort: null,
   setSort: (column) => {
     set((s) => ({ sort: nextSort(s.sort, column) }));
@@ -208,31 +249,38 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const params = new URLSearchParams();
     if (search.trim()) params.set("q", search.trim());
     if (status) params.set("status", status);
+    if (get().trashMode) params.set("trash", "true");
     const data = await fetchJson<{ ids: string[]; total: number; truncated: boolean }>(
       `/reports/ids?${params.toString()}`,
     );
     set({ checkedIds: data.ids, checkedAll: { total: data.total, truncated: data.truncated } });
   },
   clearChecked: () => set({ checkedIds: [], checkedAll: null }),
-  deleteChecked: async () => {
+  trashChecked: async () => {
     const ids = get().checkedIds;
-    const result: DeleteResult = { deleted: [], not_found: [], files_removed: 0, files_failed: 0 };
-    // o servidor aceita até 200 por chamada
-    for (let i = 0; i < ids.length; i += 200) {
-      const res = await fetch("/reports", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ids.slice(i, i + 200) }),
-      });
-      if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
-      const part = (await res.json()) as DeleteResult;
+    const parts = await sendIds<TrashResult>("DELETE", "/reports", ids);
+    const moved = new Set(parts.flatMap((p) => (p.trashed ?? []).map((t) => t.id)));
+    if (get().selectedReportId && moved.has(get().selectedReportId as string)) get().clearSelection();
+    set({ checkedIds: [], checkedAll: null });
+    await get().loadReports(1);
+    return [...moved];
+  },
+  restoreIds: async (given) => {
+    const ids = given ?? get().checkedIds;
+    const parts = await sendIds<TrashResult>("POST", "/reports/restore", ids);
+    set({ checkedIds: [], checkedAll: null });
+    await get().loadReports(1);
+    return parts.flatMap((p) => (p.restored ?? []).map((r) => r.id));
+  },
+  purgeChecked: async () => {
+    const parts = await sendIds<PurgeResult>("DELETE", "/reports/trash", get().checkedIds);
+    const result: PurgeResult = { deleted: [], not_found: [], files_removed: 0, files_failed: 0 };
+    for (const part of parts) {
       result.deleted.push(...part.deleted);
       result.not_found.push(...part.not_found);
       result.files_removed += part.files_removed;
       result.files_failed += part.files_failed;
     }
-    const gone = new Set(result.deleted.map((d) => d.id));
-    if (get().selectedReportId && gone.has(get().selectedReportId as string)) get().clearSelection();
     set({ checkedIds: [], checkedAll: null });
     await get().loadReports(1);
     return result;
@@ -258,6 +306,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const params = new URLSearchParams({ page: String(targetPage), page_size: String(get().pageSize) });
     if (search.trim()) params.set("q", search.trim());
     if (status) params.set("status", status);
+    if (get().trashMode) params.set("trash", "true");
     const { sort } = get();
     if (sort) {
       params.set("sort", sort.column);

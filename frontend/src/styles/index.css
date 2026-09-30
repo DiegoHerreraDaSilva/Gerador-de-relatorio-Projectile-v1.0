@@ -9475,3 +9475,36 @@ input[data-pv="projectCode"]:placeholder-shown,
   font-size: 0.86rem;
   line-height: 1.45;
 }
+
+/* Relatórios | Lixeira (Histórico, gerente) */
+.history-views {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.history-views button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.history-views button.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+.history-trash-note {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+}

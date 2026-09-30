@@ -30,7 +30,10 @@ export const CHANGELOG: ChangelogEntry[] = [
         roles: ["manager", "coordinator"],
       },
       { text: "O Painel de Gerência exporta para Excel e mostra a variação sobre o mês anterior.", roles: ["manager"] },
-      { text: "O Histórico ordena por coluna e permite apagar vários relatórios de uma vez.", roles: ["manager"] },
+      {
+        text: "O Histórico ordena por coluna e apaga vários relatórios de uma vez: eles vão para a Lixeira (30 dias para restaurar) e o aviso tem o botão Desfazer.",
+        roles: ["manager"],
+      },
       { text: "Projeto ou cliente fechado no Diagnóstico sai sozinho da geração automática.", roles: ["manager"] },
     ],
   },
