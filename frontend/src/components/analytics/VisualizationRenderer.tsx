@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
+import { downloadXlsx } from "../../utils/downloadXlsx";
 import type {
   AnalyticsTable,
   ChartVisualization,
@@ -506,32 +507,6 @@ export function sortRows(rows: AnalyticsTable["rows"], sort: SortState): Analyti
         : String(x).localeCompare(String(y), "pt-BR", { sensitivity: "base", numeric: true });
     return descending ? -cmp : cmp;
   });
-}
-
-async function downloadXlsx(table: AnalyticsTable): Promise<void> {
-  const res = await fetch("/analytics/chat/export", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title: table.title,
-      columns: table.columns,
-      column_types: table.column_types ?? null,
-      rows: table.rows,
-      totals: table.totals ?? null,
-    }),
-  });
-  if (!res.ok) throw new Error(res.status === 401 ? "Sessão expirada" : "Falha ao gerar o Excel");
-  const blob = await res.blob();
-  const disposition = res.headers.get("content-disposition") ?? "";
-  const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "tabela.xlsx";
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function AnalyticsTableView({ table, defaultOpen = false }: { table: AnalyticsTable; defaultOpen?: boolean }) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, FileText, DollarSign, RefreshCw, MailSearch, LayoutDashboard } from "lucide-react";
+import { Clock, FileText, DollarSign, RefreshCw, MailSearch, LayoutDashboard, Download } from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
 import { EvolutionChart } from "./EvolutionChart";
@@ -7,6 +7,9 @@ import { SortableTh } from "./SortableTh";
 import { PageHeader } from "./PageHeader";
 import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
+import { downloadXlsx } from "../utils/downloadXlsx";
+import { buildMonthlyTable, formatDelta, periodTitle, previousMonthDeltas } from "../utils/managementExport";
+import { toast } from "../store/useToastStore";
 import { ErrorState, LoadingState } from "./PageStates";
 import { useManagementStore, round2 } from "../store/useManagementStore";
 import type { MonthRow } from "../store/useManagementStore";
@@ -49,11 +52,30 @@ export function ManagementPanel() {
   const setError = useManagementStore((s) => s.setError);
 
   const [checkingEmails, setCheckingEmails] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [checkEmailsMessage, setCheckEmailsMessage] = useState("");
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const { period, selectedMonths } = useManagementStore.getState();
+      const table = buildMonthlyTable(
+        displayRows,
+        `Painel de Gerência - ${periodTitle(period, selectedMonths)}`,
+        persons.length > 0,
+      );
+      await downloadXlsx(table);
+      toast.success("Excel gerado com a tabela do Painel.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não consegui gerar o Excel.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleCheckEmails = async () => {
     setCheckingEmails(true);
@@ -92,6 +114,9 @@ export function ManagementPanel() {
   const displayRows = selectedMonths.length
     ? (rows ?? []).filter((r) => selectedMonths.includes(r.month))
     : (rows ?? []);
+
+  // comparativo com o mês calendário anterior, sobre TODAS as linhas (não só as filtradas)
+  const deltas = previousMonthDeltas(rows ?? []);
 
   const totalWorked = round2(displayRows.reduce((s, r) => s + r.worked_hours, 0));
   // total de Faturadas/Perf.H só soma os meses com "Faturadas" preenchida —
@@ -191,6 +216,10 @@ export function ManagementPanel() {
               <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
               {refreshing ? "Atualizando..." : "Atualizar"}
             </button>
+            <button type="button" className="btn-secondary" onClick={handleExport} disabled={exporting}>
+              <Download size={14} strokeWidth={2} />
+              {exporting ? "Exportando..." : "Exportar Excel"}
+            </button>
             <button type="button" className="btn-secondary" onClick={handleCheckEmails} disabled={checkingEmails}>
               <MailSearch size={14} strokeWidth={2} className={checkingEmails ? "spin" : ""} />
               {checkingEmails ? "Verificando..." : "Verificar enviados"}
@@ -268,7 +297,14 @@ export function ManagementPanel() {
               {perfSort.sortedRows.map((r) => (
                 <tr key={r.month}>
                   <td>{r.month}</td>
-                  <td>{fmtNum(r.worked_hours)}</td>
+                  <td>
+                    {fmtNum(r.worked_hours)}
+                    {deltas.get(r.month)?.workedPct != null && (
+                      <small className="kpi-delta" title="Variação sobre o mês anterior">
+                        {formatDelta(deltas.get(r.month)?.workedPct ?? null, "%")}
+                      </small>
+                    )}
+                  </td>
                   <td title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}>
                     {r.billed_hours === null ? "—" : fmtNum(r.billed_hours)}
                   </td>
@@ -280,6 +316,14 @@ export function ManagementPanel() {
                     title={personsFilterActive ? NO_PERSON_DIMENSION_TITLE : undefined}
                   >
                     {fmtPct(r.perf_kpi_pct)}
+                    {deltas.get(r.month)?.perfPoints != null && (
+                      <small
+                        className={`kpi-delta ${(deltas.get(r.month)?.perfPoints ?? 0) > 0 ? "up" : (deltas.get(r.month)?.perfPoints ?? 0) < 0 ? "down" : ""}`}
+                        title="Variação sobre o mês anterior"
+                      >
+                        {formatDelta(deltas.get(r.month)?.perfPoints ?? null, "pts")}
+                      </small>
+                    )}
                   </td>
                 </tr>
               ))}
