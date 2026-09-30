@@ -30,5 +30,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // o 1º teste a importar as stores paga a transformação fria: 5 s (padrão) estourava às vezes
+    testTimeout: 15000,
   },
 });

@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, History, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, Download, History, Search, Trash2, X } from "lucide-react";
 import { PageHeader } from "./PageHeader";
-import { useHistoryStore } from "../store/useHistoryStore";
+import { confirmDialog } from "./ConfirmDialog";
+import { useAuthStore } from "../store/useAuthStore";
+import { useHistoryStore, type SortColumn } from "../store/useHistoryStore";
 import {
   formatAuditAction,
   formatCreatedFrom,
@@ -11,6 +13,15 @@ import {
   formatFileSize,
   formatGenerationStatus,
 } from "../utils/historyFormat";
+
+const COLUMNS: { key: SortColumn; label: string }[] = [
+  { key: "numero", label: "Número" },
+  { key: "projeto", label: "Projeto" },
+  { key: "competencia", label: "Competência" },
+  { key: "versao", label: "Versão" },
+  { key: "criado_por", label: "Criado por" },
+  { key: "atualizado", label: "Atualizado em" },
+];
 
 /** Tela de histórico de relatórios (`GET /reports/*`) — lista relatórios já gerados,
  * suas versões, arquivos e a trilha de auditoria. Autorização é feita no
@@ -26,6 +37,20 @@ export function HistoryPanel() {
   const filters = useHistoryStore((s) => s.filters);
   const setFilter = useHistoryStore((s) => s.setFilter);
   const loadReports = useHistoryStore((s) => s.loadReports);
+
+  const isManager = useAuthStore((s) => Boolean(s.user?.isManager));
+  const sort = useHistoryStore((s) => s.sort);
+  const setSort = useHistoryStore((s) => s.setSort);
+  const checkedIds = useHistoryStore((s) => s.checkedIds);
+  const checkedAll = useHistoryStore((s) => s.checkedAll);
+  const toggleChecked = useHistoryStore((s) => s.toggleChecked);
+  const checkPage = useHistoryStore((s) => s.checkPage);
+  const checkAllMatching = useHistoryStore((s) => s.checkAllMatching);
+  const clearChecked = useHistoryStore((s) => s.clearChecked);
+  const deleteChecked = useHistoryStore((s) => s.deleteChecked);
+  const [actionError, setActionError] = useState("");
+  const [working, setWorking] = useState(false);
+  const pageCheckbox = useRef<HTMLInputElement>(null);
 
   const selectedReportId = useHistoryStore((s) => s.selectedReportId);
   const selectedReport = useHistoryStore((s) => s.selectedReport);
@@ -64,6 +89,51 @@ export function HistoryPanel() {
   const searchTerm = filters.search.trim();
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const pageIds = reports.map((r) => r.id);
+  const checkedOnPage = pageIds.filter((id) => checkedIds.includes(id)).length;
+  const allOnPageChecked = pageIds.length > 0 && checkedOnPage === pageIds.length;
+  useEffect(() => {
+    // "meio marcado": só parte da página está selecionada
+    if (pageCheckbox.current) pageCheckbox.current.indeterminate = checkedOnPage > 0 && !allOnPageChecked;
+  }, [checkedOnPage, allOnPageChecked]);
+
+  async function selectEverything() {
+    setActionError("");
+    setWorking(true);
+    try {
+      await checkAllMatching();
+    } catch {
+      setActionError("Não consegui selecionar todos os resultados. Tenta de novo.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function deleteSelected() {
+    const n = checkedIds.length;
+    const ok = await confirmDialog({
+      title: n === 1 ? "Apagar 1 relatório?" : `Apagar ${n} relatórios?`,
+      message:
+        "Versões, arquivos gerados e cópias dos dados serão apagados do banco e do disco. Não dá pra desfazer. A trilha de auditoria continua, com o registro de quem apagou.",
+      confirmLabel: "Apagar",
+      danger: true,
+    });
+    if (!ok) return;
+    setActionError("");
+    setWorking(true);
+    try {
+      const result = await deleteChecked();
+      if (result.files_failed > 0)
+        setActionError(
+          `Apagado, mas ${result.files_failed} arquivo(s) não saíram do disco — confira a pasta de artefatos.`,
+        );
+    } catch {
+      setActionError("Não consegui apagar. Nada foi removido ou só parte foi; atualize a lista e confira.");
+    } finally {
+      setWorking(false);
+    }
+  }
 
   return (
     <div className="history-panel page-container">
@@ -114,6 +184,35 @@ export function HistoryPanel() {
       )}
 
       <div className="card history-table-wrap">
+        {isManager && checkedIds.length > 0 && (
+          <div className="history-bulk" role="region" aria-label="Seleção de relatórios">
+            <strong>
+              {checkedIds.length} {checkedIds.length === 1 ? "selecionado" : "selecionados"}
+            </strong>
+            {checkedAll?.truncated && (
+              <span className="muted">
+                (os {checkedAll.total} resultados passam do limite; selecionei os mais recentes)
+              </span>
+            )}
+            {!checkedAll && total > checkedIds.length && (
+              <button type="button" className="auto-link-button" onClick={selectEverything} disabled={working}>
+                Selecionar todos os {total} resultados
+              </button>
+            )}
+            <button type="button" className="btn-secondary" onClick={clearChecked} disabled={working}>
+              Limpar seleção
+            </button>
+            <button
+              type="button"
+              className="btn-secondary auto-delete-button"
+              onClick={deleteSelected}
+              disabled={working}
+            >
+              <Trash2 size={14} strokeWidth={2} /> Apagar
+            </button>
+          </div>
+        )}
+        {actionError && <p className="error-text">{actionError}</p>}
         {loading && <p className="muted">Carregando...</p>}
         {!loading && reports.length === 0 && (
           <p className="muted">
@@ -124,12 +223,32 @@ export function HistoryPanel() {
           <table className="kpi-table history-table">
             <thead>
               <tr>
-                <th>Número</th>
-                <th>Projeto</th>
-                <th>Competência</th>
-                <th>Versão</th>
-                <th>Criado por</th>
-                <th>Atualizado em</th>
+                {isManager && (
+                  <th className="history-check-col">
+                    <input
+                      ref={pageCheckbox}
+                      type="checkbox"
+                      aria-label="Selecionar todos desta página"
+                      checked={allOnPageChecked}
+                      onChange={(e) => checkPage(e.target.checked)}
+                    />
+                  </th>
+                )}
+                {COLUMNS.map((column) => {
+                  const active = sort?.column === column.key;
+                  const Icon = !active ? ChevronsUpDown : sort.order === "asc" ? ChevronUp : ChevronDown;
+                  return (
+                    <th
+                      key={column.key}
+                      aria-sort={!active ? "none" : sort.order === "asc" ? "ascending" : "descending"}
+                    >
+                      <button type="button" className="history-sort" onClick={() => setSort(column.key)}>
+                        {column.label}
+                        <Icon size={13} strokeWidth={2} aria-hidden="true" className={active ? "active" : ""} />
+                      </button>
+                    </th>
+                  );
+                })}
                 <th aria-label="Ações" />
               </tr>
             </thead>
@@ -143,9 +262,23 @@ export function HistoryPanel() {
                     : r.competence_label;
                 return (
                   <tr key={r.id} className={r.id === selectedReportId ? "active" : ""}>
+                    {isManager && (
+                      <td className="history-check-col">
+                        <input
+                          type="checkbox"
+                          aria-label={`Selecionar o relatório ${r.report_number}`}
+                          checked={checkedIds.includes(r.id)}
+                          onChange={() => toggleChecked(r.id)}
+                        />
+                      </td>
+                    )}
                     <td>{r.report_number}</td>
-                    <td title={r.project_name_snapshot}>{r.project_name_snapshot}</td>
-                    <td title={competence}>{competence}</td>
+                    <td className="history-clip" title={r.project_name_snapshot}>
+                      {r.project_name_snapshot}
+                    </td>
+                    <td className="history-clip" title={competence}>
+                      {competence}
+                    </td>
                     <td>v{r.current_version_number ?? "—"}</td>
                     <td>{r.created_by_name_snapshot}</td>
                     <td>{formatDateTime(r.updated_at)}</td>

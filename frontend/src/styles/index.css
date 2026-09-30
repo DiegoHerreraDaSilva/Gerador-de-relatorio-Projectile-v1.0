@@ -6139,8 +6139,7 @@ input[data-pv="projectCode"]:placeholder-shown,
      "Ver detalhes" pra fora. max-width:0 faz essas duas colunas ficarem só
      com o espaço que sobra e cortarem com reticências (texto inteiro no
      title da célula). */
-.history-table-wrap .kpi-table td:nth-child(2),
-.history-table-wrap .kpi-table td:nth-child(3) {
+.history-table-wrap .kpi-table td.history-clip {
   max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8988,4 +8987,112 @@ input[data-pv="projectCode"]:placeholder-shown,
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ordenar colunas e apagar vários (Histórico, gerente) */
+.history-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.history-sort svg {
+  opacity: 0.4;
+}
+.history-sort svg.active,
+.history-sort:hover svg {
+  opacity: 1;
+  color: var(--accent-hi);
+}
+.history-sort:focus-visible {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.history-check-col {
+  width: 34px;
+}
+.history-bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+}
+.history-bulk .auto-delete-button {
+  margin-left: auto;
+}
+
+/* tooltip instantâneo de dropdowns e filtros (HintHost.tsx): mesmo visual do da sidebar recolhida,
+   com a setinha apontando pro controle (embaixo, em cima ou ao lado, conforme o espaço) */
+.hint-tip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 340px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  box-shadow:
+    0 8px 24px -10px rgba(0, 0, 0, 0.55),
+    0 0 0 1px var(--hairline);
+  animation: sidebar-tooltip-in 90ms ease-out;
+}
+.hint-tip::before {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  border: 0 solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.hint-right {
+  transform: translateY(-50%);
+}
+.hint-right::before {
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  border-left-width: 1px;
+  border-bottom-width: 1px;
+}
+.hint-bottom::before {
+  top: -5px;
+  left: 18px;
+  transform: rotate(45deg);
+  border-left-width: 1px;
+  border-top-width: 1px;
+}
+.hint-top {
+  transform: translateY(-100%);
+}
+.hint-top::before {
+  bottom: -5px;
+  left: 18px;
+  transform: rotate(45deg);
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hint-tip {
+    animation: none;
+  }
 }

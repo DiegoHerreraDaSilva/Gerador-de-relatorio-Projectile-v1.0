@@ -21,6 +21,8 @@ _COLLABORATOR = {"name": "Colaborador", "login": "colab", "email": "o@x"}
 
 _MANAGER_ONLY = {
     ("GET", "/health/details"),
+    ("GET", "/reports/ids"),
+    ("DELETE", "/reports"),
     ("GET", "/management/kpis"),
     ("POST", "/management/kpis/check-emails"),
     ("PUT", "/management/kpis/{month}"),

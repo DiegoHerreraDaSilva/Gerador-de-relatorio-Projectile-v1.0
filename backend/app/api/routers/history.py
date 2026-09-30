@@ -4,15 +4,17 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from ...core import authz
-from ...services import report_queries
+from ...services import report_admin, report_queries
 from ...services.audit import record_event
 from .. import period_access
-from ..dependencies import require_session
+from ..dependencies import require_manager, require_session
 from ..errors import GENERIC_REPORTS_DB_ERROR, log_and_generic_error
 
 router = APIRouter()
@@ -68,6 +70,8 @@ def list_reports_endpoint(
     status: str | None = None,
     created_by: str | None = None,
     q: str | None = Query(None, max_length=200),
+    sort: Literal["numero", "projeto", "competencia", "versao", "criado_por", "atualizado"] | None = None,
+    order: Literal["asc", "desc"] = "desc",
     _user: dict = Depends(require_session),
 ):
     """`q` = busca geral por Número, Projeto, Competência e Criado por. Pra
@@ -91,7 +95,38 @@ def list_reports_endpoint(
             competence_from=limits[0] if limits else None,
             visible_to=viewer,
             viewer_name=_user.get("name"),
+            sort=sort,
+            order=order,
         )
+    except Exception as e:
+        raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
+
+
+@router.get("/reports/ids")
+def list_report_ids_endpoint(
+    report_number: str | None = None,
+    competence: str | None = None,
+    status: str | None = None,
+    created_by: str | None = None,
+    q: str | None = Query(None, max_length=200),
+    _user: dict = Depends(require_manager),
+):
+    """Ids de todos os relatórios do filtro (o "selecionar todos" da exclusão) — só gerente."""
+    try:
+        return report_queries.list_report_ids(report_number=report_number, competence=competence, status=status, created_by=created_by, search=q)
+    except Exception as e:
+        raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
+
+
+class DeleteReportsRequest(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=report_admin.MAX_DELETE)
+
+
+@router.delete("/reports")
+def delete_reports_endpoint(body: DeleteReportsRequest, _user: dict = Depends(require_manager)):
+    """Apaga relatórios do histórico (versões, arquivos, snapshots) — só gerente. A auditoria fica."""
+    try:
+        return report_admin.delete_reports(body.ids, _user)
     except Exception as e:
         raise log_and_generic_error(e, generic_message=GENERIC_REPORTS_DB_ERROR)
 

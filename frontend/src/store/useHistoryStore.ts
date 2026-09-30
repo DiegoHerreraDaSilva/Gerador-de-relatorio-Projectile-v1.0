@@ -106,6 +106,23 @@ async function fetchJson<T>(url: string): Promise<T> {
  * feita no backend (`GET /reports?q=`) porque a lista é paginada lá. */
 export type HistoryFilters = { search: string; status: string };
 
+/** Colunas ordenáveis da lista (o backend valida a mesma lista: `SORT_COLUMNS`). */
+export type SortColumn = "numero" | "projeto" | "competencia" | "versao" | "criado_por" | "atualizado";
+export type SortState = { column: SortColumn; order: "asc" | "desc" } | null;
+
+/** 1º clique = crescente, 2º = decrescente, 3º = volta à ordem padrão (mais recente primeiro). */
+export function nextSort(current: SortState, column: SortColumn): SortState {
+  if (!current || current.column !== column) return { column, order: "asc" };
+  return current.order === "asc" ? { column, order: "desc" } : null;
+}
+
+export type DeleteResult = {
+  deleted: { id: string }[];
+  not_found: string[];
+  files_removed: number;
+  files_failed: number;
+};
+
 // só a resposta da busca mais recente vale: digitando rápido, uma busca
 // antiga que volte depois da nova não pode sobrescrever o resultado
 let latestReportsRequest = 0;
@@ -120,6 +137,19 @@ interface HistoryState {
 
   filters: HistoryFilters;
   setFilter: (key: keyof HistoryFilters, value: string) => void;
+
+  sort: SortState;
+  setSort: (column: SortColumn) => void;
+
+  // seleção para apagar (só gerente): ids marcados, inclusive de outras páginas
+  checkedIds: string[];
+  // "selecionar todos" do filtro inteiro: quantos existem e se o teto do servidor cortou
+  checkedAll: { total: number; truncated: boolean } | null;
+  toggleChecked: (id: string) => void;
+  checkPage: (checked: boolean) => void;
+  checkAllMatching: () => Promise<void>;
+  clearChecked: () => void;
+  deleteChecked: () => Promise<DeleteResult>;
 
   selectedReportId: string | null;
   selectedReport: ReportSummary | null;
@@ -154,6 +184,60 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   filters: { search: "", status: "" },
   setFilter: (key, value) => set((s) => ({ filters: { ...s.filters, [key]: value } })),
 
+  sort: null,
+  setSort: (column) => {
+    set((s) => ({ sort: nextSort(s.sort, column) }));
+    void get().loadReports(1);
+  },
+
+  checkedIds: [],
+  checkedAll: null,
+  toggleChecked: (id) =>
+    set((s) => ({
+      checkedIds: s.checkedIds.includes(id) ? s.checkedIds.filter((x) => x !== id) : [...s.checkedIds, id],
+      checkedAll: null,
+    })),
+  checkPage: (checked) =>
+    set((s) => {
+      const pageIds = s.reports.map((r) => r.id);
+      const others = s.checkedIds.filter((id) => !pageIds.includes(id));
+      return { checkedIds: checked ? [...others, ...pageIds] : others, checkedAll: null };
+    }),
+  checkAllMatching: async () => {
+    const { search, status } = get().filters;
+    const params = new URLSearchParams();
+    if (search.trim()) params.set("q", search.trim());
+    if (status) params.set("status", status);
+    const data = await fetchJson<{ ids: string[]; total: number; truncated: boolean }>(
+      `/reports/ids?${params.toString()}`,
+    );
+    set({ checkedIds: data.ids, checkedAll: { total: data.total, truncated: data.truncated } });
+  },
+  clearChecked: () => set({ checkedIds: [], checkedAll: null }),
+  deleteChecked: async () => {
+    const ids = get().checkedIds;
+    const result: DeleteResult = { deleted: [], not_found: [], files_removed: 0, files_failed: 0 };
+    // o servidor aceita até 200 por chamada
+    for (let i = 0; i < ids.length; i += 200) {
+      const res = await fetch("/reports", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ids.slice(i, i + 200) }),
+      });
+      if (!res.ok) throw new Error(await res.text().catch(() => `Erro ${res.status}`));
+      const part = (await res.json()) as DeleteResult;
+      result.deleted.push(...part.deleted);
+      result.not_found.push(...part.not_found);
+      result.files_removed += part.files_removed;
+      result.files_failed += part.files_failed;
+    }
+    const gone = new Set(result.deleted.map((d) => d.id));
+    if (get().selectedReportId && gone.has(get().selectedReportId as string)) get().clearSelection();
+    set({ checkedIds: [], checkedAll: null });
+    await get().loadReports(1);
+    return result;
+  },
+
   selectedReportId: null,
   selectedReport: null,
   versions: [],
@@ -174,6 +258,11 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const params = new URLSearchParams({ page: String(targetPage), page_size: String(get().pageSize) });
     if (search.trim()) params.set("q", search.trim());
     if (status) params.set("status", status);
+    const { sort } = get();
+    if (sort) {
+      params.set("sort", sort.column);
+      params.set("order", sort.order);
+    }
     const request = ++latestReportsRequest;
     try {
       const data = await fetchJson<Paginated<ReportSummary>>(`/reports?${params.toString()}`);

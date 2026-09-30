@@ -48,7 +48,8 @@ def _search_condition(search: str):
 
 def _paginate(conn, base_query, order_by, page: int, page_size: int) -> tuple[list[dict], int]:
     total = conn.execute(select(func.count()).select_from(base_query.subquery())).scalar_one()
-    rows = conn.execute(base_query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)).mappings().all()
+    terms = order_by if isinstance(order_by, (list, tuple)) else [order_by]
+    rows = conn.execute(base_query.order_by(*terms).offset((page - 1) * page_size).limit(page_size)).mappings().all()
     return [dict(r) for r in rows], total
 
 
@@ -68,19 +69,48 @@ def viewer_has_access(report_id: str, viewer: str) -> bool:
     return row is not None
 
 
-def list_reports(
+# colunas ordenáveis da lista (nome da tela -> expressão); `versao` é montada por usuário
+SORT_COLUMNS = ("numero", "projeto", "competencia", "versao", "criado_por", "atualizado")
+MAX_IDS = 1000
+
+
+def _sort_order(sort: str | None, order: str, visible_to: str | None):
+    """Ordem da lista. Sempre desempata por `id` (paginação estável)."""
+    direction = (lambda col: col.asc()) if order == "asc" else (lambda col: col.desc())
+    if sort == "numero":
+        terms = [direction(func.lower(reports.c.report_number))]
+    elif sort == "projeto":
+        terms = [direction(func.lower(reports.c.project_name_snapshot))]
+    elif sort == "competencia":
+        terms = [direction(reports.c.competence_start), direction(reports.c.competence_label)]
+    elif sort == "criado_por":
+        terms = [direction(func.lower(reports.c.created_by_name_snapshot))]
+    elif sort == "versao":
+        if visible_to:
+            number = (
+                select(func.max(report_versions.c.version_number))
+                .where(report_versions.c.report_id == reports.c.id, _own_version(visible_to))
+                .correlate(reports)
+                .scalar_subquery()
+            )
+        else:
+            number = select(report_versions.c.version_number).where(report_versions.c.id == reports.c.current_version_id).correlate(reports).scalar_subquery()
+        terms = [direction(number)]
+    else:  # "atualizado" (padrão: mais recente primeiro)
+        terms = [direction(reports.c.updated_at)] if sort else [desc(reports.c.updated_at)]
+    return [*terms, reports.c.id]
+
+
+def _list_conditions(
     *,
-    page: int,
-    page_size: int,
-    report_number: str | None = None,
-    competence: str | None = None,
-    status: str | None = None,
-    created_by: str | None = None,
-    search: str | None = None,
-    competence_from: date | None = None,
-    visible_to: str | None = None,
-    viewer_name: str | None = None,
-) -> dict:
+    report_number: str | None,
+    competence: str | None,
+    status: str | None,
+    created_by: str | None,
+    search: str | None,
+    competence_from: date | None,
+    visible_to: str | None,
+) -> list:
     conditions = []
     if visible_to:
         # só relatórios em que o usuário criou ao menos uma versão
@@ -101,20 +131,76 @@ def list_reports(
         conditions.append(reports.c.status == status)
     if created_by:
         conditions.append(reports.c.created_by == created_by)
+    return conditions
 
+
+def list_reports(
+    *,
+    page: int,
+    page_size: int,
+    report_number: str | None = None,
+    competence: str | None = None,
+    status: str | None = None,
+    created_by: str | None = None,
+    search: str | None = None,
+    competence_from: date | None = None,
+    visible_to: str | None = None,
+    viewer_name: str | None = None,
+    sort: str | None = None,
+    order: str = "desc",
+) -> dict:
+    conditions = _list_conditions(
+        report_number=report_number,
+        competence=competence,
+        status=status,
+        created_by=created_by,
+        search=search,
+        competence_from=competence_from,
+        visible_to=visible_to,
+    )
     base_query = select(reports)
     if conditions:
         base_query = base_query.where(and_(*conditions))
 
     engine = get_engine()
     with engine.connect() as conn:
-        items, total = _paginate(conn, base_query, desc(reports.c.updated_at), page, page_size)
+        items, total = _paginate(conn, base_query, _sort_order(sort, order, visible_to), page, page_size)
         items = [_with_current_version_number(conn, item, visible_to) for item in items]
         if visible_to:
             # quem criou o registro pode ser outra pessoa: não aparece pra quem só vê o próprio
             items = [{**item, "created_by": visible_to, "created_by_name_snapshot": viewer_name or visible_to} for item in items]
 
     return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+def list_report_ids(
+    *,
+    report_number: str | None = None,
+    competence: str | None = None,
+    status: str | None = None,
+    created_by: str | None = None,
+    search: str | None = None,
+    competence_from: date | None = None,
+    visible_to: str | None = None,
+) -> dict:
+    """Ids de TODOS os relatórios do filtro (pro "selecionar todos"), até `MAX_IDS`."""
+    conditions = _list_conditions(
+        report_number=report_number,
+        competence=competence,
+        status=status,
+        created_by=created_by,
+        search=search,
+        competence_from=competence_from,
+        visible_to=visible_to,
+    )
+    query = select(reports.c.id)
+    if conditions:
+        query = query.where(and_(*conditions))
+    engine = get_engine()
+    with engine.connect() as conn:
+        total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+        ids = [r.id for r in conn.execute(query.order_by(desc(reports.c.updated_at), reports.c.id).limit(MAX_IDS))]
+    return {"ids": ids, "total": total, "truncated": total > len(ids)}
 
 
 def _with_current_version_number(conn, report: dict, viewer: str | None = None) -> dict:

@@ -13,7 +13,7 @@ import pkgutil
 import pytest
 
 import backend.app.services as services_package
-from backend.app.services import audit, auto_generation_store, management_store, report_persistence
+from backend.app.services import audit, auto_generation_store, management_store, report_admin, report_persistence
 from backend.app.services.policy import FailurePolicy
 
 # a decisão registrada — mudar aqui é mudar a política do projeto
@@ -22,9 +22,16 @@ _EXPECTED = {
     "audit": FailurePolicy.FAIL_OPEN,
     "management_store": FailurePolicy.FAIL_CLOSED,
     "auto_generation_store": FailurePolicy.FAIL_CLOSED,
+    "report_admin": FailurePolicy.FAIL_CLOSED,
 }
 
-_MODULES = {"report_persistence": report_persistence, "audit": audit, "management_store": management_store, "auto_generation_store": auto_generation_store}
+_MODULES = {
+    "report_persistence": report_persistence,
+    "audit": audit,
+    "management_store": management_store,
+    "auto_generation_store": auto_generation_store,
+    "report_admin": report_admin,
+}
 
 
 @pytest.mark.parametrize(("name", "expected"), _EXPECTED.items())
@@ -47,6 +54,7 @@ def test_store_novo_precisa_entrar_no_registro():
         "report_persistence",
         "management_store",
         "auto_generation_store",
+        "report_admin",
     }
     encontrados = {m.name for m in pkgutil.iter_modules(services_package.__path__) if not m.name.startswith("_")}
     desconhecidos = encontrados - nao_stores

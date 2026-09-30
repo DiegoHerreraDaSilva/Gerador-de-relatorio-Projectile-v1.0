@@ -19,7 +19,7 @@ from backend.app.api.dependencies import require_session
 from backend.app.core import authz
 from backend.app.db.reports_schema import audit_log, metadata, report_artifacts, report_generation, report_source_snapshots, report_versions, reports
 from backend.app.main import app
-from backend.app.services import report_queries
+from backend.app.services import audit, report_admin, report_queries
 
 _ALICE = {"name": "Alice", "login": "alice", "email": "a@x", "employee_id": "1", "filiale": None}
 _BOB = {"name": "Bob", "login": "Bob", "email": "b@x", "employee_id": "2", "filiale": None}
@@ -37,6 +37,9 @@ def history(monkeypatch, tmp_path):
     wanted = [t for t in metadata.sorted_tables if not t.name.startswith(("mgmt_", "auto_"))]
     metadata.create_all(engine, tables=wanted)
     monkeypatch.setattr(report_queries, "get_engine", lambda: engine)
+    # todo módulo que a rota toca usa o próprio get_engine: nenhum teste pode chegar num banco real
+    monkeypatch.setattr(report_admin, "get_engine", lambda: engine)
+    monkeypatch.setattr(audit, "get_engine", lambda: engine)
     monkeypatch.setattr(authz, "MANAGEMENT_PANEL_LOGINS", {"gerente"})
 
     alice_file = tmp_path / "alice.xlsx"
