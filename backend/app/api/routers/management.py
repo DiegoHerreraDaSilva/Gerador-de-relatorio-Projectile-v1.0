@@ -16,7 +16,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ... import email_ingest
+from ... import email_ingest, executive_summary
 from ...management import (
     compute_monthly_kpis,
     create_manual_project_kpi_sample,
@@ -185,6 +185,19 @@ def management_send_status_endpoint(
     except ProjectileDbError as e:
         raise log_and_generic_error(e)
     return {"months": [{"month": row["month"]} for row in result["months"]], **{key: result[key] for key in _SEND_STATUS_KEYS}}
+
+
+@router.get("/management/executive-summary")
+def management_executive_summary_endpoint(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), use_ai: bool = True, _user: dict = Depends(require_manager)):
+    """Resumo executivo de um mês (só gerente): os números saem do mesmo cálculo do Painel; o texto é automático
+    ou redigido pelo Claude (só com números conferidos, sem nome de cliente). Devolve `{month, facts, text,
+    source: "claude"|"automatico", ai_note}`."""
+    try:
+        return executive_summary.generate(month, use_ai=use_ai)
+    except executive_summary.SummaryError as e:
+        raise HTTPException(400, str(e))
+    except ProjectileDbError as e:  # falha do reports_db (ManagementStoreError) já vira 502 no handler global
+        raise log_and_generic_error(e)
 
 
 @router.post("/management/kpis/check-emails")

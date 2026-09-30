@@ -9508,3 +9508,68 @@ input[data-pv="projectCode"]:placeholder-shown,
   margin: 0 0 10px;
   font-size: 0.82rem;
 }
+
+/* resumo do mês (ExecutiveSummaryModal.tsx) */
+.exec-summary-modal {
+  width: min(620px, calc(100vw - 32px));
+}
+.exec-summary-modal h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exec-summary-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 14px;
+}
+.exec-summary-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.exec-summary-controls .auto-schedule-toggle {
+  flex-direction: row;
+  align-items: center;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.exec-summary-body {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.exec-summary-body.is-stale {
+  opacity: 0.55;
+}
+.exec-summary-body p {
+  margin: 0 0 10px;
+  line-height: 1.55;
+  font-size: 0.9rem;
+}
+.exec-summary-source {
+  font-size: 0.78rem !important;
+}
+.exec-summary-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+}
+.exec-summary-facts div {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.exec-summary-facts dt {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.exec-summary-facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}

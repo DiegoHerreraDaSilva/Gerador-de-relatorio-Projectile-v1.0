@@ -283,6 +283,21 @@ def finalize_analysis(usage: ClaudeUsage, message: str, summary: dict) -> str:
     )
 
 
+def summarize(usage: ClaudeUsage, facts: dict) -> str:
+    """Resumo executivo do mês (`executive_summary.py`): o Claude recebe SÓ os números já calculados e os
+    redige em tom de gerência; o texto só vale se passar pelo `grounding`."""
+    return _text_call(
+        usage,
+        "Escreva o resumo executivo do mês para o gerente de engenharia, em 4 a 6 frases corridas (sem lista, "
+        "sem markdown), tom direto e objetivo. Use SOMENTE os números deste resultado, no formato brasileiro "
+        "(3.041,8 h); não some, subtraia nem calcule nada — as variações já estão prontas "
+        "(worked_delta_pct em %, performance_delta_pts em pontos percentuais). Valor nulo significa que o dado "
+        "ainda não existe: diga isso em vez de supor. Destaque o que mudou em relação ao mês anterior e o "
+        "andamento dos envios. Não cite nomes de clientes nem de pessoas.\n"
+        f"Resultado (já calculado pelo sistema): {json.dumps(facts, ensure_ascii=False)}",
+    )
+
+
 def general_answer(usage: ClaudeUsage, message: str) -> str:
     return _text_call(
         usage,

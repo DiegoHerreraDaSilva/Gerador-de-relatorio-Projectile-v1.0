@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { Clock, FileText, DollarSign, RefreshCw, MailSearch, LayoutDashboard, Download } from "lucide-react";
+import {
+  Clock,
+  FileText,
+  DollarSign,
+  RefreshCw,
+  MailSearch,
+  LayoutDashboard,
+  Download,
+  ScrollText,
+} from "lucide-react";
 import { KpiCard } from "./KpiCard";
 import { ManagementFilters } from "./ManagementFilters";
 import { EvolutionChart } from "./EvolutionChart";
@@ -11,7 +20,8 @@ import { downloadXlsx } from "../utils/downloadXlsx";
 import { buildMonthlyTable, formatDelta, periodTitle, previousMonthDeltas } from "../utils/managementExport";
 import { toast } from "../store/useToastStore";
 import { ErrorState, LoadingState } from "./PageStates";
-import { useManagementStore, round2 } from "../store/useManagementStore";
+import { ExecutiveSummaryModal } from "./ExecutiveSummaryModal";
+import { lastMonthKey, useManagementStore, round2 } from "../store/useManagementStore";
 import type { MonthRow } from "../store/useManagementStore";
 
 function pctClass(value: number | null, metaValue: number, metaType: "min" | "max"): string {
@@ -53,6 +63,7 @@ export function ManagementPanel() {
 
   const [checkingEmails, setCheckingEmails] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [checkEmailsMessage, setCheckEmailsMessage] = useState("");
 
   useEffect(() => {
@@ -216,6 +227,10 @@ export function ManagementPanel() {
               <RefreshCw size={14} strokeWidth={2} className={refreshing ? "spin" : ""} />
               {refreshing ? "Atualizando..." : "Atualizar"}
             </button>
+            <button type="button" className="btn-secondary" onClick={() => setShowSummary(true)}>
+              <ScrollText size={14} strokeWidth={2} />
+              Resumo do mês
+            </button>
             <button type="button" className="btn-secondary" onClick={handleExport} disabled={exporting}>
               <Download size={14} strokeWidth={2} />
               {exporting ? "Exportando..." : "Exportar Excel"}
@@ -228,6 +243,16 @@ export function ManagementPanel() {
         }
         status={checkEmailsMessage ? <span className="muted">{checkEmailsMessage}</span> : undefined}
       />
+      {showSummary && (
+        <ExecutiveSummaryModal
+          months={[...(rows ?? [])]
+            .map((r) => r.month)
+            .sort()
+            .reverse()}
+          initialMonth={lastMonthKey()}
+          onClose={() => setShowSummary(false)}
+        />
+      )}
       <ManagementFilters />
       <div className="management-panel">
         {error && (

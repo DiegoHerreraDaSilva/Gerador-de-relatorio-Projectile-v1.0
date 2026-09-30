@@ -26,6 +26,7 @@ _MANAGER_ONLY = {
     ("POST", "/reports/restore"),
     ("DELETE", "/reports/trash"),
     ("GET", "/management/kpis"),
+    ("GET", "/management/executive-summary"),
     ("POST", "/management/kpis/check-emails"),
     ("PUT", "/management/kpis/{month}"),
     ("GET", "/analytics/summary"),

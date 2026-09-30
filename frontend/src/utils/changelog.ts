@@ -31,6 +31,10 @@ export const CHANGELOG: ChangelogEntry[] = [
       },
       { text: "O Painel de Gerência exporta para Excel e mostra a variação sobre o mês anterior.", roles: ["manager"] },
       {
+        text: "Novo botão “Resumo do mês” no Painel: um texto de gerência com os números do mês, redigido pela IA (com todo número conferido) ou automático.",
+        roles: ["manager"],
+      },
+      {
         text: "O Histórico ordena por coluna e apaga vários relatórios de uma vez: eles vão para a Lixeira (30 dias para restaurar) e o aviso tem o botão Desfazer.",
         roles: ["manager"],
       },
