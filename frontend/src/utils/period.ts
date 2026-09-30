@@ -90,6 +90,24 @@ export function parsePeriodLabelForControls(
   };
 }
 
+/** Ajusta um período escolhido nos quatro campos: cada mês precisa existir no ano dele (quem não é
+ * gerente só tem a janela de 12 meses) e o fim nunca fica antes do início — se ficar, vira o início. */
+export function normalizeRange(range: MonthYearRange, isManager: boolean, today = new Date()): MonthYearRange {
+  const fit = (month: string, year: string) => {
+    const allowed = monthOptionsFor(isManager, year, today);
+    return allowed.includes(month) ? month : (allowed[0] ?? month);
+  };
+  const startMonth = fit(range.startMonth, range.startYear);
+  let endMonth = fit(range.endMonth, range.endYear);
+  let endYear = range.endYear;
+  const index = (month: string, year: string) => Number(year) * 12 + MESES_PT.indexOf(month);
+  if (index(endMonth, endYear) < index(startMonth, range.startYear)) {
+    endMonth = startMonth;
+    endYear = range.startYear;
+  }
+  return { startMonth, startYear: range.startYear, endMonth, endYear };
+}
+
 // Os N meses calendário mais recentes já FECHADOS (nunca inclui o mês
 // corrente, que ainda não tem hora completa apontada) — mesmo espírito de
 // `_MY_HOURS_PERIOD_MONTHS` no backend (`main.py`), só que calculado no

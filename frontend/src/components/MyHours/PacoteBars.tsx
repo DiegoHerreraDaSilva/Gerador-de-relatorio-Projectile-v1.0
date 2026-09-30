@@ -73,7 +73,7 @@ export function PacoteBars({
             )}% do período. Filtrar lançamentos.`}
             onClick={() => onSelect(item.name)}
             disabled={item.name === "Outros"}
-            title={item.name === "Outros" ? "Agrupamento da cauda — sem filtro" : item.name}
+            data-hint={item.name === "Outros" ? "Agrupamento da cauda — sem filtro" : item.name}
           >
             <span className="pacotebars-top">
               <span className="pacotebars-label">{item.name}</span>

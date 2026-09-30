@@ -340,7 +340,7 @@ export function AutoGenerationPanel({ onNavigate }: { onNavigate: (view: AppView
                   type="button"
                   className={stage === s ? "active" : ""}
                   aria-pressed={stage === s}
-                  title={stage === s ? "Clique de novo pra ver todos" : undefined}
+                  data-hint={stage === s ? "Clique de novo pra ver todos" : undefined}
                   onClick={() => setStage((current) => (current === s ? "all" : s))}
                 >
                   {STATUS_LABELS[s]} <span className="send-status-tab-count">{view.counts[s] ?? 0}</span>

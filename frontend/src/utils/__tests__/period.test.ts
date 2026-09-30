@@ -4,6 +4,7 @@ import {
   getReportYearOptions,
   lastClosedMonthsRange,
   monthOptionsFor,
+  normalizeRange,
   parsePeriodLabelForControls,
   periodWindow,
   reportYearOptionsFor,
@@ -111,5 +112,43 @@ describe("janela de quem não é gerente (últimos 12 meses e o ano atual)", () 
     expect(reportYearOptionsFor(false, today)).toEqual(["2026"]);
     expect(reportYearOptionsFor(true, today)).toHaveLength(19);
     expect(monthOptionsFor(true, "2010", today)).toHaveLength(12);
+  });
+});
+
+describe("normalizeRange (mês e ano inicial, mês e ano final)", () => {
+  const today = new Date(2026, 8, 28);
+  const range = (startMonth: string, startYear: string, endMonth: string, endYear: string) => ({
+    startMonth,
+    startYear,
+    endMonth,
+    endYear,
+  });
+
+  it("deixa como está um período válido, inclusive cruzando o ano", () => {
+    expect(normalizeRange(range("Dezembro", "2025", "Fevereiro", "2026"), true, today)).toEqual(
+      range("Dezembro", "2025", "Fevereiro", "2026"),
+    );
+  });
+
+  it("o fim nunca fica antes do início: vira o início", () => {
+    expect(normalizeRange(range("Agosto", "2026", "Março", "2026"), true, today)).toEqual(
+      range("Agosto", "2026", "Agosto", "2026"),
+    );
+    expect(normalizeRange(range("Março", "2026", "Dezembro", "2025"), true, today)).toEqual(
+      range("Março", "2026", "Março", "2026"),
+    );
+  });
+
+  it("subir o ano inicial acima do final arrasta o final", () => {
+    expect(normalizeRange(range("Junho", "2027", "Agosto", "2026"), true, today)).toEqual(
+      range("Junho", "2027", "Junho", "2027"),
+    );
+  });
+
+  it("quem não é gerente: mês fora da janela vai pro primeiro que vale naquele ano", () => {
+    // em set/2026 a janela de 2025 é out–dez
+    expect(normalizeRange(range("Janeiro", "2025", "Março", "2026"), false, today)).toEqual(
+      range("Outubro", "2025", "Março", "2026"),
+    );
   });
 });

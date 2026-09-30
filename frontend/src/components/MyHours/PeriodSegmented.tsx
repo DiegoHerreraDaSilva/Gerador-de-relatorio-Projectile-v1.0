@@ -29,7 +29,7 @@ export function PeriodSegmented({
           className={value === opt.value ? "active" : ""}
           aria-pressed={value === opt.value}
           aria-label={opt.full}
-          title={opt.full}
+          data-hint={opt.full}
           disabled={disabled}
           onClick={() => onChange(opt.value)}
         >

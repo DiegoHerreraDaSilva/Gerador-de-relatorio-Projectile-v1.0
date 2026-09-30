@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { Check, ChevronDown, Search, UserRound } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 import type { Reviewer } from "../store/useAutoGenerationStore";
+import { hintText } from "../utils/hint";
 
 /** Sem acento e sem caixa: "joão" acha "Joao" e vice-versa. */
 function fold(text: string): string {
@@ -103,6 +104,7 @@ export function ReviewerPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-describedby={describedBy}
+        data-hint={hintText("Revisor", [label])}
       >
         <UserRound size={14} strokeWidth={2} aria-hidden="true" />
         <span className={value ? "" : "muted"}>{label}</span>

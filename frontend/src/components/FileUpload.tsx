@@ -19,11 +19,18 @@ import { useReportStore, MESES_PT, genId } from "../store/useReportStore";
 import { useReportTabsStore } from "../store/useReportTabsStore";
 import { hasCoordinatorAccess, useAuthStore } from "../store/useAuthStore";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { buildPeriodLabel, monthOptionsFor, parsePeriodLabelForControls, reportYearOptionsFor } from "../utils/period";
+import {
+  buildPeriodLabel,
+  monthOptionsFor,
+  normalizeRange,
+  parsePeriodLabelForControls,
+  reportYearOptionsFor,
+} from "../utils/period";
 import { getReportImportActionState } from "../utils/reportImport";
 import { StepCard } from "./StepCard";
 import { RadioCardGroup } from "./RadioCard";
 import type { ParseResponse } from "../api/types";
+import { hintText } from "../utils/hint";
 
 function ClientDropdown({
   value,
@@ -68,11 +75,10 @@ function ClientDropdown({
         className="month-dropdown-trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
+        data-hint={hintText("Cliente", [value], "Selecione um cliente")}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="client-dropdown-trigger-label" title={value}>
-          {value || "Selecione um cliente"}
-        </span>
+        <span className="client-dropdown-trigger-label">{value || "Selecione um cliente"}</span>
         <ChevronDown size={16} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
       {open && (
@@ -218,22 +224,22 @@ function PeriodPicker() {
   // quem não é gerente só escolhe os últimos 12 meses e o ano atual
   // (`utils/period.ts::periodWindow`, o backend barra o resto com 403)
   const isManager = useAuthStore((s) => Boolean(s.user?.isManager));
-  const { startMonth, startYear, endMonth } = parsePeriodLabelForControls(monthLabel, endMonthLabel);
+  const range = parsePeriodLabelForControls(monthLabel, endMonthLabel);
+  const { startMonth, startYear, endMonth, endYear } = range;
   const yearOptions = reportYearOptionsFor(isManager);
   const monthOptions = monthOptionsFor(isManager, startYear);
+  const endMonthOptions = monthOptionsFor(isManager, endYear);
   // trocou de ano e o mês escolhido não vale nele: vai pro primeiro que vale
   const fitMonth = (month: string, year: string) => {
     const allowed = monthOptionsFor(isManager, year);
     return allowed.includes(month) ? month : (allowed[0] ?? month);
   };
 
-  const applyRange = (sMonth: string, year: string, eMonth: string) => {
-    const start = fitMonth(sMonth, year);
-    const allowed = monthOptionsFor(isManager, year);
-    // o mês final nunca antes do inicial
-    const end = allowed.indexOf(fitMonth(eMonth, year)) < allowed.indexOf(start) ? start : fitMonth(eMonth, year);
-    setHeaderField("monthLabel", buildPeriodLabel(start, year, end, year));
-    setEndMonthLabel(`${end}/${year}`);
+  // cada campo muda sozinho; o período inteiro é reajustado (mês que não existe no ano, fim antes do início)
+  const applyRange = (patch: Partial<typeof range>) => {
+    const next = normalizeRange({ ...range, ...patch }, isManager);
+    setHeaderField("monthLabel", buildPeriodLabel(next.startMonth, next.startYear, next.endMonth, next.endYear));
+    setEndMonthLabel(`${next.endMonth}/${next.endYear}`);
   };
 
   return (
@@ -280,7 +286,16 @@ function PeriodPicker() {
               value={startMonth}
               label="Mês inicial"
               options={monthOptions}
-              onChange={(m) => applyRange(m, startYear, endMonth)}
+              onChange={(m) => applyRange({ startMonth: m })}
+            />
+          </div>
+          <div className="period-field">
+            <label className="db-search-label">Ano inicial</label>
+            <PeriodSelect
+              value={startYear}
+              label="Ano inicial"
+              options={yearOptions}
+              onChange={(y) => applyRange({ startYear: y })}
             />
           </div>
           <div className="period-field">
@@ -288,17 +303,17 @@ function PeriodPicker() {
             <PeriodSelect
               value={endMonth}
               label="Mês final"
-              options={monthOptions}
-              onChange={(m) => applyRange(startMonth, startYear, m)}
+              options={endMonthOptions}
+              onChange={(m) => applyRange({ endMonth: m })}
             />
           </div>
-          <div className="period-field period-field-year">
-            <label className="db-search-label">Ano</label>
+          <div className="period-field">
+            <label className="db-search-label">Ano final</label>
             <PeriodSelect
-              value={startYear}
-              label="Ano"
+              value={endYear}
+              label="Ano final"
               options={yearOptions}
-              onChange={(y) => applyRange(startMonth, y, endMonth)}
+              onChange={(y) => applyRange({ endYear: y })}
             />
           </div>
         </div>

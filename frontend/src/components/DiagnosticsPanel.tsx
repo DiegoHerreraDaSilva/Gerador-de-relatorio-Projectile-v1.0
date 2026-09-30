@@ -12,6 +12,8 @@ import { useDiagnosticsStore, type Sample, type Project, type SkippedMessage } f
 import { useClickOutside } from "../hooks/useClickOutside";
 import { useSortableRows } from "../hooks/useSortableRows";
 import { fmtNum } from "../utils/fmt";
+import { hintText } from "../utils/hint";
+import { matchesQuery } from "../utils/search";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -41,7 +43,7 @@ function SimpleDropdown({
   placeholder = "Selecione...",
   emptyLabel = "Nenhuma opção",
   className,
-  searchable = false,
+  searchable = true,
   listMinWidth,
 }: {
   options: { value: string; label: string }[];
@@ -82,15 +84,19 @@ function SimpleDropdown({
 
   const selected = options.find((o) => o.value === value);
   const summary = selected ? selected.label : placeholder;
-  const filtered =
-    searchable && search ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase())) : options;
+  const filtered = searchable && search ? options.filter((o) => matchesQuery(o.label, search)) : options;
 
   return (
     <div className={`month-dropdown ${className ?? ""}`} ref={wrapRef}>
-      <button ref={triggerRef} type="button" className="month-dropdown-trigger" onClick={toggleOpen}>
-        <span className="mgmt-filter-summary" title={summary}>
-          {summary}
-        </span>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="month-dropdown-trigger"
+        aria-expanded={open}
+        data-hint={summary}
+        onClick={toggleOpen}
+      >
+        <span className="mgmt-filter-summary">{summary}</span>
         <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
       {open &&
@@ -120,6 +126,8 @@ function SimpleDropdown({
                   <button
                     type="button"
                     className={`month-dropdown-option ${o.value === value ? "active" : ""}`}
+                    data-hint={o.label}
+                    data-hint-side="right"
                     onClick={() => {
                       onChange(o.value);
                       setOpen(false);
@@ -181,11 +189,15 @@ function PacoteScopeEditor({
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [packages, setPackages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useClickOutside([wrapRef, listRef], () => setOpen(false), open);
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
 
   // busca só quando abre (evita 1 requisição por linha da tabela) e de novo
   // se o projeto mudar (ex: usuário corrigiu o projeto E o pacote na mesma
@@ -217,7 +229,14 @@ function PacoteScopeEditor({
 
   return (
     <div className="diagnostics-pacote-dropdown" ref={wrapRef}>
-      <button ref={triggerRef} type="button" className="month-dropdown-trigger" onClick={toggleOpen} title={summary}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="month-dropdown-trigger"
+        aria-expanded={open}
+        data-hint={hintText("Pacotes", value?.length ? value : [], "Projeto inteiro")}
+        onClick={toggleOpen}
+      >
         <span className="mgmt-filter-summary">{summary}</span>
         <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
       </button>
@@ -234,17 +253,33 @@ function PacoteScopeEditor({
               Projeto inteiro
             </label>
             <div className="diagnostics-pacote-divider">ou pacote(s) de trabalho:</div>
+            {!loading && packages.length > 0 && (
+              <input
+                type="search"
+                className="month-dropdown-search diagnostics-pacote-search"
+                placeholder="Buscar pacote..."
+                aria-label="Buscar pacote"
+                autoComplete="off"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            )}
             {loading && <p className="muted diagnostics-pacote-loading">Carregando...</p>}
             {!loading && packages.length === 0 && (
               <p className="muted diagnostics-pacote-loading">Nenhum pacote com hora nesse mês.</p>
             )}
+            {!loading && packages.length > 0 && packages.filter((p) => matchesQuery(p, search)).length === 0 && (
+              <p className="muted diagnostics-pacote-loading">Nenhum resultado.</p>
+            )}
             {!loading &&
-              packages.map((p) => (
-                <label key={p} className="diagnostics-pacote-option" title={p}>
-                  <input type="checkbox" checked={value?.includes(p) ?? false} onChange={() => togglePacote(p)} />
-                  <span className="diagnostics-pacote-option-text">{p}</span>
-                </label>
-              ))}
+              packages
+                .filter((p) => matchesQuery(p, search))
+                .map((p) => (
+                  <label key={p} className="diagnostics-pacote-option" data-hint={p} data-hint-side="right">
+                    <input type="checkbox" checked={value?.includes(p) ?? false} onChange={() => togglePacote(p)} />
+                    <span className="diagnostics-pacote-option-text">{p}</span>
+                  </label>
+                ))}
           </div>,
           document.body,
         )}

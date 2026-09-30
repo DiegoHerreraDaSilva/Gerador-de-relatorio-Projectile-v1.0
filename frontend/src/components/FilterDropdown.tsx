@@ -2,10 +2,8 @@ import { useRef, useState } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { InstantTip } from "./InstantTip";
 import { useClickOutside } from "../hooks/useClickOutside";
-
-function normalizeForSearch(text: string): string {
-  return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
+import { hintText } from "../utils/hint";
+import { normalizeForSearch } from "../utils/search";
 
 /** Dropdowns de filtro compartilhados entre o Painel de Gerência e o
  * Dashboard de horas — extraídos de `ManagementFilters.tsx` pra não duplicar
@@ -18,7 +16,7 @@ export function SingleSelectDropdown({
   labelFor,
   onChange,
   className,
-  searchPlaceholder,
+  searchPlaceholder = "Buscar...",
 }: {
   label: string;
   options: string[];
@@ -26,7 +24,7 @@ export function SingleSelectDropdown({
   labelFor: (opt: string) => string;
   onChange: (value: string) => void;
   className?: string;
-  /** Com isso, a lista ganha uma caixa de busca no topo (filtra por
+  /** Texto da caixa de busca do topo da lista (sempre presente; filtra por
    * `labelFor`, sem diferenciar maiúsculas nem acentos). */
   searchPlaceholder?: string;
 }) {
@@ -49,10 +47,14 @@ export function SingleSelectDropdown({
     <div className={`mgmt-filter ${className ?? ""}`}>
       <span className="mgmt-filter-label">{label}</span>
       <div className="month-dropdown" ref={wrapRef}>
-        <button type="button" className="month-dropdown-trigger" onClick={() => (open ? close() : setOpen(true))}>
-          <span className="mgmt-filter-summary" title={labelFor(value)}>
-            {labelFor(value)}
-          </span>
+        <button
+          type="button"
+          className="month-dropdown-trigger"
+          aria-expanded={open}
+          data-hint={hintText(label, [labelFor(value)])}
+          onClick={() => (open ? close() : setOpen(true))}
+        >
+          <span className="mgmt-filter-summary">{labelFor(value)}</span>
           <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
         </button>
         {open && (
@@ -82,6 +84,8 @@ export function SingleSelectDropdown({
                 <button
                   type="button"
                   className={`month-dropdown-option ${opt === value ? "active" : ""}`}
+                  data-hint={labelFor(opt)}
+                  data-hint-side="right"
                   onClick={() => {
                     onChange(opt);
                     close();
@@ -105,7 +109,7 @@ export function MultiSelectDropdown({
   onChange,
   labelFor = (opt) => opt,
   className,
-  searchPlaceholder,
+  searchPlaceholder = "Buscar...",
   emptyLabel = "Todos",
   hint,
 }: {
@@ -161,10 +165,14 @@ export function MultiSelectDropdown({
         <span className="mgmt-filter-label">{label}</span>
       )}
       <div className="month-dropdown" ref={wrapRef}>
-        <button type="button" className="month-dropdown-trigger" onClick={() => setOpen((v) => !v)}>
-          <span className="mgmt-filter-summary" title={summary}>
-            {summary}
-          </span>
+        <button
+          type="button"
+          className="month-dropdown-trigger"
+          aria-expanded={open}
+          data-hint={hintText(label, selected.map(labelFor), emptyLabel)}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="mgmt-filter-summary">{summary}</span>
           <ChevronDown size={15} strokeWidth={2} className={`month-dropdown-chevron ${open ? "open" : ""}`} />
         </button>
         {open && (
@@ -193,7 +201,9 @@ export function MultiSelectDropdown({
               <li key={opt}>
                 <label className="mgmt-filter-option">
                   <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
-                  <span title={labelFor(opt)}>{labelFor(opt)}</span>
+                  <span data-hint={labelFor(opt)} data-hint-side="right">
+                    {labelFor(opt)}
+                  </span>
                 </label>
               </li>
             ))}
