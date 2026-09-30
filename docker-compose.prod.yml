@@ -1,0 +1,98 @@
+# Stack de produção em containers (decisão de 2026-09-29): web + worker +
+# reports-mysql + redis. web e worker são a MESMA imagem (muda só o comando e
+# PROCESS_ROLE): web serve HTTP; worker roda o agendador da geração automática
+# e o polling de e-mail, sem HTTP.
+#
+# Atualização: scripts\atualizar-servidor-docker.bat (git pull → build com tag
+# nova → alembic upgrade head → up -d). Rollback: rode de novo com
+# IMAGE_TAG=<tag anterior> (o script guarda a última em .last_image_tag).
+#
+# Sessões/rate-limit/trava de envio ficam no Redis (SESSIONS_BACKEND=redis) —
+# sobrevivem a restart e valem pros dois processos.
+name: relatorio-horas
+
+x-app-environment: &app-environment
+  # PROCESS_ROLE é sobrescrito por serviço logo abaixo
+  SESSIONS_BACKEND: redis
+  REDIS_URL: redis://redis:6379/0
+  REPORTS_DB_HOST: reports-mysql
+  REPORTS_DB_PORT: "3306"
+  # os dois bancos usam senha por ambiente em container (não existe Windows
+  # Credential Manager no Linux) — ver db_credentials.py
+  REPORTS_DB_PASSWORD: ${REPORTS_MYSQL_APP_PASSWORD}
+  PROJECTILE_DB_PASSWORD: ${PROJECTILE_DB_PASSWORD}
+
+services:
+  reports-mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${REPORTS_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: reports_db
+      MYSQL_USER: reports_app
+      MYSQL_PASSWORD: ${REPORTS_MYSQL_APP_PASSWORD}
+    volumes:
+      - reports_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    image: relatorio-horas:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        # redes com inspeção de SSL (proxy) — ver README "Produção em containers"
+        PIP_EXTRA_ARGS: ${PIP_EXTRA_ARGS:-}
+        NPM_CI_ARGS: ${NPM_CI_ARGS:-}
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      <<: *app-environment
+      PROCESS_ROLE: web
+    ports:
+      - "8011:8011"
+    depends_on:
+      reports-mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  worker:
+    image: relatorio-horas:${IMAGE_TAG:-latest}
+    command: ["python", "-m", "backend.app.worker"]
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      <<: *app-environment
+      PROCESS_ROLE: worker
+    depends_on:
+      reports-mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  reports_mysql_data:
+  redis_data:

@@ -19,3 +19,7 @@ python-ulid==2.7.0
 # base de fusos horários do agendador (America/Sao_Paulo) — o Windows não traz
 tzdata==2025.2
 DBUtils==3.1.2
+# error tracking (Sentry/GlitchTip self-hosted) — ver core/logging.py
+sentry-sdk==2.71.0
+# sessões/rate limit e a trava de envio quando SESSIONS_BACKEND=redis
+redis==8.1.0

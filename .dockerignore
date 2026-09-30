@@ -1,0 +1,21 @@
+# contexto do build: só o que a imagem precisa (o frontend é buildado no
+# estágio node; o backend copia requirements + código)
+.git
+.github
+.env
+.env.*
+!/.env.example
+frontend/node_modules
+frontend/dist
+backend/data
+**/__pycache__
+**/*.pyc
+.venv
+venv
+prototypes
+tasks
+graphify-out
+.claude
+.playwright-mcp
+*.log
+scripts
