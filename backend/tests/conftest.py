@@ -14,6 +14,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# O `.env` do desenvolvedor pode ligar o Redis local (SESSIONS_BACKEND=redis): a suíte nunca
+# pode depender disso nem tocar num Redis real. Variável de ambiente vence o `.env` no
+# pydantic-settings, e isto roda antes de qualquer import do app. Os testes de Redis usam
+# fakeredis injetado (`auth.reset_store_for_tests`), não este ambiente.
+os.environ["SESSIONS_BACKEND"] = "memory"
+os.environ["REDIS_URL"] = ""
+
 _REPORTS_DB_TEST_NAME = "reports_db_test"
 _checked_test_schemas: set[str] = set()
 

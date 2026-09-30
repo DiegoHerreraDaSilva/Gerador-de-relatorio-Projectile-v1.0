@@ -28,5 +28,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # Redis LOCAL: sessões, rate-limit do login e a trava de envio sobrevivem a um
+  # restart do backend (com SESSIONS_BACKEND=redis e REDIS_URL no .env). Só
+  # escuta em 127.0.0.1; `appendonly` grava em disco pra sobreviver também a
+  # um restart do container. Subir: docker compose up -d redis
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   reports_mysql_data:
+  redis_data:
