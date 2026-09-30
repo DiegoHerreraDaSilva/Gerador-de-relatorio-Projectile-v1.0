@@ -30,7 +30,7 @@ export type NavAccess = "all" | "coordinator" | "manager";
 export const VIEW_ACCESS: Record<AppView, NavAccess> = {
   report: "all",
   dashboard: "all",
-  team: "coordinator",
+  team: "manager",
   management: "manager",
   diagnostics: "coordinator",
   analytics: "manager",

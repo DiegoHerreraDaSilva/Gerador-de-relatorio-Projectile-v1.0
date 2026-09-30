@@ -31,7 +31,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       },
       {
         text: "Nova tela “Meu time”: por pessoa de engenharia, horas e dias úteis sem apontamento do mês, com quem precisa de atenção primeiro.",
-        roles: ["manager", "coordinator"],
+        roles: ["manager"],
       },
       { text: "O Painel de Gerência exporta para Excel e mostra a variação sobre o mês anterior.", roles: ["manager"] },
       {

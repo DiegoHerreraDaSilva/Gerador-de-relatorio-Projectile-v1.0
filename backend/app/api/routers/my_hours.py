@@ -31,7 +31,7 @@ from ...projectile_db import (
     fetch_project_details,
 )
 from .. import period_access
-from ..dependencies import is_coordinator, is_manager, require_manager_or_coordinator, require_session
+from ..dependencies import is_coordinator, is_manager, require_manager, require_manager_or_coordinator, require_session
 from ..errors import log_and_generic_error
 
 router = APIRouter()
@@ -119,7 +119,7 @@ def my_hours_employees_endpoint(_user: dict = Depends(require_manager_or_coordin
 
 
 @router.get("/my-hours/team")
-def my_hours_team_endpoint(month: str | None = None, _user: dict = Depends(require_manager_or_coordinator)):
+def my_hours_team_endpoint(month: str | None = None, _user: dict = Depends(require_manager)):
     """Visão do time (gerente ou coordenador): por pessoa de engenharia, horas e dias úteis sem apontamento do
     mês (padrão: o atual). É o que o seletor de colaborador do Dashboard já mostra pessoa a pessoa, numa tabela
     só. Coordenador só vê meses da janela de 12 meses (403 fora dela)."""

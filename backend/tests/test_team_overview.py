@@ -159,8 +159,8 @@ def team(monkeypatch):
     team_overview._cache.clear()
 
 
-def test_coordenador_e_gerente_veem_o_time_do_mes_atual(team):
-    for login in ("coord", "gerente"):
+def test_gerente_ve_o_time_do_mes_atual(team):
+    for login in ("gerente",):
         response = team(login).get("/my-hours/team")
         assert response.status_code == 200, login
         body = response.json()
@@ -168,12 +168,12 @@ def test_coordenador_e_gerente_veem_o_time_do_mes_atual(team):
         assert body["totals"] == {"people": 2, "with_gaps": 1, "hours": body["totals"]["hours"], "overloaded": 0}
 
 
-def test_colaborador_nao_ve_o_time(team):
+def test_so_gerente_ve_o_time(team):
     assert team("colab").get("/my-hours/team").status_code == 403
+    assert team("coord").get("/my-hours/team").status_code == 403
 
 
-def test_coordenador_so_ve_meses_da_janela_e_gerente_ve_qualquer_um(team):
-    assert team("coord").get("/my-hours/team", params={"month": "2024-01"}).status_code == 403
+def test_gerente_ve_qualquer_mes_da_janela(team):
     assert team("gerente").get("/my-hours/team", params={"month": "2024-01"}).status_code == 200
 
 
@@ -184,7 +184,7 @@ def test_mes_invalido_ou_futuro(team):
 
 def test_segunda_chamada_no_mesmo_mes_vem_do_cache(team):
     team("gerente").get("/my-hours/team")
-    team("coord").get("/my-hours/team")
+    team("gerente").get("/my-hours/team")
     assert team.calls == {"employees": 1, "totals": 1}
     team("gerente").get("/my-hours/team", params={"month": "2026-08"})
     assert team.calls["totals"] == 2  # outro mês, outra consulta

@@ -68,7 +68,7 @@ O calendário considera feriados nacionais, o feriado estadual de São Paulo, o 
 
 ### Meu time
 
-Tela para gerente e coordenador: por pessoa de engenharia (CAD+CAE com apontamento nos últimos dois meses), as horas do mês, os dias com apontamento, os **dias úteis já encerrados sem nenhuma hora** (quem tem mais fica no topo; passar o mouse no número mostra as datas), a média de horas por dia e quantos dias passaram de 10 h. "Ver dashboard" abre o Dashboard de horas naquela pessoa. Usa o mesmo calendário do Dashboard pessoal (feriados nacionais, SP e o municipal da filial). Limite conhecido: o sistema não tem fonte de férias/afastamento, então quem está fora o mês inteiro aparece com todos os dias sem apontamento. O coordenador só vê os meses da janela dele (últimos 12 meses e o ano atual).
+Tela só do gerente: por pessoa de engenharia (CAD+CAE com apontamento nos últimos dois meses), as horas do mês, os dias com apontamento, os **dias úteis já encerrados sem nenhuma hora** (quem tem mais fica no topo; passar o mouse no número mostra as datas), a média de horas por dia e quantos dias passaram de 10 h. "Ver dashboard" abre o Dashboard de horas naquela pessoa. Usa o mesmo calendário do Dashboard pessoal (feriados nacionais, SP e o municipal da filial). Limite conhecido: o sistema não tem fonte de férias/afastamento, então quem está fora o mês inteiro aparece com todos os dias sem apontamento.
 
 ### Painel de Gerência
 
@@ -543,7 +543,7 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login` e `GET
 | `POST /parse-db` | busca o usuário logado por mês/período |
 | `POST /parse-db-client` | busca projetos selecionados; requer gerente ou coordenador |
 | `GET /my-hours` | dashboard de horas (`current_month`, `last_3`, `last_6`, `last_12`); `employee_id` opcional pra gerente/coordenador ver alguém de engenharia (CAD+CAE) |
-| `GET /my-hours/team` | visão "Meu time" do mês (`?month=AAAA-MM`); gerente ou coordenador, com a janela de período do coordenador |
+| `GET /my-hours/team` | visão "Meu time" do mês (`?month=AAAA-MM`); só gerente |
 | `GET /my-hours/employees` | lista do seletor de colaborador (engenharia com apontamento recente); requer gerente ou coordenador |
 | `POST /generate` | gera XLSX/PDF direto ou ZIP; persiste histórico em `reports_db` (fail-open) |
 | `POST /send-report` | gera anexos e envia via Microsoft Graph; mesma persistência fail-open |
