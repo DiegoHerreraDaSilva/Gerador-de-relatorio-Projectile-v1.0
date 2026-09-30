@@ -66,6 +66,10 @@ Ele apresenta totais, dias com apontamento, média diária, referência de jorna
 
 O calendário considera feriados nacionais, o feriado estadual de São Paulo, o municipal de Santo André quando aplicável e pontes de segunda/sexta para feriados em terça/quinta.
 
+### Meu time
+
+Tela para gerente e coordenador: por pessoa de engenharia (CAD+CAE com apontamento nos últimos dois meses), as horas do mês, os dias com apontamento, os **dias úteis já encerrados sem nenhuma hora** (quem tem mais fica no topo; passar o mouse no número mostra as datas), a média de horas por dia e quantos dias passaram de 10 h. "Ver dashboard" abre o Dashboard de horas naquela pessoa. Usa o mesmo calendário do Dashboard pessoal (feriados nacionais, SP e o municipal da filial). Limite conhecido: o sistema não tem fonte de férias/afastamento, então quem está fora o mês inteiro aparece com todos os dias sem apontamento. O coordenador só vê os meses da janela dele (últimos 12 meses e o ano atual).
+
 ### Painel de Gerência
 
 Acesso controlado por `MANAGEMENT_PANEL_LOGINS`. O painel possui filtros de período, competência, centro de custo, cliente, pessoa, projeto e pacote de trabalho.
@@ -85,6 +89,10 @@ O painel também inclui:
 - leitura sob demanda dos e-mails de faturamento (**Verificar enviados**).
 
 Quando o filtro por pessoa está ativo, faturado e performance ficam indisponíveis porque as amostras de faturamento existem no nível do projeto, não da pessoa.
+
+### Resumo do mês (Painel de Gerência)
+
+O botão "Resumo do mês" do Painel gera um texto pronto pra copiar (horas, faturado, resultado, relatórios enviados e pendências do mês). Os números vêm sempre de `management.compute_monthly_kpis` — os mesmos do Painel. O texto é automático por padrão; com "Redigir com IA" o Claude escreve a partir desses fatos e, se citar qualquer número que não esteja neles, o texto da IA é descartado e vale o automático. Nenhum nome de cliente vai para a IA. Só gerente.
 
 ### Diagnóstico de relatórios
 
@@ -148,6 +156,7 @@ Pontos importantes:
 - Duas gerações consecutivas do mesmo relatório (mesmo `project_code` + escopo de pacote + competência) viram versões sucessivas do mesmo `report`, nunca registros duplicados — protegido contra corrida em geração concorrente.
 - O arquivo gerado é copiado pra `backend/data/report_artifacts/` (fora do Git), já que o caminho temporário original é apagado logo após o download.
 - A resposta de `/generate` inclui os headers `X-Report-Id`/`X-Report-Version-Id`/`X-Report-Version-Number` (ou `X-Report-Ids` no caso `.zip`) quando a persistência funcionou — são **aditivos**, nunca assuma que vão estar presentes.
+- **Lixeira**: apagar relatório no Histórico (com seleção múltipla) move pra Lixeira, onde fica restaurável por 30 dias (`reports.deleted_at`, migration `0009`); depois disso, ou com "Apagar de vez", sai do banco e os arquivos saem do disco. A purga dos vencidos roda uma vez por dia no agendador. O aviso da exclusão tem "Desfazer".
 - Tela de histórico/versões (`HistoryPanel.tsx`, `GET /reports/*`), com uma barra de busca geral (número, projeto, competência e quem criou) que pesquisa enquanto você digita e trilha de auditoria formal (`audit_log`) já existem — visíveis a todo mundo, cada um só vendo os próprios relatórios (gerente vê todos).
 - `GET /analytics/summary` (só gerente) agrega horas por competência/grupo/projeto, tempo médio de geração e taxa de falha sobre os mesmos dados — tela `AnalyticsPanel.tsx`, com no máximo 8 linhas visíveis por bloco (o resto rola). Fica esparso até acumular meses de uso real.
 
@@ -452,6 +461,7 @@ Acesse `http://localhost:8011`.
 | senha `projectile_mysql` no Credential Manager | login e dados | nunca vai no `.env` |
 | `PROJECTILE_SYS_CLIENT_ID` | performance das queries | `0`; sysClientId fixo desta instalação |
 | `PROJECTILE_DB_POOL_SIZE` | pool de conexões do Projectile | `5` |
+| `PROJECTILE_DB_WARMUP` | abre as conexões do pool em segundo plano no start (a conexão nova no Projectile leva ~20 s; com isso a primeira tela não paga isso) | `true` |
 | `REPORTS_DB_HOST` | histórico de relatórios | `127.0.0.1` |
 | `REPORTS_DB_PORT` | histórico de relatórios | `3307` |
 | `REPORTS_DB_USER` | histórico de relatórios | `reports_app` |
@@ -533,6 +543,7 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login` e `GET
 | `POST /parse-db` | busca o usuário logado por mês/período |
 | `POST /parse-db-client` | busca projetos selecionados; requer gerente ou coordenador |
 | `GET /my-hours` | dashboard de horas (`current_month`, `last_3`, `last_6`, `last_12`); `employee_id` opcional pra gerente/coordenador ver alguém de engenharia (CAD+CAE) |
+| `GET /my-hours/team` | visão "Meu time" do mês (`?month=AAAA-MM`); gerente ou coordenador, com a janela de período do coordenador |
 | `GET /my-hours/employees` | lista do seletor de colaborador (engenharia com apontamento recente); requer gerente ou coordenador |
 | `POST /generate` | gera XLSX/PDF direto ou ZIP; persiste histórico em `reports_db` (fail-open) |
 | `POST /send-report` | gera anexos e envia via Microsoft Graph; mesma persistência fail-open |
@@ -546,6 +557,9 @@ Visíveis a todo mundo — quem não é gerente só vê os próprios relatórios
 | Método e rota | Função |
 |---|---|
 | `GET /reports` | lista relatórios (paginado; `q` = busca geral por número, projeto, competência e quem criou — cada palavra precisa aparecer em alguma dessas colunas; filtros `report_number`/`competence`/`status`/`created_by`) |
+| `DELETE /reports` | move relatórios pra Lixeira (`{ids}`); `GET /reports?trash=true` lista a Lixeira |
+| `POST /reports/restore` | restaura da Lixeira (`{ids}`) |
+| `DELETE /reports/trash` | apaga de vez o que está na Lixeira (`{ids}`) |
 | `GET /reports/{id}` | detalhe do relatório + número da versão atual |
 | `GET /reports/{id}/versions[/{version_id}]` | versões do relatório, ou o snapshot completo de uma versão |
 | `GET /reports/{id}/generations` | tentativas de geração de arquivo (sucesso/falha, duração) |
