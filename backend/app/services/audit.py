@@ -4,10 +4,11 @@ entidade.
 Mesma disciplina fail-open de `report_persistence.py`: registrar auditoria
 NUNCA pode derrubar a operação de negócio sendo auditada — uma falha aqui é
 logada e ignorada, nunca propagada."""
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import insert
 from ulid import ULID
@@ -15,8 +16,13 @@ from ulid import ULID
 from ..core.config import get_settings
 from ..db.reports_db import get_engine
 from ..db.reports_schema import audit_log
+from .policy import FailurePolicy
 
 logger = logging.getLogger(__name__)
+
+# política registrada em `services/policy.py`: a trilha de auditoria nunca
+# pode derrubar a operação que ela registra (fail-open).
+FAILURE_POLICY = FailurePolicy.FAIL_OPEN
 
 
 def record_event(
@@ -42,19 +48,19 @@ def record_event(
     if not get_settings().reports_db_enabled:
         return
     try:
-        values = dict(
-            id=str(ULID()),
-            actor_id=actor_id,
-            actor_name_snapshot=actor_name,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            source=source,
-            before_json=before,
-            after_json=after,
-            metadata_json=metadata,
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        )
+        values = {
+            "id": str(ULID()),
+            "actor_id": actor_id,
+            "actor_name_snapshot": actor_name,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "source": source,
+            "before_json": before,
+            "after_json": after,
+            "metadata_json": metadata,
+            "created_at": datetime.now(UTC).replace(tzinfo=None),
+        }
         if conn is not None:
             conn.execute(insert(audit_log).values(**values))
         else:

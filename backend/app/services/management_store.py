@@ -10,11 +10,12 @@ primários (entradas manuais do gerente, amostras corrigidas à mão). Se
 `reports_db` estiver fora do ar, toda função levanta `ManagementStoreError`,
 que `main.py` converte em 502 — nunca cai em silêncio pra um arquivo local,
 o que faria os dois divergirem."""
+
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -29,19 +30,33 @@ from ..db.reports_schema import (
     mgmt_processed_messages,
     mgmt_skipped_messages,
 )
+from .policy import FailurePolicy
+
+# política registrada em `services/policy.py`: dado primário (correções
+# manuais, amostras) — banco fora do ar vira 502, nunca silêncio.
+FAILURE_POLICY = FailurePolicy.FAIL_CLOSED
 
 _LOCK_KEY = "samples_lock"
 LEGACY_IMPORT_KEY = "legacy_json_import"
 
-_DATA_TABLES = (
-    mgmt_kpi_samples, mgmt_manual_entries, mgmt_processed_messages,
-    mgmt_skipped_messages, mgmt_closed_clients, mgmt_closed_projects,
-)
+_DATA_TABLES = (mgmt_kpi_samples, mgmt_manual_entries, mgmt_processed_messages, mgmt_skipped_messages, mgmt_closed_clients, mgmt_closed_projects)
 
 _SAMPLE_COLUMNS = (
-    "sample_id", "email_message_id", "received_at", "sender", "report_project_text",
-    "project_id", "project_name", "match_score", "month", "billed_hours",
-    "business_days", "pacote_scope", "source", "edited", "is_duplicate",
+    "sample_id",
+    "email_message_id",
+    "received_at",
+    "sender",
+    "report_project_text",
+    "project_id",
+    "project_name",
+    "match_score",
+    "month",
+    "billed_hours",
+    "business_days",
+    "pacote_scope",
+    "source",
+    "edited",
+    "is_duplicate",
 )
 
 
@@ -51,14 +66,14 @@ class ManagementStoreError(RuntimeError):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @contextmanager
 def _connect(begin: bool) -> Iterator:
     try:
         engine = get_engine()
-        with (engine.begin() if begin else engine.connect()) as conn:
+        with engine.begin() if begin else engine.connect() as conn:
             yield conn
     except (SQLAlchemyError, ReportsDbError) as e:
         raise ManagementStoreError(f"Falha ao acessar dados de gerência em reports_db: {e}") from e
@@ -93,18 +108,13 @@ def load_document() -> dict:
             for r in conn.execute(select(mgmt_manual_entries).order_by(mgmt_manual_entries.c.month))
         }
         samples = _read_samples(conn)
-        processed = [
-            r.message_id
-            for r in conn.execute(select(mgmt_processed_messages.c.message_id).order_by(mgmt_processed_messages.c.processed_at))
-        ]
+        processed = [r.message_id for r in conn.execute(select(mgmt_processed_messages.c.message_id).order_by(mgmt_processed_messages.c.processed_at))]
         skipped = [
             {"message_id": r.message_id, "received_at": r.received_at, "reason": r.reason}
             for r in conn.execute(select(mgmt_skipped_messages).order_by(mgmt_skipped_messages.c.id))
         ]
         closed_clients = [r.client for r in conn.execute(select(mgmt_closed_clients).order_by(mgmt_closed_clients.c.client))]
-        closed_projects = [
-            r.project_id for r in conn.execute(select(mgmt_closed_projects).order_by(mgmt_closed_projects.c.project_id))
-        ]
+        closed_projects = [r.project_id for r in conn.execute(select(mgmt_closed_projects).order_by(mgmt_closed_projects.c.project_id))]
     return {
         "manual_entries": manual_entries,
         "project_kpi_samples": samples,
@@ -117,22 +127,15 @@ def load_document() -> dict:
 
 def is_message_processed(message_id: str) -> bool:
     with _connect(begin=False) as conn:
-        row = conn.execute(
-            select(mgmt_processed_messages.c.message_id).where(mgmt_processed_messages.c.message_id == message_id)
-        ).first()
+        row = conn.execute(select(mgmt_processed_messages.c.message_id).where(mgmt_processed_messages.c.message_id == message_id)).first()
     return row is not None
 
 
 def get_closed_registry() -> dict:
     with _connect(begin=False) as conn:
         return {
-            "closed_clients": [
-                r.client for r in conn.execute(select(mgmt_closed_clients).order_by(mgmt_closed_clients.c.client))
-            ],
-            "closed_projects": [
-                r.project_id
-                for r in conn.execute(select(mgmt_closed_projects).order_by(mgmt_closed_projects.c.project_id))
-            ],
+            "closed_clients": [r.client for r in conn.execute(select(mgmt_closed_clients).order_by(mgmt_closed_clients.c.client))],
+            "closed_projects": [r.project_id for r in conn.execute(select(mgmt_closed_projects).order_by(mgmt_closed_projects.c.project_id))],
         }
 
 
@@ -170,31 +173,19 @@ class WriteSession:
             flag = bool(sample.get("is_duplicate"))
             if self._flags_snapshot.get(sample["sample_id"]) == flag:
                 continue
-            self._conn.execute(
-                update(mgmt_kpi_samples)
-                .where(mgmt_kpi_samples.c.sample_id == sample["sample_id"])
-                .values(is_duplicate=flag)
-            )
+            self._conn.execute(update(mgmt_kpi_samples).where(mgmt_kpi_samples.c.sample_id == sample["sample_id"]).values(is_duplicate=flag))
 
     def mark_processed(self, message_id: str) -> None:
-        exists = self._conn.execute(
-            select(mgmt_processed_messages.c.message_id).where(mgmt_processed_messages.c.message_id == message_id)
-        ).first()
+        exists = self._conn.execute(select(mgmt_processed_messages.c.message_id).where(mgmt_processed_messages.c.message_id == message_id)).first()
         if exists is None:
             self._conn.execute(insert(mgmt_processed_messages).values(message_id=message_id, processed_at=_utcnow()))
 
     def insert_skipped(self, message_id: str, received_at: str, reason: str) -> None:
-        self._conn.execute(
-            insert(mgmt_skipped_messages).values(
-                message_id=message_id, received_at=received_at, reason=reason, created_at=_utcnow(),
-            )
-        )
+        self._conn.execute(insert(mgmt_skipped_messages).values(message_id=message_id, received_at=received_at, reason=reason, created_at=_utcnow()))
 
     def upsert_manual_entry(self, month: str, billed_hours: float | None, elaboration_days: float | None) -> None:
-        values = dict(billed_hours=billed_hours, elaboration_days=elaboration_days, updated_at=_utcnow())
-        result = self._conn.execute(
-            update(mgmt_manual_entries).where(mgmt_manual_entries.c.month == month).values(**values)
-        )
+        values = {"billed_hours": billed_hours, "elaboration_days": elaboration_days, "updated_at": _utcnow()}
+        result = self._conn.execute(update(mgmt_manual_entries).where(mgmt_manual_entries.c.month == month).values(**values))
         if result.rowcount == 0:
             self._conn.execute(insert(mgmt_manual_entries).values(month=month, **values))
 
@@ -207,23 +198,17 @@ class WriteSession:
             self._conn.execute(delete(table).where(col == value))
 
     def has_any_data(self) -> bool:
-        for table in _DATA_TABLES:
-            if self._conn.execute(select(func.count()).select_from(table)).scalar_one():
-                return True
-        return False
+        return any(self._conn.execute(select(func.count()).select_from(table)).scalar_one() for table in _DATA_TABLES)
 
     def snapshot_and_clear(self) -> dict:
         """Lê tudo (no formato do JSON) e apaga as linhas de dados — só pra
         `import_document(replace_existing=True)`, na mesma transação."""
         snapshot = {
             "manual_entries": {
-                r.month: {"billed_hours": r.billed_hours, "elaboration_days": r.elaboration_days}
-                for r in self._conn.execute(select(mgmt_manual_entries))
+                r.month: {"billed_hours": r.billed_hours, "elaboration_days": r.elaboration_days} for r in self._conn.execute(select(mgmt_manual_entries))
             },
             "project_kpi_samples": _read_samples(self._conn),
-            "processed_message_ids": [
-                r.message_id for r in self._conn.execute(select(mgmt_processed_messages.c.message_id))
-            ],
+            "processed_message_ids": [r.message_id for r in self._conn.execute(select(mgmt_processed_messages.c.message_id))],
             "skipped_messages": [
                 {"message_id": r.message_id, "received_at": r.received_at, "reason": r.reason}
                 for r in self._conn.execute(select(mgmt_skipped_messages).order_by(mgmt_skipped_messages.c.id))
@@ -240,9 +225,7 @@ class WriteSession:
         return None if row is None else row.value_json
 
     def set_meta(self, key: str, value) -> None:
-        result = self._conn.execute(
-            update(mgmt_meta).where(mgmt_meta.c.key == key).values(value_json=value, updated_at=_utcnow())
-        )
+        result = self._conn.execute(update(mgmt_meta).where(mgmt_meta.c.key == key).values(value_json=value, updated_at=_utcnow()))
         if result.rowcount == 0:
             self._conn.execute(insert(mgmt_meta).values(key=key, value_json=value, updated_at=_utcnow()))
 
@@ -250,24 +233,18 @@ class WriteSession:
 @contextmanager
 def write_session() -> Iterator[WriteSession]:
     with _connect(begin=True) as conn:
-        locked = conn.execute(
-            select(mgmt_meta.c.key).where(mgmt_meta.c.key == _LOCK_KEY).with_for_update()
-        ).first()
+        locked = conn.execute(select(mgmt_meta.c.key).where(mgmt_meta.c.key == _LOCK_KEY).with_for_update()).first()
         if locked is None:
             # a migration 0006 cria essa linha; só falta quando o schema veio
             # de `metadata.create_all` (testes). Se outra conexão criou ao
             # mesmo tempo, o INSERT dela venceu — segue pro lock normalmente.
-            try:
+            with suppress(IntegrityError):
                 conn.execute(insert(mgmt_meta).values(key=_LOCK_KEY, value_json=None, updated_at=_utcnow()))
-            except IntegrityError:
-                pass
             conn.execute(select(mgmt_meta.c.key).where(mgmt_meta.c.key == _LOCK_KEY).with_for_update())
         yield WriteSession(conn)
 
 
-def import_document(
-    document: dict, *, source_path: str | None, ignored_keys: dict, replace_existing: bool = False,
-) -> dict:
+def import_document(document: dict, *, source_path: str | None, ignored_keys: dict, replace_existing: bool = False) -> dict:
     """Grava um documento já normalizado (formato do JSON antigo) numa
     única transação. Devolve as contagens importadas, ou
     `{"status": "already_imported"}`.
