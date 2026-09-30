@@ -9040,7 +9040,7 @@ input[data-pv="projectCode"]:placeholder-shown,
 .hint-tip {
   position: fixed;
   z-index: 10000;
-  max-width: 340px;
+  max-width: min(340px, calc(100vw - 16px));
   padding: 6px 11px;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
@@ -9074,19 +9074,24 @@ input[data-pv="projectCode"]:placeholder-shown,
   border-left-width: 1px;
   border-bottom-width: 1px;
 }
+/* embaixo/em cima: centrado no controle; --hint-shift (medido em HintHost) o empurra pra dentro
+   da janela e a setinha compensa, então continua apontando pro controle */
+.hint-bottom {
+  transform: translateX(calc(-50% + var(--hint-shift, 0px)));
+}
 .hint-bottom::before {
   top: -5px;
-  left: 18px;
+  left: clamp(10px, calc(50% - var(--hint-shift, 0px) - 4px), calc(100% - 18px));
   transform: rotate(45deg);
   border-left-width: 1px;
   border-top-width: 1px;
 }
 .hint-top {
-  transform: translateY(-100%);
+  transform: translate(calc(-50% + var(--hint-shift, 0px)), -100%);
 }
 .hint-top::before {
   bottom: -5px;
-  left: 18px;
+  left: clamp(10px, calc(50% - var(--hint-shift, 0px) - 4px), calc(100% - 18px));
   transform: rotate(45deg);
   border-right-width: 1px;
   border-bottom-width: 1px;

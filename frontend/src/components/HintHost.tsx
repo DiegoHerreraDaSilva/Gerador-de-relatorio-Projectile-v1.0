@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type Side = "bottom" | "top" | "right";
@@ -36,7 +36,9 @@ export function HintHost() {
         if (!isClipped(el) || rect.right + 240 >= window.innerWidth) return hide();
         return setHint({ text, side: "right", top: rect.top + rect.height / 2, left: rect.right + 12 });
       }
-      const left = Math.max(8, Math.min(rect.left, window.innerWidth - 320));
+      // embaixo/em cima: centrado no controle; o desvio pra não sair da janela é medido depois de
+      // renderizar (o balão tem largura de verdade, não uma estimativa) e a setinha continua no controle
+      const left = rect.left + rect.width / 2;
       if (rect.bottom + 70 > window.innerHeight && rect.top > 70) {
         return setHint({ text, side: "top", top: rect.top - 10, left });
       }
@@ -71,9 +73,28 @@ export function HintHost() {
     };
   }, []);
 
+  const tipRef = useRef<HTMLDivElement>(null);
+  // antes de pintar: se o balão centrado passa da borda da janela, empurra de volta (--hint-shift)
+  useLayoutEffect(() => {
+    const node = tipRef.current;
+    if (!node || !hint || hint.side === "right") return;
+    node.style.setProperty("--hint-shift", "0px");
+    const rect = node.getBoundingClientRect();
+    const margin = 8;
+    let shift = 0;
+    if (rect.left < margin) shift = margin - rect.left;
+    else if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
+    node.style.setProperty("--hint-shift", `${shift}px`);
+  }, [hint]);
+
   if (!hint) return null;
   return createPortal(
-    <div className={`hint-tip hint-${hint.side}`} role="tooltip" style={{ top: hint.top, left: hint.left }}>
+    <div
+      ref={tipRef}
+      className={`hint-tip hint-${hint.side}`}
+      role="tooltip"
+      style={{ top: hint.top, left: hint.left }}
+    >
       {hint.text}
     </div>,
     document.body,
