@@ -9364,3 +9364,70 @@ input[data-pv="projectCode"]:placeholder-shown,
   justify-content: center;
   padding: 8px 0;
 }
+
+/* pendências de envio (PendingSendsCard.tsx) */
+.pending-sends-summary {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.pending-late,
+.pending-sends-age.late {
+  color: var(--bad);
+  font-weight: 600;
+}
+.pending-sends-list,
+.pending-sends-projects {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pending-sends-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+.pending-sends-row:hover {
+  background: var(--surface-2);
+}
+.pending-sends-client {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-sends-count,
+.pending-sends-age {
+  flex: none;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.pending-sends-projects {
+  margin: 0 0 6px 28px;
+}
+.pending-sends-projects li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 6px;
+  font-size: 0.82rem;
+}
+.pending-sends-project {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

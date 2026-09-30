@@ -7,6 +7,7 @@ import { ManagementFilters } from "./ManagementFilters";
 import { SortableTh } from "./SortableTh";
 import { PageHeader } from "./PageHeader";
 import { SendStatusCard } from "./SendStatusCard";
+import { PendingSendsCard } from "./PendingSendsCard";
 import { applyLastMonthDefault, useManagementStore } from "../store/useManagementStore";
 import { useDiagnosticsStore, type Sample, type Project, type SkippedMessage } from "../store/useDiagnosticsStore";
 import { useClickOutside } from "../hooks/useClickOutside";
@@ -502,6 +503,7 @@ export function DiagnosticsPanel() {
 
       {/* marcar/desmarcar "Enviado" cria/apaga uma amostra manual — recarrega
           a tabela de Amostras logo abaixo pra ela aparecer/sumir na hora. */}
+      <PendingSendsCard displayMonths={displayMonths} loading={!rows} />
       <SendStatusCard displayMonths={displayMonths} loading={!rows} onChanged={() => load(true)} />
 
       <div className="card diagnostics-table-card diagnostics-samples-card">
