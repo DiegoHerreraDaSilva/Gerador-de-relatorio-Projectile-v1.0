@@ -20,6 +20,8 @@ if str(_REPO_ROOT) not in sys.path:
 # fakeredis injetado (`auth.reset_store_for_tests`), não este ambiente.
 os.environ["SESSIONS_BACKEND"] = "memory"
 os.environ["REDIS_URL"] = ""
+# o boot não pode abrir conexões de verdade com o Projectile (ver main._warm_projectile_pool)
+os.environ["PROJECTILE_DB_WARMUP"] = "false"
 
 _REPORTS_DB_TEST_NAME = "reports_db_test"
 _checked_test_schemas: set[str] = set()
@@ -48,6 +50,16 @@ def _drop_stale_tables(engine) -> None:
         for name in stale:
             conn.execute(text(f"DROP TABLE `{name}`"))
         conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_artifacts_dir(monkeypatch, tmp_path):
+    """Os arquivos de relatório guardados pelo histórico iam pra `backend/data/report_artifacts` (a
+    pasta REAL) mesmo quando os registros iam pro schema de teste: sobravam pastas órfãs a cada rodada
+    (1.295 em 7 dias, medido em 2026-09-30). Cada teste grava numa pasta temporária."""
+    from backend.app.services import report_persistence
+
+    monkeypatch.setattr(report_persistence, "ARTIFACTS_DIR", str(tmp_path / "report_artifacts"))
 
 
 @pytest.fixture(autouse=True)

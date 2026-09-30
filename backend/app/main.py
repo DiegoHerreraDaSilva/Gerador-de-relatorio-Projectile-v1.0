@@ -42,6 +42,7 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
+from . import projectile_db
 from .api.dependencies import (  # noqa: F401 — reexportado: testes fazem `from .main import require_session`
     require_manager,
     require_session,
@@ -171,6 +172,16 @@ async def _start_auto_scheduler() -> None:
     task = asyncio.create_task(_auto_scheduler_loop())
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+
+
+@app.on_event("startup")
+async def _warm_projectile_pool() -> None:
+    """Abre as conexões do Projectile em segundo plano (cada uma leva ~20 s no servidor atual, ver
+    `projectile_db.warm_pool`): o boot não espera e o primeiro usuário não paga. Sem
+    PROJECTILE_DB_HOST (dev sem banco) ou com `PROJECTILE_DB_WARMUP=false` (testes) não faz nada."""
+    if not os.environ.get("PROJECTILE_DB_HOST") or os.environ.get("PROJECTILE_DB_WARMUP", "true").strip().lower() in ("0", "false", "no"):
+        return
+    asyncio.get_running_loop().run_in_executor(None, projectile_db.warm_pool)
 
 
 @app.on_event("startup")

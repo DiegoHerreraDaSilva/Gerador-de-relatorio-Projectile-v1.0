@@ -169,6 +169,40 @@ def open_connection() -> pymysql.connections.Connection:
     return _get_connection()
 
 
+WARM_CONNECTIONS = 3
+
+
+def warm_pool(connections: int = WARM_CONNECTIONS) -> int:
+    """Abre `connections` conexões AO MESMO TEMPO e as devolve ao pool já abertas. Serve pra esconder
+    o custo de conexão nova: medido em 2026-09-30, o MySQL do Projectile (5.5) segura o pacote de
+    boas-vindas por ~20 s em TODA conexão nova (resolução reversa de DNS do IP do cliente no
+    servidor), enquanto a consulta em conexão aberta leva milissegundos. Sem isso, o primeiro
+    usuário depois de cada restart do backend esperava esse tempo. Bloqueia até terminar — quem
+    chama roda numa thread de fundo. Nunca levanta: se o banco estiver fora, só devolve quantas
+    abriu (o erro de verdade aparece na 1ª requisição, como sempre)."""
+    count = max(1, min(connections, get_settings().projectile_db_pool_size))
+    opened: list[pymysql.connections.Connection] = []
+    lock = threading.Lock()
+
+    def open_one() -> None:
+        try:
+            conn = _get_connection()
+        except Exception:
+            return
+        with lock:
+            opened.append(conn)
+
+    threads = [threading.Thread(target=open_one, daemon=True) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    # só agora devolve: se cada uma fosse devolvida ao terminar, as seguintes reaproveitariam a mesma
+    for conn in opened:
+        conn.close()
+    return len(opened)
+
+
 def ping() -> None:
     """SELECT 1 barato pro `/health/details` — levanta `ProjectileDbError`
     se o banco não responder (o pool já tem `connect_timeout=8` e `ping=1`
