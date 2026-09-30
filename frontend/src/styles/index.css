@@ -6064,7 +6064,8 @@ input[data-pv="projectCode"]:placeholder-shown,
      de flex no contêiner); aqui os cards vêm em fluxo normal, com a mesma
      margem de 22px que já separa um card do outro */
 .history-panel > .page-header,
-.analytics-panel > .page-header {
+.analytics-panel > .page-header,
+.team-panel > .page-header {
   margin-bottom: 22px;
 }
 
