@@ -25,6 +25,7 @@ export type PaletteContext = {
   navigate: (view: AppView) => void;
   switchTab: (id: string) => void;
   newReport: () => void;
+  openWhatsNew: () => void;
   logout: () => void;
 };
 
@@ -81,6 +82,13 @@ export function buildCommands(ctx: PaletteContext): Command[] {
       group: "Ações",
       keywords: "criar nova guia",
       run: ctx.newReport,
+    },
+    {
+      id: "action:whats-new",
+      label: "Ver novidades",
+      group: "Ações",
+      keywords: "novidades o que mudou changelog ajuda dicas",
+      run: ctx.openWhatsNew,
     },
     {
       id: "action:logout",

@@ -4,6 +4,7 @@ import { VIEW_TITLES, type AppView } from "./appView";
 import { LoginScreen } from "./components/LoginScreen";
 import { AutoReportBar } from "./components/AutoReportBar";
 import { CommandPalette } from "./components/CommandPalette";
+import { WhatsNewModal } from "./components/WhatsNewModal";
 import { LoadingState } from "./components/PageStates";
 import { useReportTabsStore } from "./store/useReportTabsStore";
 import { useAuthStore } from "./store/useAuthStore";
@@ -21,6 +22,15 @@ import { computeGrandTotalFor } from "./utils/calc";
 import { BASE_TITLE, parseDeepLink, titleWithPending } from "./utils/deepLink";
 import { fmtNum } from "./utils/fmt";
 import { buildCommands } from "./utils/commands";
+import {
+  CHANGELOG,
+  entriesFor,
+  markSeen,
+  readSeenVersion,
+  roleOf,
+  unseenEntries,
+  type ChangelogEntry,
+} from "./utils/changelog";
 import { isEditableTarget, resolveShortcut } from "./utils/shortcuts";
 import { modalStack } from "./hooks/useModal";
 
@@ -57,10 +67,24 @@ export default function App() {
   const activeTabId = useReportTabsStore((s) => s.activeTabId);
   const assigned = useMyReviewsStore((s) => s.summary?.assigned ?? 0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [news, setNews] = useState<ChangelogEntry[] | null>(null);
 
   useEffect(() => {
     checkSession();
   }, [checkSession]);
+
+  // novidades: abre sozinho UMA vez por entrega nova (por pessoa, neste navegador); depois só pela paleta
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !user) return;
+    const entries = unseenEntries(readSeenVersion(user.login), roleOf(user));
+    if (entries.length > 0) setNews(entries);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, user?.login]);
+
+  const closeNews = () => {
+    if (user) markSeen(user.login, CHANGELOG[0]?.version);
+    setNews(null);
+  };
 
   // atalhos globais (regra pura em utils/shortcuts): Ctrl/⌘+K ou "/" abre a paleta; Ctrl/⌘+Z desfaz no relatório
   useEffect(() => {
@@ -103,6 +127,10 @@ export default function App() {
           setView("report");
           useReportTabsStore.getState().addTab();
         },
+        openWhatsNew: () =>
+          setNews(
+            entriesFor(roleOf({ isManager: Boolean(user?.isManager), isCoordinator: Boolean(user?.isCoordinator) })),
+          ),
         logout: () => void logout(),
       }),
     [user, view, assigned, tabs, activeTabId, logout],
@@ -161,6 +189,7 @@ export default function App() {
     <div className="app-shell">
       <Sidebar view={view} onNavigate={setView} onOpenPalette={() => setPaletteOpen(true)} />
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {news && <WhatsNewModal entries={news} onClose={closeNews} />}
       <main className="app-main">
         {/* único heading semântico da tela — cada painel (Management/
             Diagnostics/MyHours) não tem <h1> próprio fora do estado de

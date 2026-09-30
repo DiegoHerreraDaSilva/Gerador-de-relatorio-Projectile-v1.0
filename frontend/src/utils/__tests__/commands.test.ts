@@ -16,6 +16,7 @@ function context(patch: Partial<PaletteContext> = {}): PaletteContext {
     navigate: vi.fn(),
     switchTab: vi.fn(),
     newReport: vi.fn(),
+    openWhatsNew: vi.fn(),
     logout: vi.fn(),
     ...patch,
   };
@@ -92,6 +93,14 @@ describe("comandos: guias e ações", () => {
     commands.find((c) => c.id === "action:logout")?.run();
     expect(ctx.newReport).toHaveBeenCalledOnce();
     expect(ctx.logout).toHaveBeenCalledOnce();
+  });
+
+  it("'Ver novidades' está na paleta e acha por sinônimo", () => {
+    const ctx = context();
+    const commands = buildCommands(ctx);
+    commands.find((c) => c.id === "action:whats-new")?.run();
+    expect(ctx.openWhatsNew).toHaveBeenCalledOnce();
+    expect(ids(filterCommands(commands, "o que mudou"))).toEqual(["action:whats-new"]);
   });
 
   it("a tela atual aparece marcada", () => {
