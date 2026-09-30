@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useModal } from "../../hooks/useModal";
 import { createPortal } from "react-dom";
 import {
   CalendarClock,
@@ -39,6 +40,7 @@ import { MODE_LABELS } from "./format";
 
 /** Padrão geral — o que vale pra todo projeto sem configuração própria. */
 export function AutoSettingsModal({ onClose }: { onClose: () => void }) {
+  const modalRef = useModal({ onClose });
   const config = useAutoGenerationStore((s) => s.config);
   const schedule = useAutoGenerationStore((s) => s.schedule);
   const loadConfig = useAutoGenerationStore((s) => s.loadConfig);
@@ -72,9 +74,17 @@ export function AutoSettingsModal({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card auto-settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        tabIndex={-1}
+        className="modal-card auto-settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auto-settings-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
-          <h2>Padrão geral da geração automática</h2>
+          <h2 id="auto-settings-title">Padrão geral da geração automática</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar">
             <X size={18} strokeWidth={2} />
           </button>

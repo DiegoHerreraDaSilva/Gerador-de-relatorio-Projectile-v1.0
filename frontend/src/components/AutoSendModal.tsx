@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useModal } from "../hooks/useModal";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Check, Paperclip, Send, X } from "lucide-react";
 import { useAutoGenerationStore, type AutoItem, type SendDefaults } from "../store/useAutoGenerationStore";
@@ -53,13 +54,7 @@ export function AutoSendModal({ item, onClose }: { item: AutoItem; onClose: () =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !sending) onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [sending, onClose]);
+  const modalRef = useModal({ onClose, busy: sending });
 
   const send = async () => {
     const toList = parseAddresses(to);
@@ -85,6 +80,8 @@ export function AutoSendModal({ item, onClose }: { item: AutoItem; onClose: () =
   return createPortal(
     <div className="modal-backdrop" onClick={() => !sending && onClose()}>
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card auto-send-modal"
         role="dialog"
         aria-modal="true"
@@ -220,13 +217,7 @@ export function BulkSendModal({ items, onClose }: { items: AutoItem[]; onClose: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [running, onClose]);
+  const modalRef = useModal({ onClose, busy: running });
 
   const sendAll = async () => {
     setRunning(true);
@@ -314,6 +305,8 @@ export function BulkSendModal({ items, onClose }: { items: AutoItem[]; onClose: 
   return createPortal(
     <div className="modal-backdrop" onClick={() => !running && onClose()}>
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card auto-send-modal auto-bulk-send-modal"
         role="dialog"
         aria-modal="true"

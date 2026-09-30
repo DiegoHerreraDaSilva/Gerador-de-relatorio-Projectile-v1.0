@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useModal } from "../hooks/useModal";
 import { createPortal } from "react-dom";
 import { X, Send, Check, AlertTriangle } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -34,16 +35,9 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
   const [batchError, setBatchError] = useState("");
   const [sending, setSending] = useState(false);
 
-  // Esc fecha o modal — convenção padrão de teclado, igual clicar fora ou no
-  // X. Trava enquanto `sending` (mesma condição que já desabilita o botão
-  // "Cancelar"), pra não abandonar um envio no meio.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !sending) onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [sending, onClose]);
+  // Esc, Tab preso e devolução do foco: `useModal`. Trava enquanto `sending` (a mesma condição que já
+  // desabilita "Cancelar"), pra não abandonar um envio no meio.
+  const modalRef = useModal({ onClose, busy: sending });
 
   // assunto/mensagem padrão recalculados enquanto o usuário não editar à mão —
   // muda conforme a seleção (nome do projeto some do texto se tiver mais de
@@ -175,9 +169,17 @@ export function SendReportModal({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card send-report-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        tabIndex={-1}
+        className="modal-card send-report-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-report-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
-          <h2>Enviar Relatório</h2>
+          <h2 id="send-report-title">Enviar Relatório</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar">
             <X size={18} strokeWidth={2} />
           </button>

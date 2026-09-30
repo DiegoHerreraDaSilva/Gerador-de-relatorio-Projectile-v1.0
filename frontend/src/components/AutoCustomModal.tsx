@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useModal } from "../hooks/useModal";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -177,13 +178,7 @@ export function AutoCustomModal({ onClose }: { onClose: () => void }) {
     };
   }, [label]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [busy, onClose]);
+  const modalRef = useModal({ onClose, busy: Boolean(busy) });
 
   const employeeName = (id: string) => employees?.find((e) => e.employee_id === id)?.name ?? id;
   const projectName = (id: string) => (projectsById[id] ? projectLabel(projectsById[id]) : id);
@@ -225,6 +220,8 @@ export function AutoCustomModal({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div className="modal-backdrop" onClick={() => !busy && onClose()}>
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card auto-custom-modal"
         role="dialog"
         aria-modal="true"

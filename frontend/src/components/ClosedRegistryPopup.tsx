@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useModal } from "../hooks/useModal";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, X, Lock } from "lucide-react";
 import { useManagementStore } from "../store/useManagementStore";
@@ -40,14 +41,7 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
     loadClosedRegistry();
   }, [loadClosedRegistry]);
 
-  // Esc fecha o popup — mesma convenção de SendReportModal.tsx.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  const modalRef = useModal({ onClose });
 
   const searchNormalized = search.trim().toLowerCase();
   const clientGroups = useMemo(() => {
@@ -100,9 +94,17 @@ export function ClosedRegistryPopup({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <div className="modal-backdrop closed-registry-backdrop" onClick={onClose}>
-      <div className="modal-card closed-registry-card" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        tabIndex={-1}
+        className="modal-card closed-registry-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="closed-registry-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
-          <h2>
+          <h2 id="closed-registry-title">
             <Lock size={16} strokeWidth={2} /> Clientes/Projetos fechados
           </h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar">

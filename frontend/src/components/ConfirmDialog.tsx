@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle } from "lucide-react";
+import { useModal } from "../hooks/useModal";
 
 export type ConfirmOptions = {
   title: string;
@@ -44,24 +45,19 @@ export function ConfirmHost() {
     setQueue((q) => q.slice(1));
   };
 
-  useEffect(() => {
-    if (!current) return;
-    (current.danger ? cancelRef : okRef).current?.focus();
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        answer(false);
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current]);
+  // destrutivo: o foco começa em "Cancelar"; senão, em "Confirmar". Esc = cancelar; Tab preso na caixa.
+  const modalRef = useModal({
+    enabled: Boolean(current),
+    onClose: () => answer(false),
+    initialFocus: current?.danger ? cancelRef : okRef,
+  });
 
   if (!current) return null;
   return createPortal(
     <div className="modal-backdrop confirm-backdrop" onClick={() => answer(false)}>
       <div
+        ref={modalRef}
+        tabIndex={-1}
         className="modal-card confirm-card"
         role="alertdialog"
         aria-modal="true"
