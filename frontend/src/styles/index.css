@@ -7218,8 +7218,8 @@ input[data-pv="projectCode"]:placeholder-shown,
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: 16px;
+  margin-bottom: 26px;
 }
 .auto-competences > button {
   display: flex;
@@ -8000,7 +8000,7 @@ input[data-pv="projectCode"]:placeholder-shown,
   align-items: center;
   gap: 8px;
   align-self: flex-start;
-  margin: 6px 0 8px;
+  margin: 6px 0 22px;
   padding: 8px 12px;
   border-radius: 10px;
   font-size: 0.82rem;
@@ -8021,7 +8021,7 @@ input[data-pv="projectCode"]:placeholder-shown,
   color: var(--text-muted);
 }
 .auto-run-note {
-  margin: 0;
+  margin: 0 0 18px;
   font-size: 0.8rem;
 }
 /* "Padrão geral": a geração automática é uma seção própria, separada do resto por uma linha */
