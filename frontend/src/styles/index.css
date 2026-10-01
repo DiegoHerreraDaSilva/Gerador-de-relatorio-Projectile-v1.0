@@ -7221,7 +7221,7 @@ input[data-pv="projectCode"]:placeholder-shown,
   gap: 10px;
   margin-bottom: 18px;
 }
-.auto-competences button {
+.auto-competences > button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -7236,7 +7236,7 @@ input[data-pv="projectCode"]:placeholder-shown,
   font-weight: 600;
   text-align: left;
 }
-.auto-competences button.active {
+.auto-competences > button.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--ring);
 }
