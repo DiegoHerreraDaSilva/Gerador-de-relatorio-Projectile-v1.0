@@ -24,6 +24,7 @@ from datetime import date
 
 from ulid import ULID
 
+from .. import team_overview
 from ..core.config import get_settings
 from ..projectile_db import ProjectileDbError
 from ..services.audit import record_event
@@ -32,7 +33,7 @@ from .catalog import BILLING_TYPES, COST_CENTERS, MEASURES, SHARE_MEASURES
 from .facts import DataSources
 from .grounding import allowed_numbers, is_grounded
 from .intents import INTENTS
-from .periods import RELATIVE_PERIODS, mentions_month, month_label, month_options, resolve_period, years_mentioned
+from .periods import RELATIVE_PERIODS, add_months, mentions_month, month_key, month_label, month_options, resolve_period, years_mentioned
 from .query_engine import Filters
 from .response_formatter import format_reply
 from .schemas import ChatContext
@@ -401,6 +402,62 @@ def _data_answer(c, message, today, sources, settings, usage, options, notes: li
     return _cross_answer(raw, message, today, sources, settings, usage, options, explain=c.route == "simple_with_explanation", intent=c.intent, notes=notes)
 
 
+def _without_hours_answer(c, today: date, settings) -> dict:
+    """ "Quem não tem horas apontadas": engenharia ativa (a mesma lista do "Meu
+    time") menos quem apontou. Em período de vários meses, só quem ficou zerado
+    em TODOS os meses. Sem período na pergunta, vale o mês atual."""
+    notes: list[str] = []
+    if c.month or c.relative:
+        period = resolve_period(c.month, c.relative, today, settings.analytics_chat_max_months, c.month_end)
+    else:
+        period = resolve_period(None, "current_month", today, settings.analytics_chat_max_months)
+        notes.append("Como a pergunta não citou período, considerei o mês atual.")
+    keys, cursor = [], period.start
+    while cursor <= period.end:
+        keys.append(month_key(cursor))
+        cursor = add_months(cursor, 1)
+    zero: dict[str, dict] | None = None
+    active = 0
+    for key in keys:
+        overview = team_overview.team_overview(key, today)
+        active = len(overview["people"])
+        month_zero = {p["employee_id"]: p for p in overview["people"] if p["hours"] == 0}
+        zero = month_zero if zero is None else {i: p for i, p in zero.items() if i in month_zero}
+    people = sorted((zero or {}).values(), key=lambda p: p["name"].casefold())
+    if not people:
+        reply = f"Nenhum dos {active} colaboradores de engenharia ativos está sem horas apontadas {period.phrase}."
+    else:
+        names = [p["name"] for p in people]
+        shown = ", ".join(names[:12]) + (f" e mais {len(names) - 12}" if len(names) > 12 else "")
+        reply = f"{len(people)} de {active} colaboradores de engenharia estão sem nenhuma hora apontada {period.phrase}: {shown}."
+    if period.end >= today:
+        notes.append("O mês ainda não terminou: considera os apontamentos até agora.")
+    notes.append("Conto só quem apontou nos 2 meses anteriores; férias e afastamentos não aparecem no sistema.")
+    tables = []
+    if people:
+        tables = [
+            {
+                "title": f"Sem horas apontadas — {period.label}",
+                "columns": ["Colaborador", "Centro de custo"],
+                "column_types": ["text", "text"],
+                "rows": [[p["name"], p.get("cost_center") or "—"] for p in people],
+                "totals": None,
+                "truncated": False,
+            }
+        ]
+    return {
+        "intent": None,
+        "reply": f"{reply} {' '.join(notes)}",
+        "visualizations": [],
+        "tables": tables,
+        "source": "projectile",
+        "period": period,
+        "filters": {},
+        "spec": None,
+        "explained": None,
+    }
+
+
 _QUERY_KEYS = (
     "measures",
     "group_by",
@@ -571,7 +628,10 @@ def handle(message: str, context: ChatContext | None, user: dict) -> dict:
         wants_explanation = c.route == "simple_with_explanation"
         c = _escalate_to_planner(c, message)
 
-        if c.route in _DATA_ROUTES and outside:
+        if signals.asks_without_hours(message) and c.route != "out_of_scope" and not outside:
+            c.route = "simple_data"
+            answer = _without_hours_answer(c, today, settings)
+        elif c.route in _DATA_ROUTES and outside:
             answer = {"reply": _window_reply(outside, options)}
         elif c.route == "unclassified":
             answer = {"reply": UNCLASSIFIED_REPLY}

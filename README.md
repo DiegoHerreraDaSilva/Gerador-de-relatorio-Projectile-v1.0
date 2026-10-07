@@ -137,7 +137,8 @@ Só gerentes. Perguntas em português sobre os **últimos 12 meses** (a mesma ja
 - **horas apontadas** (engenharia CAD+CAE) por cliente, projeto, colaborador, pacote, mês, centro de custo e faturável/não faturável — com contagem de pessoas, projetos e dias com apontamento, média por colaborador e % não faturável;
 - **faturado x trabalhado** e performance por cliente, projeto e mês (mesma regra do Painel; não existe faturado por colaborador);
 - **status de envio** dos relatórios por cliente, projeto e mês (mesma regra do Diagnóstico);
-- **relatórios gerados** (histórico do `reports_db`).
+- **relatórios gerados** (histórico do `reports_db`);
+- **quem está sem apontamento**: "quem não tem horas apontadas nesse mês" lista a engenharia ativa (a mesma do "Meu time") que não apontou nenhuma hora no período, sem passar pela consulta cruzada; sem período vale o mês atual.
 
 Exemplos: "horas de cada colaborador por projeto no mês passado", "colaboradores com menos de 100 h em agosto", "top 5 projetos da Mercedes em 2026", "faturado x trabalhado por projeto em agosto", "quais projetos não tiveram relatório enviado em agosto?", "compare as horas por projeto de julho e agosto", "e em julho?" (continua a pergunta anterior).
 

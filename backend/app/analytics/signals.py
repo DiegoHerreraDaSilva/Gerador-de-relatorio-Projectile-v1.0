@@ -150,6 +150,26 @@ _THIS_YEAR = re.compile(
 _LAST_YEAR = re.compile(r"\b(?:ano passado|ano anterior|ultimo ano fechado)\b")
 
 
+# "quem NÃO tem horas": quem não apontou nada não tem linha nenhuma na base de
+# horas (só entra hora > 0), então nem o atalho do Jev nem o filtro "horas <= 0"
+# da consulta cruzada conseguem responder — vira lista de quem está ativo na
+# engenharia menos quem tem hora (service._without_hours_answer). Medido em
+# 2026-10-07: o Jev ignorava o "não" e listava quem TEM horas.
+_WITHOUT_HOURS = re.compile(
+    r"\b(?:nao\s+(?:tem|tinha|tiveram|teve|possui|possuem)|sem|zero|nenhuma|nenhum|0)\b[^?.!]{0,30}?\b(?:horas?|apontamentos?|lancamentos?)\b"
+    r"|\bnao\s+(?:apontou|apontaram|lancou|lancaram|registrou|registraram)\b"
+    r"|\b(?:ninguem|nenhum\s+colaborador)\s+(?:apontou|lancou)\b"
+)
+# "projetos sem horas faturáveis" é outra pergunta (consulta cruzada)
+_NOT_ABOUT_PEOPLE = re.compile(r"\b(?:faturad\w*|faturav\w*|projetos?|clientes?|pacotes?)\b")
+
+
+def asks_without_hours(message: str) -> bool:
+    """A pergunta é "quem não apontou horas" (pessoas SEM apontamento no período)?"""
+    text = _plain(message)
+    return bool(_WITHOUT_HOURS.search(text)) and not _NOT_ABOUT_PEOPLE.search(text)
+
+
 def mentions_period(message: str) -> bool:
     """A mensagem fala de QUANDO? Medido: o Claude, ao classificar, copiava o
     período da pergunta anterior numa pergunta nova sem período nenhum. Se

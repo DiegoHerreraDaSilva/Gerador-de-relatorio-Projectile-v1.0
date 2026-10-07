@@ -16,6 +16,16 @@ export type ChangelogEntry = {
 /** Novidades do app, da mais nova pra mais antiga. Entrega nova = entrada nova no TOPO (a pessoa vê uma vez). */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2026-10-07",
+    title: "Chat analítico: quem está sem horas",
+    items: [
+      {
+        text: "O Chat analítico agora responde “quem não tem horas apontadas nesse mês”: lista os colaboradores de engenharia sem nenhum apontamento no período.",
+        roles: ["manager"],
+      },
+    ],
+  },
+  {
     version: "2026-09-30",
     title: "Atalhos, avisos e telas mais rápidas",
     items: [
