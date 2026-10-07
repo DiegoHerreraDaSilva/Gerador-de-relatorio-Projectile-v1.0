@@ -67,7 +67,7 @@ def chat(monkeypatch):
     monkeypatch.setattr(jev, "ask", fake_ask)
 
     def fake_claude(name):
-        def call(usage, *args):
+        def call(usage, *args, **kwargs):
             usage.calls += 1
             state["calls"]["claude"].append(name)
             value = state["claude"].get(name)
@@ -966,3 +966,44 @@ def test_seis_series_viram_cinco_mais_outros(chat, monkeypatch):
     assert len(line["series"]) == 6
     assert [s.get("tail", False) for s in line["series"]] == [False] * 5 + [True]
     assert line["series"][-1]["name"] == "Outros"
+
+
+def test_planner_que_compara_periodos_sem_ter_dois_periodos_tenta_de_novo_so_com_a_consulta(chat, monkeypatch):
+    """Caso real de 2026-10-07: o "x" de "faturado x trabalhado por projeto no mês passado" fazia o
+    planner escolher compare_periods (com datas no lugar de meses) e a pergunta virava "não consegui
+    montar". A segunda tentativa, forçada na consulta cruzada, responde."""
+    chat["cls"] = _cls("analysis")
+    asked = []
+
+    def planner(usage, message, previous, options, only=None):
+        usage.calls += 1
+        asked.append(only)
+        if only == "query":
+            return _query(measures=["hours"], group_by=["project"], month="2026-09")
+        return _plan(period_a_month="2026-09-01", period_b_month="2026-09-30")  # datas: rejeitado
+
+    monkeypatch.setattr(claude_client, "plan_analysis", planner)
+
+    body = _ask("Faturado x trabalhado por projeto no mês passado").json()
+
+    assert asked == [None, "query"]
+    assert "Não consegui montar essa consulta" not in body["reply"]
+    assert body["metadata"]["period_label"] == "setembro/2026"
+    assert body["tables"] and body["tables"][0]["rows"]
+
+
+def test_segunda_tentativa_tambem_invalida_continua_recusando(chat, monkeypatch):
+    chat["cls"] = _cls("analysis")
+    calls = []
+
+    def planner(usage, message, previous, options, only=None):
+        calls.append(only)
+        return _plan(period_a_month="2026-09-01", period_b_month="2026-09-30")
+
+    monkeypatch.setattr(claude_client, "plan_analysis", planner)
+
+    body = _ask("compare agosto com setembro").json()
+
+    assert calls == [None, "query"]  # só UMA segunda tentativa
+    assert "Não consegui montar essa consulta" in body["reply"]
+    assert chat["calls"]["engine"] == 0

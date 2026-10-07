@@ -174,11 +174,12 @@ _QUERY_EXAMPLES = """Exemplos (pergunta → consulta):
 - "quanto o Lucca representa das horas da Mercedes" → measures [hours, total_hours, share_percent], clients [a Mercedes], employees [Lucca], share_of employees"""
 
 
-def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, options: dict) -> dict:
+def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, options: dict, only: str | None = None) -> dict:
     """Plano da análise — só medidas, dimensões e valores da whitelist.
     Uma ferramenta por análise (`tool_choice: any`), cada uma só com os
     seus campos: com um formulário único misturando campos de análises
-    diferentes, o Haiku se confundia (1 em 5 nas medições)."""
+    diferentes, o Haiku se confundia (1 em 5 nas medições). `only` força
+    UMA ferramenta (segunda tentativa depois de um plano inválido)."""
     months = list(options["months"])
     measures = list(MEASURES)
     dims = list(DIMENSIONS)
@@ -258,7 +259,15 @@ def plan_analysis(usage: ClaudeUsage, message: str, previous: dict | None, optio
         f"Hoje: {options['today']}. Pergunta anterior: {json.dumps(previous, ensure_ascii=False)}\n"
         f"Pergunta: {message}"
     )
-    name, plan = _call_tools(usage, tools, {"type": "any"}, content)
+    if only:
+        tools = [tool for tool in tools if tool["name"] == only]
+        content += (
+            "\nO plano anterior para esta pergunta foi inválido. Ela NÃO compara dois períodos: "
+            "\"faturado x trabalhado\" são DUAS MEDIDAS da mesma consulta. Use a ferramenta query "
+            "(month no formato AAAA-MM do catálogo, nunca uma data)."
+        )
+    choice = {"type": "tool", "name": only} if only else {"type": "any"}
+    name, plan = _call_tools(usage, tools, choice, content)
     return {"analysis": name, **plan}
 
 

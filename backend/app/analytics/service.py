@@ -567,7 +567,19 @@ def _analysis_answer(
         logger.warning("Plano rejeitado (formato): %r", plan)
         return None
     if plan.get("analysis") == "compare_periods":
-        return _compare_periods_answer(plan, message, options, today, sources, settings, usage)
+        answer = _compare_periods_answer(plan, message, options, today, sources, settings, usage)
+        if answer is not None:
+            return answer
+        # plano inválido (datas no lugar de meses, mesmo período dos dois lados): o "x" de "faturado x
+        # trabalhado por projeto no mês passado" fazia o planner comparar períodos (medido em 2026-10-07).
+        # Uma segunda tentativa, só com a consulta cruzada, em vez de desistir.
+        try:
+            plan = claude_client.plan_analysis(usage, message, previous, options, only="query")
+        except Exception as e:
+            logger.warning("Segunda tentativa do planner indisponível: %s", e)
+            return None
+        if not isinstance(plan, dict):
+            return None
     if plan.get("analysis") != "query":
         logger.warning("Plano rejeitado (análise desconhecida): %s", plan)
         return None
