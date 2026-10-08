@@ -9,6 +9,10 @@ export type Activity = {
   // válido, `hours` deixa de ser null e o campo editável desapareceria no
   // meio da digitação (bug real que já aconteceu).
   extra: boolean;
+  // identidade das linhas de planilha de HORAS EXTERNAS que formaram esta atividade (colaboradores que
+  // não apontam no Projectile). Só existe em atividade vinda desse anexo; é o que impede a mesma linha
+  // de entrar duas vezes no mesmo relatório. Nunca vai pro servidor (nem no /generate, nem no chat).
+  externalKeys?: string[];
 };
 
 export type Group = {
@@ -42,6 +46,21 @@ export type WorkPackage = {
   // pacote, entra no snapshot igual a tudo mais).
   language: "pt" | "en" | "de";
 };
+
+/** Linha da planilha de horas externas, já validada pelo backend (`POST /parse-external`). */
+export type ExternalRow = {
+  row: number;
+  date: string; // AAAA-MM-DD
+  collaborator: string;
+  project: string;
+  package: string;
+  description: string;
+  hours: number;
+};
+
+export type ExternalIssue = { row: number; reason: string; message: string };
+
+export type ExternalParseResponse = { rows: ExternalRow[]; issues: ExternalIssue[] };
 
 export type RowIssue = {
   row: number;

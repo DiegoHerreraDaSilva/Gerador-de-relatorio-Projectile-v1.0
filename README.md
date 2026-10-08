@@ -49,6 +49,10 @@ Depois da importação, o usuário pode:
 
 O botão **Alterar dados** descarta o preview atual e devolve a guia ao fluxo de seleção zerado.
 
+### Horas externas
+
+Para colaboradores que **não apontam no Projectile**. Com o relatório aberto (busca por cliente/projeto), gerente e coordenador usam **Adicionar horas externas** (ao lado de "Alterar dados"), anexam uma planilha no modelo (botão **Baixar modelo**: Data, Colaborador, Projeto, Pacote de Trabalho, Descrição, Horas) e conferem, antes de aplicar, o que entra, o que fica sem destino (você escolhe onde entra ou descarta) e o que foi descartado (já estava no relatório, fora do período, linha inválida). Cada linha entra no pacote de mesmo nome do projeto e no grupo de mesmo nome do pacote de trabalho, com o nome do colaborador no início da descrição, e soma nos totais, no XLSX e no PDF. Dá para **desfazer**. Anexar a mesma planilha duas vezes não soma de novo. Não está disponível nas guias da geração automática.
+
 ### Guias independentes
 
 A seção **Relatórios abertos** da sidebar permite manter vários trabalhos independentes. Cada guia contém seu próprio relatório e é salva automaticamente no `localStorage` com debounce. A pilha de undo não é persistida em disco para evitar payloads excessivos.
@@ -542,6 +546,8 @@ Todas as rotas abaixo exigem cookie de sessão, exceto `POST /auth/login` e `GET
 |---|---|
 | `POST /parse` | lê um XLSX (`file`, `mode=single|multi`) |
 | `POST /parse-db` | busca o usuário logado por mês/período |
+| `POST /parse-external` | lê e valida a planilha de horas externas (`file`); gerente ou coordenador |
+| `GET /parse-external/template` | baixa o modelo da planilha de horas externas; gerente ou coordenador |
 | `POST /parse-db-client` | busca projetos selecionados; requer gerente ou coordenador |
 | `GET /my-hours` | dashboard de horas (`current_month`, `last_3`, `last_6`, `last_12`); `employee_id` opcional pra gerente/coordenador ver alguém de engenharia (CAD+CAE) |
 | `GET /my-hours/team` | visão "Meu time" do mês (`?month=AAAA-MM`); só gerente |

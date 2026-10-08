@@ -16,6 +16,16 @@ export type ChangelogEntry = {
 /** Novidades do app, da mais nova pra mais antiga. Entrega nova = entrada nova no TOPO (a pessoa vê uma vez). */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2026-10-08",
+    title: "Horas externas no relatório",
+    items: [
+      {
+        text: "Novo botão “Adicionar horas externas” no relatório aberto: anexe uma planilha (há um modelo para baixar) com as horas de quem não aponta no Projectile e elas entram nos pacotes e grupos certos, com o nome do colaborador na descrição. Dá para desfazer.",
+        roles: ["manager", "coordinator"],
+      },
+    ],
+  },
+  {
     version: "2026-10-07",
     title: "Chat analítico: quem está sem horas",
     items: [

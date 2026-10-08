@@ -10,6 +10,7 @@ import {
   mergeGroupIntoPackage,
   restoreSnapshot,
   snapshotState,
+  unionExternalKeys,
 } from "./reportState";
 
 export type { DraggedActivities } from "./reportState";
@@ -329,6 +330,31 @@ export const useReportStore = create<StoreState>()(
       });
       return added;
     },
+    applyExternalHours: (placements) => {
+      let applied = false;
+      set((s) => {
+        const targets = placements.flatMap((p) => {
+          const group = s.packages.find((pkg) => pkg.id === p.packageId)?.groups.find((g) => g.id === p.groupId);
+          return group ? [{ group, p }] : [];
+        });
+        if (!targets.length) return;
+        const snap = snapshotState(s);
+        s.undoStack.push(snap);
+        if (s.undoStack.length > 50) s.undoStack.shift();
+        targets.forEach(({ group, p }) => {
+          mergeActivityIntoGroup(group, {
+            id: genId(),
+            description: p.description,
+            hours: p.hours,
+            extra: false,
+            externalKeys: [p.key],
+          });
+        });
+        s.hasGeneratedOnce = false;
+        applied = true;
+      });
+      return applied;
+    },
     removeActivities: (packageId, items) =>
       set((s) => {
         const pkg = s.packages.find((p) => p.id === packageId);
@@ -508,6 +534,11 @@ export const useReportStore = create<StoreState>()(
         // que ficou parada (o destino), nunca o da arrastada.
         const somaArrastada = removed.reduce((acc, a) => acc + (parseFloat(String(a.hours)) || 0), 0);
         toActivity.hours = Math.round(((parseFloat(String(toActivity.hours)) || 0) + somaArrastada) * 1000) / 1000;
+        const keys = removed.reduce<string[] | undefined>(
+          (acc, a) => unionExternalKeys(acc, a.externalKeys),
+          toActivity.externalKeys,
+        );
+        if (keys) toActivity.externalKeys = keys;
         s.hasGeneratedOnce = false;
       }),
     moveActivitiesToPosition: (fromPackageId, items, toPackageId, toGroupId, beforeActivityId) =>
@@ -590,6 +621,8 @@ export const useReportStore = create<StoreState>()(
                 // preserva a marcação de quem já existia; pra atividade nova
                 // que o chat criou, trata como "extra" se veio sem horas
                 extra: oldActivity?.extra ?? a.hours === null,
+                // o chat não conhece as chaves de horas externas: quem já tinha continua com elas
+                ...(oldActivity?.externalKeys ? { externalKeys: oldActivity.externalKeys } : {}),
               };
             }),
           }));

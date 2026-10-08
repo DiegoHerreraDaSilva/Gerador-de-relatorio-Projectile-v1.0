@@ -49,7 +49,7 @@ from .api.dependencies import (  # noqa: F401 — reexportado: testes fazem `fro
     require_translate_access,
 )
 from .api.errors import GENERIC_INTERNAL_ERROR, GENERIC_MANAGEMENT_DB_ERROR
-from .api.routers import analytics, analytics_chat, auth, auto_generation, chat, generation, health, history, my_hours, my_reviews, parsing
+from .api.routers import analytics, analytics_chat, auth, auto_generation, chat, external_hours, generation, health, history, my_hours, my_reviews, parsing
 from .api.routers import management as management_router
 from .core.config import get_settings
 from .core.logging import capture_exception, configure_logging, get_request_id, sanitize_request_id, set_request_context, set_request_id
@@ -92,6 +92,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(health.router)
 app.include_router(parsing.router)
+app.include_router(external_hours.router)
 app.include_router(my_hours.router)
 app.include_router(management_router.router)
 app.include_router(generation.router)

@@ -7,7 +7,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { WhatsNewModal } from "./components/WhatsNewModal";
 import { LoadingState } from "./components/PageStates";
 import { useReportTabsStore } from "./store/useReportTabsStore";
-import { useAuthStore } from "./store/useAuthStore";
+import { hasCoordinatorAccess, useAuthStore } from "./store/useAuthStore";
 import { ValidationBanner } from "./components/ValidationBanner";
 import { FileUpload } from "./components/FileUpload";
 import { PackageTabs } from "./components/PackageTabs";
@@ -45,6 +45,9 @@ const DiagnosticsPanel = lazy(() =>
 );
 const MyHoursDashboard = lazy(() =>
   import("./components/MyHoursDashboard").then((m) => ({ default: m.MyHoursDashboard })),
+);
+const ExternalHoursModal = lazy(() =>
+  import("./components/ExternalHoursModal").then((m) => ({ default: m.ExternalHoursModal })),
 );
 const TeamPanel = lazy(() => import("./components/TeamPanel").then((m) => ({ default: m.TeamPanel })));
 const HistoryPanel = lazy(() => import("./components/HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
@@ -230,6 +233,10 @@ function ReportView() {
   // guia aberta pela geração automática: aprovar (barra) no lugar de
   // importar/gerar/enviar — o rascunho vive no servidor
   const isAutoTab = useReportTabsStore((s) => Boolean(s.tabs.find((t) => t.id === s.activeTabId)?.auto));
+  // horas externas (planilha de quem não aponta no Projectile): só gerente/coordenador, e nunca na guia da
+  // geração automática — a aprovação confere que as horas do payload batem com o rascunho salvo no servidor
+  const canAddExternalHours = useAuthStore((s) => hasCoordinatorAccess(s.user)) && !isAutoTab;
+  const [externalHoursOpen, setExternalHoursOpen] = useState(false);
 
   return (
     <>
@@ -264,6 +271,11 @@ function ReportView() {
             )}
           </div>
           <div id="summaryBarActions">
+            {canAddExternalHours && (
+              <button type="button" className="btn-secondary" onClick={() => setExternalHoursOpen(true)}>
+                Adicionar horas externas
+              </button>
+            )}
             {!isAutoTab && (
               <button
                 type="button"
@@ -296,6 +308,11 @@ function ReportView() {
 
       {!isAutoTab && <GenerateFooter />}
       <Chat />
+      {externalHoursOpen && canAddExternalHours && (
+        <Suspense fallback={null}>
+          <ExternalHoursModal onClose={() => setExternalHoursOpen(false)} />
+        </Suspense>
+      )}
     </>
   );
 }

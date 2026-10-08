@@ -1,5 +1,6 @@
 import { enableMapSet } from "immer";
 import { WorkPackage, Group, Activity, RowIssue, ReportHeader } from "../api/types";
+import type { ExternalPlacement } from "../utils/externalHours";
 
 enableMapSet();
 
@@ -339,6 +340,9 @@ export interface StoreState {
     packageId: string,
     items: Array<{ description: string; hours: number }>,
   ) => boolean;
+  /** Horas externas (planilha de colaboradores que não apontam no Projectile): adiciona cada linha no
+   * grupo escolhido, somando na atividade de mesma descrição. Devolve `false` se nada pôde ser aplicado. */
+  applyExternalHours: (placements: ExternalPlacement[]) => boolean;
   removeActivities: (packageId: string, items: Array<{ groupId: string; activityId: string }>) => void;
   updateGroupName: (groupId: string, name: string, packageId?: string) => void;
   updatePerformance: (groupId: string, perf: number, packageId?: string) => void;
@@ -455,6 +459,13 @@ export function extractActivitiesFromGroups(
   return extracted;
 }
 
+/** União das chaves de linhas externas de duas atividades que viram uma (soma de horas) — sem isso, mesclar
+ * perderia a memória do que já entrou e o mesmo anexo poderia somar de novo. `undefined` se nenhuma tem. */
+export function unionExternalKeys(a?: string[], b?: string[]): string[] | undefined {
+  if (!a?.length && !b?.length) return undefined;
+  return [...new Set([...(a ?? []), ...(b ?? [])])];
+}
+
 // helpers for merge logic
 export function mergeActivityIntoGroup(toGroup: Group, activity: Activity) {
   const desc = activity.description.trim().toLowerCase();
@@ -462,6 +473,8 @@ export function mergeActivityIntoGroup(toGroup: Group, activity: Activity) {
   if (existing) {
     existing.hours =
       Math.round(((parseFloat(String(existing.hours)) || 0) + (parseFloat(String(activity.hours)) || 0)) * 1000) / 1000;
+    existing.externalKeys = unionExternalKeys(existing.externalKeys, activity.externalKeys);
+    if (!existing.externalKeys) delete existing.externalKeys;
   } else {
     toGroup.activities.push({ ...activity, id: genId() });
   }

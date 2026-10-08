@@ -9622,3 +9622,98 @@ input[data-pv="projectCode"]:placeholder-shown,
   margin: 12px 0 0;
   font-size: 0.8rem;
 }
+
+/* Horas externas (ExternalHoursModal.tsx) */
+.ext-hours-modal {
+  width: min(760px, calc(100vw - 32px));
+  max-width: none;
+}
+.ext-hours-modal h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ext-hours-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ext-hours-intro {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.ext-hours-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ext-hours-pick button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ext-hours-file {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.ext-hours-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.ext-hours-stats div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.ext-hours-stats dt {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.ext-hours-stats dd {
+  margin: 2px 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.ext-hours-section h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+.ext-hours-section > p {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+}
+.ext-hours-pending {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.ext-hours-table {
+  width: 100%;
+}
+.ext-hours-details {
+  font-size: 0.82rem;
+}
+.ext-hours-details summary {
+  cursor: pointer;
+}
+.ext-hours-details ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .ext-hours-pending {
+    grid-template-columns: 1fr;
+  }
+}
